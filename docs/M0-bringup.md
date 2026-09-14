@@ -151,6 +151,5 @@ sont bien posées, et mesurer le front réel de SCL à l'étape M2 avant de conc
 
 ## Ensuite
 
-M1 — observabilité : codec binaire, dictionnaire de paramètres, télémétrie, buffer scope,
-et la CLI Node côté PC. C'est seulement après M1 qu'on touche à la chaîne capteur puis aux
-asservissements.
+La suite du chemin — jalons M1 à M3 et les 13 étapes de bring-up — est dans `../AGENTS.md` §5,
+qui est la seule référence d'avancement du projet.

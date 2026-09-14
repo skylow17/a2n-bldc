@@ -179,31 +179,42 @@ démarrage, PWM en haute impédance, DRV8304 désactivé, avant toute autre chos
 
 ---
 
-## 5. Procédure de bring-up
+## 5. Jalons et procédure de bring-up
 
-Ordre imposé. On ne passe pas à l'étape suivante tant que la précédente n'est pas verte.
-L'étape 0 se valide à l'oscilloscope ; toutes les suivantes se valident **depuis le poste PC**,
-ce qui est la raison pour laquelle l'observabilité (étapes 1 et 2) précède tout asservissement.
+Une seule référence pour l'avancement. Les jalons `M0`–`M3` regroupent les étapes ; les
+étapes portent le critère de validation. **Ordre imposé** : on ne passe pas à la suivante
+tant que la précédente n'est pas verte.
 
-| # | Étape | Critère de validation |
-|---|---|---|
-| **0** | **Squelette temps réel** — PWM centré 20 kHz, TIM1 TRGO → ADC injecté, ISR vide | **`TP2` (`PB9`) basculé en entrée/sortie d'ISR : 20 000 Hz sans gigue, durée < 10 µs à l'oscilloscope, et rien dont le contrôle dépende dans la superloop.** Étape bloquante : c'est précisément ce qui manquait au v1 |
-| 1 | Horloges, USB CDC, console, handshake | Le device apparaît dans l'interface, dictionnaire lu |
-| 2 | DRV8304 : SPI, registres, nFAULT | Lecture/écriture registre cohérente, fautes remontées |
-| 3 | PWM à vide, haute impédance, deadtime | Formes correctes à l'oscilloscope, aucun bras en conduction croisée |
-| 4 | ADC synchrone PWM, offsets courants | Offsets stables moteur à l'arrêt, bruit mesuré et documenté |
-| 5 | Mesure des courants sous duty fixe | Somme Ia+Ib+Ic ≈ 0, cohérence avec le courant d'alimentation |
-| 6 | AS5600 en DMA à 1 MHz + extrapolation | Angle croissant monotone à la main, aucun blocage de l'ISR, retard total mesuré |
-| 7 | Identification R et L de phase | Valeurs plausibles, stockées en NVM |
-| 8 | Alignement et offset électrique de l'encodeur | Offset reproductible entre deux calibrations |
-| 9 | Détection du nombre de paires de pôles | Valeur entière stable sur plusieurs essais |
-| 10 | Open-loop : le champ tourne, l'arbre suit | Rotation propre, courant maîtrisé |
-| 11 | Boucle de courant Id/Iq | Réponse indicielle au scope : dépassement et temps de montée conformes |
-| 12 | Boucle de vitesse | Poursuite d'une rampe, erreur statique nulle |
-| 13 | Boucle de position + profil | Point à point sans dépassement, position tenue à l'arrêt |
+La logique de cet ordre est l'inverse de celle du v1 : **l'outil de mesure avant le
+régulateur**. Le v1 n'avait aucun moyen de voir Iq pendant un transitoire, donc aucun moyen
+de régler autrement qu'à l'aveugle. Ici l'observabilité (M1) est acquise avant qu'on écrive
+la première boucle d'asservissement (M3).
 
-L'étape 11 est le point de bascule par rapport au v1 : elle est **infaisable sans le scope burst**,
-donc le protocole et l'interface doivent être opérationnels avant d'y arriver.
+| Jalon | # | Étape | Critère de validation |
+|---|---|---|---|
+| **M0** — squelette temps réel | 0 | PWM centré 20 kHz, TIM1 TRGO → ADC injecté, ISR de contrôle vide | Sortie d'instrumentation `PC14` (J7 br. 5) basculée en entrée/sortie d'ISR : **20 000 Hz, gigue < 200 ns, durée < 10 µs, aucune impulsion manquante**. Détail et modes de défaillance dans `docs/M0-bringup.md` |
+| **M1** — observabilité | 1a | Liaison USB CDC, émission non bloquante, console texte | `INFO?` et `STATS?` répondent ; `ticks` progresse de 20 000 par seconde mesurée **côté PC** |
+| | 1b | Codec binaire (COBS + CRC16) et dictionnaire de paramètres, écrits en C **et** en TypeScript | L'hôte lit le dictionnaire et le hash du handshake correspond |
+| | 1c | Télémétrie souscrite + buffer scope en RAM | Capture de 2048 points à 20 kHz, relue intégralement |
+| | 1d | CLI Node de bring-up, sur `../a2n-bldc-interface/src/shared/` | Une capture tracée depuis le PC |
+| **M2** — étage de puissance et capteurs | 2 | DRV8304 : SPI, registres, nFAULT | Écriture puis relecture cohérente d'un registre, fautes remontées |
+| | 3 | PWM à vide, haute impédance, temps mort | Formes correctes à l'oscilloscope, aucun bras en conduction croisée. Comparer le front de `PC13` à celui de `PB0` |
+| | 4 | ADC synchrone PWM, offsets des amplis de courant (`DRV_CAL`) | Offsets stables moteur à l'arrêt, bruit mesuré et documenté |
+| | 5 | Mesure des courants sous rapport cyclique fixe | Somme Ia+Ib+Ic ≈ 0, cohérence avec le courant d'alimentation |
+| | 6 | AS5600 en DMA à 1 MHz + extrapolation d'angle | Angle croissant monotone à la main, aucun blocage de l'ISR, **retard total mesuré et documenté** |
+| | 7 | Identification R et L de phase | Valeurs plausibles, stockées en NVM |
+| | 8 | Alignement et offset électrique du capteur | Offset reproductible entre deux calibrations |
+| | 9 | Détection du nombre de paires de pôles | Valeur entière stable sur plusieurs essais |
+| **M3** — asservissements | 10 | Open-loop : le champ tourne, l'arbre suit | Rotation propre, courant maîtrisé |
+| | 11 | Boucle de courant Id/Iq | Réponse indicielle au scope : dépassement et temps de montée conformes |
+| | 12 | Boucle de vitesse | Poursuite d'une rampe, erreur statique nulle |
+| | 13 | Boucle de position + profil | Point à point sans dépassement, position tenue à l'arrêt |
+
+L'étape 11 est le point de bascule par rapport au v1 : elle est **infaisable sans le scope
+burst**, donc M1 doit être entièrement acquis avant d'y arriver.
+
+L'application Electron de `../a2n-bldc-interface` se construit après M3, sur le codec écrit
+en M1b — la CLI de M1d et elle partagent le même `src/shared/`.
 
 ---
 
