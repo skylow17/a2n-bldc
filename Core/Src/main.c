@@ -10,6 +10,8 @@
  * s'exécute, mais aucun transistor n'est piloté : la mesure de M0 se fait moteur
  * strictement au repos.
  */
+#include <stdint.h>
+
 #include "board.h"
 #include "board_clock.h"
 #include "ctrl.h"
@@ -50,6 +52,14 @@ void SystemClock_Config(void)
 
 int main(void)
 {
+  /* Installer nos vecteurs avant SysTick et retablir les IRQ, notamment apres
+   * une entree depuis un chargeur/debugger ayant laisse PRIMASK a 1. */
+  extern const uint32_t g_pfnVectors[];
+  __disable_irq();
+  SCB->VTOR = (uint32_t)g_pfnVectors;
+  __DSB();
+  __ISB();
+  __enable_irq();
   HAL_Init();
   Board_ClockInit();
 
@@ -63,6 +73,7 @@ int main(void)
    * la boucle de contrôle tourne déjà et les sorties sont déjà sûres. */
   Link_Init();
   Console_Init();
+  HAL_Delay(500); // Delay to allow USB host to recognize the device in debug mode
   MX_USB_Device_Init();
 
   for (;;) {

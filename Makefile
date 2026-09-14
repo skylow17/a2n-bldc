@@ -3,7 +3,7 @@
 # Pas de CMake : la machine de développement n'a que le GCC et le make fournis par
 # STM32CubeIDE. Ce Makefile n'exige rien d'autre.
 #
-#   make            build de l'application (slot A)
+#   make            build autonome sans bootloader
 #   make flash      programme la carte via SWD (ST-LINK)
 #   make size       occupation flash/ram
 #   make compdb     génère compile_commands.json pour clangd
@@ -30,7 +30,7 @@ HAL      := $(CUBE)/Drivers/STM32G4xx_HAL_Driver
 CMSIS    := $(CUBE)/Drivers/CMSIS
 USBLIB   := $(CUBE)/Middlewares/ST/STM32_USB_Device_Library
 
-LDSCRIPT := ld/stm32g473ce_slotA.ld
+LDSCRIPT := ld/stm32g473ce_standalone.ld
 
 # ---------------------------------------------------------------- sources
 C_SOURCES := \
@@ -160,9 +160,9 @@ $(BUILD)/obj:
 size: $(BUILD)/$(TARGET).elf
 	@$(SZ) -A $<
 
-# L'application vit dans le slot A : on programme à son adresse de base, pas à 0x08000000.
-flash: $(BUILD)/$(TARGET).bin
-	"$(PROG_CLI)" -c port=SWD -w $< 0x08008000 -v -rst
+# Bring-up autonome : le HEX porte les adresses, dont les vecteurs a 0x08000000.
+flash: $(BUILD)/$(TARGET).hex
+	"$(PROG_CLI)" -c port=SWD -w $< -v -rst
 
 compdb:
 	@python tools/gen_compile_commands.py

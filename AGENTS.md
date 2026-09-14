@@ -149,6 +149,13 @@ compteur de version pour tolérer une coupure en cours d'écriture.
 
 ## 4. Découpage flash
 
+**Bring-up actuel sans bootloader** : le build utilise `ld/stm32g473ce_standalone.ld`, avec
+les vecteurs a `0x08000000`. `make flash` charge le HEX adresse. Le plan A/B ci-dessous
+reste une cible future : une image liee a `0x08008000` seule ne fournit pas de demarrage
+autonome au reset standard. VTOR est initialise depuis `g_pfnVectors` avant HAL_Init et
+les interruptions sont explicitement reactivees. Validation USB sur carte encore requise.
+
+
 À figer dans le linker script dès le premier commit, même si le bootloader n'est écrit que plus tard.
 
 ```
@@ -234,7 +241,7 @@ génération.
 
 - **Build** : `make` à la racine du projet. Pas de CMake — la machine de développement n'a
   que le GCC 13.3.1 et le `make` fournis par STM32CubeIDE, et le `CMakePresets.json` du v1
-  n'y était donc pas utilisable. `make flash` programme le slot A par SWD, `make compdb`
+  n'y était donc pas utilisable. `make flash` programme le firmware autonome par SWD, `make compdb`
   régénère `compile_commands.json` pour clangd.
 - Ne jamais committer `build/`.
 - Toute nouvelle commande, trame ou paramètre du protocole arrive **avec** son entrée dans

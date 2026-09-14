@@ -1,5 +1,10 @@
 # M0 — validation du squelette temps réel
 
+**Correctif demarrage USB** : flasher `build/a2n-bldc-controller-2.hex` reconstruit.
+Il demarre a `0x08000000` sans bootloader ; VTOR pointe sur ses vecteurs et les IRQ sont
+reactivees avant HAL_Init. Le delai de 500 ms avant USB est conserve. Un retour INFO?
+ne valide pas a lui seul la cadence, la gigue et le budget de M0.
+
 Étape bloquante. Aucune ligne de régulateur ne s'écrit tant que ce document n'est pas coché.
 
 C'est la marche que le firmware v1 avait sautée : il n'avait ni ISR de contrôle, ni
@@ -19,7 +24,7 @@ C'est la marche que le firmware v1 avait sautée : il n'avait ni ISR de contrôl
 5. La fin de séquence lève `ADC1_2_IRQHandler`, qui appelle `Ctrl_Isr()`.
 6. `Ctrl_Isr()` lève `PC14`, lit les trois courants, mesure sa durée au compteur de cycles,
    puis rabaisse `PC14`.
-7. La boucle principale est vide (`__WFI()`).
+7. La boucle principale traite la console et la pompe USB sans attente active.
 
 **L'étage de puissance n'est jamais activé pendant M0.** La carte peut donc rester alimentée
 en basse tension, moteur débranché.
