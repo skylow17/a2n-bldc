@@ -65,9 +65,56 @@ travers R23 1 kΩ. Masse sur J7 broche 3.
 | 3 | Largeur de l'impulsion haute | **< 10 µs**, typiquement 1 à 2 µs à ce stade | Budget d'ISR : au-delà de 10 µs il ne reste plus de marge pour la FOC |
 | 4 | Impulsion manquante sur 1 minute | **aucune** | Une trame perdue = un cycle de contrôle perdu |
 
-La mesure 3 est aussi lisible sans oscilloscope : `Ctrl_GetStats()` expose `cycles_last` et
-`cycles_max` en cycles à 144 MHz. 1440 cycles = 10 µs. Tant que la console n'existe pas
-(étape M1), on les lit au debugger.
+### Validation sans oscilloscope
+
+Depuis M1a, la carte s'énumère en port série USB (`A2N BLDC Controller`) et répond à une
+console texte. Trois des quatre critères se vérifient alors depuis n'importe quel terminal,
+sans matériel de mesure. Réglages : 115200 8N1 — le débit est ignoré sur du CDC, n'importe
+quelle valeur passe.
+
+```
+INFO?
+  OK product=A2N-BLDC fw=2.0.0-m1 proto=2.0 sysclk=144000000 pwm_hz=20000 arr=3599
+     deadtime_ns=500 vref_mv=2048
+
+STATS?
+  OK ticks=1234567 ms=61728 last_ns=760 max_ns=1104 load_pm=22 ia=2047 ib=2049 ic=2046
+```
+
+| Champ | Lecture |
+|---|---|
+| `ticks` | nombre d'exécutions de l'ISR depuis le reset |
+| `ms` | horloge interne, en millisecondes |
+| `last_ns` / `max_ns` | durée du dernier passage et pire cas, en nanosecondes |
+| `load_pm` | pire cas en pour mille du budget d'une période PWM |
+| `ia/ib/ic` | derniers bruts ADC des trois courants |
+
+**Critère 1 — cadence.** `ticks / ms` doit valoir **exactement 20**. Attention au piège :
+`ms` vient de SysTick, donc de la même PLL que TIM1. Si l'arbre d'horloge est faux, les
+deux dérivent ensemble et le rapport reste à 20. Pour vérifier la fréquence réelle il faut
+une référence extérieure : lire `ticks` deux fois à quelques secondes d'intervalle et
+diviser par le temps mesuré **côté PC**. On doit retomber sur 20 000 Hz à mieux que 0,1 %.
+C'est ce test-là qui attrape un HSE qui n'a pas démarré — le MCU bascule alors sur HSI à
+16 MHz sans rien signaler.
+
+**Critère 3 — budget.** `max_ns` doit rester sous **10 000**. `load_pm` donne la même
+information en proportion : 200 pour mille = 20 % du budget.
+
+**Critère 4 — continuité.** Laisser tourner une minute, relire `ticks` : l'écart doit valoir
+1 200 000 à quelques unités près.
+
+**Critère 2 — gigue.** Celui-là n'est pas mesurable depuis la console : un compteur cumulé
+ne dit rien de la régularité des intervalles. Il faut l'oscilloscope.
+
+`STATS.RESET` remet `max_ns` à zéro, `LINK?` rend les compteurs de perte de la liaison
+(ils doivent rester à zéro), `PING` teste l'aller-retour.
+
+### Ce que la console ne fait pas
+
+Elle ne bloque jamais. `Link_TxWrite` rend la main immédiatement et `Link_Pump` écoule le
+tampon à chaque tour de superloop — contrairement au v1 qui attendait en boucle sur
+`CDC_Transmit_FS`. Si le tampon d'émission déborde, la ligne est perdue entière plutôt que
+tronquée, et `LINK?` le compte.
 
 ### Ce qui invalide l'étape
 

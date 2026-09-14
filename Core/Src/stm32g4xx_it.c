@@ -5,6 +5,8 @@
 #include "stm32g4xx_hal.h"
 #include "ctrl.h"
 
+extern PCD_HandleTypeDef hpcd_USB_FS;
+
 void NMI_Handler(void)        { for (;;) { } }
 void HardFault_Handler(void)  { for (;;) { } }
 void MemManage_Handler(void)  { for (;;) { } }
@@ -32,4 +34,10 @@ void ADC1_2_IRQHandler(void)
     ADC1->ISR = ADC_ISR_JEOS;   /* write-1-to-clear */
     Ctrl_Isr();
   }
+}
+
+/** Interruption USB. Priorite basse : elle ne doit jamais retarder la boucle de controle. */
+void USB_LP_IRQHandler(void)
+{
+  HAL_PCD_IRQHandler(&hpcd_USB_FS);
 }

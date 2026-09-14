@@ -16,6 +16,9 @@
 #include "dbg_pin.h"
 #include "pwm.h"
 #include "adc_sync.h"
+#include "console.h"
+#include "link_usb.h"
+#include "usb_device.h"
 
 void Board_FatalError(const char *what)
 {
@@ -29,6 +32,22 @@ void Board_FatalError(const char *what)
   }
 }
 
+/* --- Adaptateurs pour la pile USB de ST ---------------------------------------------
+ * usb_device.c et usbd_conf.c sont du code CubeMX inchange : ils attendent les deux
+ * symboles que le main genere fournit d'habitude. On les branche sur les notres plutot
+ * que de modifier du code tiers, qui devra pouvoir etre remplace tel quel.
+ */
+void Error_Handler(void)
+{
+  Board_FatalError("usb");
+}
+
+void SystemClock_Config(void)
+{
+  /* Appele apres une sortie de veille USB, pour remonter la PLL. */
+  Board_ClockInit();
+}
+
 int main(void)
 {
   HAL_Init();
@@ -40,15 +59,23 @@ int main(void)
   Pwm_Init();       /* TIM1 démarre, MOE = 0 : sorties en haute impédance   */
   AdcSync_Init();   /* conversions injectées armées sur TIM1_TRGO, ISR 20 kHz */
 
+  /* La liaison arrive après l'étage de puissance : si l'énumération USB traîne ou échoue,
+   * la boucle de contrôle tourne déjà et les sorties sont déjà sûres. */
+  Link_Init();
+  Console_Init();
+  MX_USB_Device_Init();
+
   for (;;) {
     /* La superloop est vide, et c'est le point de l'étape M0.
      *
      * Dans le v1, cette boucle portait la lecture I2C bloquante de l'AS5600, le parsing
      * des commandes et l'acquisition des courants, ce qui plafonnait l'ensemble à environ
      * 1,5 kHz avec de la gigue. Rien de ce dont la boucle de contrôle dépend ne doit
-     * revenir ici : supervision, communication et console viendront s'y installer, mais
-     * la régulation vit dans l'ISR, et seulement là.
+     * revenir ici : supervision, communication et console s'y installent, mais la
+     * régulation vit dans l'ISR, et seulement là. Aucun appel ci-dessous n'attend quoi
+     * que ce soit — ni l'USB, ni l'hôte, ni un périphérique.
      */
-    __WFI();
+    Console_Process();   /* consomme les lignes reçues, sans jamais bloquer */
+    Link_Pump();         /* écoule le tampon d'émission vers l'USB           */
   }
 }

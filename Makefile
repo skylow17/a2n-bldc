@@ -28,6 +28,7 @@ SZ       := $(PREFIX)size
 
 HAL      := $(CUBE)/Drivers/STM32G4xx_HAL_Driver
 CMSIS    := $(CUBE)/Drivers/CMSIS
+USBLIB   := $(CUBE)/Middlewares/ST/STM32_USB_Device_Library
 
 LDSCRIPT := ld/stm32g473ce_slotA.ld
 
@@ -39,6 +40,8 @@ C_SOURCES := \
   Core/Src/pwm.c \
   Core/Src/adc_sync.c \
   Core/Src/ctrl.c \
+  Core/Src/link_usb.c \
+  Core/Src/console.c \
   Core/Src/stm32g4xx_it.c \
   Core/Src/stm32g4xx_hal_msp.c \
   Core/Src/system_stm32g4xx.c \
@@ -62,12 +65,30 @@ HAL_SOURCES := \
   $(HAL)/Src/stm32g4xx_hal_tim.c \
   $(HAL)/Src/stm32g4xx_hal_tim_ex.c \
   $(HAL)/Src/stm32g4xx_hal_adc.c \
-  $(HAL)/Src/stm32g4xx_hal_adc_ex.c
+  $(HAL)/Src/stm32g4xx_hal_adc_ex.c \
+  $(HAL)/Src/stm32g4xx_hal_pcd.c \
+  $(HAL)/Src/stm32g4xx_hal_pcd_ex.c \
+  $(HAL)/Src/stm32g4xx_ll_usb.c
+
+# Pile USB device ST + classe CDC, lues depuis le depot CubeMX comme le HAL.
+USB_SOURCES := \
+  USB_Device/App/usb_device.c \
+  USB_Device/App/usbd_desc.c \
+  USB_Device/App/usbd_cdc_if.c \
+  USB_Device/Target/usbd_conf.c \
+  $(USBLIB)/Core/Src/usbd_core.c \
+  $(USBLIB)/Core/Src/usbd_ctlreq.c \
+  $(USBLIB)/Core/Src/usbd_ioreq.c \
+  $(USBLIB)/Class/CDC/Src/usbd_cdc.c
 
 ASM_SOURCES := startup/startup_stm32g473xx.s
 
 C_INCLUDES := \
   -ICore/Inc \
+  -IUSB_Device/App \
+  -IUSB_Device/Target \
+  -I$(USBLIB)/Core/Inc \
+  -I$(USBLIB)/Class/CDC/Inc \
   -I$(HAL)/Inc \
   -I$(HAL)/Inc/Legacy \
   -I$(CMSIS)/Device/ST/STM32G4xx/Include \
@@ -103,7 +124,7 @@ LDFLAGS := $(MCU) -T$(LDSCRIPT) --specs=nano.specs \
            -Wl,--print-memory-usage -Wl,--no-warn-rwx-segments -lc -lm -lnosys
 
 # ---------------------------------------------------------------- objets
-ALL_C   := $(C_SOURCES) $(HAL_SOURCES)
+ALL_C   := $(C_SOURCES) $(HAL_SOURCES) $(USB_SOURCES)
 OBJECTS := $(addprefix $(BUILD)/obj/,$(notdir $(ALL_C:.c=.o)))
 vpath %.c $(sort $(dir $(ALL_C)))
 OBJECTS += $(addprefix $(BUILD)/obj/,$(notdir $(ASM_SOURCES:.s=.o)))
