@@ -97,11 +97,11 @@ void Board_FatalError(const char *what);
 #define ADC_CH_IMOTC        ADC_CHANNEL_3
 
 /* Driver de grille DRV8304S — SPI2 + signaux discrets.
- * ATTENTION : le schéma étiquette PB13 = SPI2_MOSI et PB15 = SPI2_SCK, ce qui est
- * électriquement impossible sur ce boîtier (AF5 n'offre SCK que sur PB13 et MOSI que sur
- * PB15). Le brochage retenu est celui du v1, seul compatible avec le périphérique SPI2.
- * Si le cuivre suit le schéma, le SPI matériel ne peut pas fonctionner et il faudra
- * basculer le pilote DRV8304 en bit-bang — voir `drv8304.c` au moment de l'écrire. */
+ * Le schéma étiquette PB13 = SPI2_MOSI et PB15 = SPI2_SCK, ce qui est électriquement
+ * impossible sur ce boîtier : en AF5, PB13 ne peut être que SCK et PB15 que MOSI.
+ * La carte a été retouchée en conséquence et le SPI matériel fonctionne avec le brochage
+ * ci-dessous, celui du v1. Toute nouvelle carte tirée du schéma non corrigé aura le
+ * défaut — voir ../AGENTS.md § « Écarts connus du schéma ». */
 #define PIN_SPI_SCK_PORT    GPIOB          /* PB13 */
 #define PIN_SPI_SCK         GPIO_PIN_13
 #define PIN_SPI_MISO_PORT   GPIOB          /* PB14 */

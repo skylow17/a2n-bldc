@@ -88,23 +88,12 @@ plafonnés, contrairement aux cinq autres sorties PWM. Comparer le temps de mont
 à celui de `PB0` (`PWM2N`). Une asymétrie importante déséquilibrerait le temps mort effectif
 de la phase A. À mesurer avant la première mise en puissance.
 
-**Le SPI vers le DRV8304.** Le schéma étiquette `PB13 = SPI2_MOSI` et `PB15 = SPI2_SCK`, ce
-qui est électriquement impossible sur ce boîtier : en AF5, `PB13` ne peut être que SCK et
-`PB15` que MOSI. Le brochage du v1 est donc nécessairement le bon côté MCU — mais si le
-cuivre a suivi le netlist du schéma, le périphérique SPI2 ne peut pas dialoguer avec le
-driver, et le v1 n'a jamais pu configurer le gain des amplificateurs de courant.
-
-Mesure : continuité à l'ohmmètre, carte hors tension, entre les broches du MCU et celles du
-DRV8304 (U3).
-
-| Si le cuivre dit | Alors |
-|---|---|
-| `PB13` → SCLK (pin 28) | SPI2 matériel, comme le v1. Rien à faire. |
-| `PB13` → SDI (pin 27) | SPI2 matériel inutilisable. Bascule du pilote en bit-bang sur trois GPIO — le DRV8304 ne se configure qu'au démarrage, quelques transferts de 16 bits, le coût est nul. |
-
-Le pilote `drv8304.c` sera écrit avec les deux implémentations derrière la même interface et
-une détection au démarrage : écriture d'un motif connu dans un registre de contrôle, relecture,
-et on garde le chemin qui répond. La question ne bloque donc pas l'avancement.
+**Le SPI vers le DRV8304 — résolu.** Le schéma étiquette `PB13 = SPI2_MOSI` et
+`PB15 = SPI2_SCK`, ce qui est électriquement impossible sur ce boîtier. La carte a été
+retouchée, liaisons refaites directement sur le PCB, et le SPI matériel fonctionne avec le
+brochage du v1 (`PB13` = SCK, `PB14` = MISO, `PB15` = MOSI). Rien à vérifier ici, et pas de
+pilote bit-bang à prévoir. En revanche **le schéma doit être corrigé avant toute nouvelle
+fabrication**, sans quoi la prochaine carte aura le même défaut.
 
 **Les pull-ups I2C.** `R21`/`R22` valent 4,7 kΩ et sont annotés « TBC » sur le schéma. À
 1 MHz (Fast-mode Plus, nécessaire pour l'AS5600 en M2), le temps de montée vaut environ
