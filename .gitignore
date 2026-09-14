@@ -1,0 +1,10 @@
+build/
+*.o
+*.d
+*.elf
+*.bin
+*.hex
+*.map
+compile_commands.json
+.cache/
+mx.scratch/
