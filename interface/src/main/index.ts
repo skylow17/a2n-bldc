@@ -9,10 +9,13 @@
 import { join } from 'node:path';
 
 import { BrowserWindow, app, ipcMain, shell } from 'electron';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
 import { DeviceCore, type ConnectTarget, type LogSource } from './device/DeviceCore.js';
+import { startA2nMcpServer } from './mcp/server.js';
 
 const core = new DeviceCore();
+const mcpMode = process.argv.includes('--mcp');
 let mainWindow: BrowserWindow | null = null;
 
 function broadcast(channel: string, payload: unknown): void {
@@ -89,10 +92,17 @@ handle('device:setAiControl', (enabled: boolean) => {
 /* ------------------------------------------------------------------ cycle de vie */
 
 void app.whenReady().then(() => {
-  createWindow();
+  if (mcpMode) {
+    void startA2nMcpServer(core, new StdioServerTransport()).catch((error: unknown) => {
+      console.error(error instanceof Error ? error.message : String(error));
+      app.exit(1);
+    });
+  } else {
+    createWindow();
+  }
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (!mcpMode && BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
 

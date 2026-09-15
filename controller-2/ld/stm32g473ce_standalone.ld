@@ -8,7 +8,8 @@ _Min_Stack_Size = 0x800;
 
 MEMORY
 {
-  RAM    (xrw) : ORIGIN = 0x20000000, LENGTH = 128K
+  /* Les 256 derniers octets sont réservés au handshake SRAM avec le bootloader. */
+  RAM    (xrw) : ORIGIN = 0x20000000, LENGTH = 0x1FF00
   FLASH  (rx)  : ORIGIN = 0x08000000, LENGTH = 256K
 }
 

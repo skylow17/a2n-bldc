@@ -14,6 +14,7 @@
 
 #include "board.h"
 #include "board_clock.h"
+#include "boot_shared.h"
 #include "ctrl.h"
 #include "dbg_pin.h"
 #include "pwm.h"
@@ -21,6 +22,7 @@
 #include "comm/param.h"
 #include "comm/proto.h"
 #include "comm/rx_router.h"
+#include "comm/scope.h"
 #include "console.h"
 #include "link_usb.h"
 #include "usb_device.h"
@@ -65,6 +67,7 @@ int main(void)
   __enable_irq();
   HAL_Init();
   Board_ClockInit();
+  BootShared_Init(); /* Consomme une seule fois le handshake SRAM du bootloader. */
 
   DbgPin_Init();
   Ctrl_Init();
@@ -77,6 +80,7 @@ int main(void)
   Link_Init();
   Console_Init();
   Param_Init();     /* calcule le hash du dictionnaire avant tout handshake */
+  Scope_Init();
   Proto_Init();
   RxRouter_Init();
   HAL_Delay(500); // Delay to allow USB host to recognize the device in debug mode
@@ -93,6 +97,8 @@ int main(void)
      * que ce soit — ni l'USB, ni l'hôte, ni un périphérique.
      */
     RxRouter_Process();  /* aiguille trames binaires et lignes de console   */
+    Proto_Process();     /* streaming et transitions scope, jamais dans l'ISR */
+    BootShared_Process(); /* confirmation d'un slot candidat, le cas échéant */
     Link_Pump();         /* écoule le tampon d'émission vers l'USB           */
   }
 }

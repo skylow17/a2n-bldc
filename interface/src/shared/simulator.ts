@@ -15,8 +15,14 @@
 import vectors from '../../../docs/protocol-vectors.json' with { type: 'json' };
 import { FrameStream, PayloadWriter, encodeFrame } from './frame.js';
 import { cobsDecode, cobsEncode } from './cobs.js';
-import { crc16 } from './crc16.js';
+import { crc16, crc32 } from './crc16.js';
 import { MSG, FRAME_FLAG, PROTO_ERR } from './protocol.js';
+import {
+  PROTO_CAP,
+  ScopeState,
+  ScopeTrigger,
+  type SignalDesc,
+} from './protocol.js';
 import {
   PARAM_ENTRY_WIRE_LEN,
   paramDictHash,
@@ -24,7 +30,14 @@ import {
   type ParamDesc,
   type ParamTypeValue,
 } from './params.js';
-import { ParamStatus } from './messages.js';
+import {
+  ParamStatus,
+  decodeScopeConfig,
+  decodeTelemSubscribe,
+  encodeScopeConfig,
+  type ScopeConfig,
+  type TelemSubscription,
+} from './messages.js';
 import { Emitter, type Transport } from './transport.js';
 
 /** Table par défaut : celle du firmware à M1b, depuis les vecteurs de référence. */
@@ -50,6 +63,15 @@ const DEFAULT_RO_VALUES: Readonly<Record<string, number>> = {
   'pwm.ccr4_trig': 3579,
 };
 
+export const DEFAULT_SIM_SIGNALS: readonly SignalDesc[] = [
+  { id: 1, type: 6, flags: 0, name: 'current.raw_ia_count', unit: 'count' },
+  { id: 2, type: 6, flags: 0, name: 'current.raw_ib_count', unit: 'count' },
+  { id: 3, type: 6, flags: 0, name: 'current.raw_ic_count', unit: 'count' },
+  { id: 4, type: 6, flags: 0, name: 'loop.duration_ns', unit: 'ns' },
+  { id: 5, type: 6, flags: 0, name: 'loop.max_duration_ns', unit: 'ns' },
+  { id: 6, type: 6, flags: 0, name: 'loop.load_pct', unit: '%' },
+];
+
 export interface SimulatorOptions {
   product?: string;
   fwVersion?: string;
@@ -74,6 +96,29 @@ export class SimulatedDevice implements Transport {
   private rxFrames = 0;
   private rxErrors = 0;
   private pwmEnabled = false;
+  private pushSeq = 0;
+  private telemSeq = 0;
+  private telemTimer: ReturnType<typeof setInterval> | null = null;
+  private telem: TelemSubscription = { rateHz: 0, signalIds: [] };
+  private scopeConfig: ScopeConfig = {
+    depth: 2048,
+    decimation: 1,
+    pretriggerSamples: 0,
+    triggerMode: ScopeTrigger.IMMEDIATE,
+    triggerSignalId: 1,
+    threshold: 0,
+    signalIds: [1, 2, 3],
+  };
+  private scopeSamples: number[][] = [];
+  private scopeStartedUs = 0;
+  private bootActiveSlot = 0;
+  private bootCandidateSlot = 0xff;
+  private bootErased = new Set<number>();
+  private readonly bootSlots = [new Uint8Array(224 * 1024).fill(0xff), new Uint8Array(224 * 1024).fill(0xff)];
+  private readonly bootMeta = [
+    { imageSize: 0, crc32: 0, valid: false, version: '' },
+    { imageSize: 0, crc32: 0, valid: false, version: '' },
+  ];
 
   readonly description = 'simulator';
 
@@ -130,6 +175,7 @@ export class SimulatedDevice implements Transport {
 
   async close(): Promise<void> {
     this.open = false;
+    if (this.telemTimer !== null) clearInterval(this.telemTimer);
     this.dataEmitter.clear();
     this.errorEmitter.clear();
   }
@@ -162,6 +208,14 @@ export class SimulatedDevice implements Transport {
 
   private replyFrame(msgId: number, seq: number, payload: Uint8Array): void {
     this.reply(encodeFrame(msgId, FRAME_FLAG.RESPONSE, seq, payload));
+  }
+
+  private replyFrameFlags(msgId: number, flags: number, seq: number, payload: Uint8Array): void {
+    this.reply(encodeFrame(msgId, flags, seq, payload));
+  }
+
+  private push(msgId: number, payload: Uint8Array): void {
+    this.reply(encodeFrame(msgId, FRAME_FLAG.PUSH, this.pushSeq++, payload));
   }
 
   private replyError(msgId: number, seq: number, code: number): void {
@@ -201,6 +255,55 @@ export class SimulatedDevice implements Transport {
         // écrire, ce qui ferait croire la recette enregistrée.
         this.replyError(MSG.PARAM_SAVE_NVM, seq, PROTO_ERR.NVM);
         break;
+      case MSG.TELEM_SIGNALS:
+        this.onSignals(seq, payload);
+        break;
+      case MSG.TELEM_SUBSCRIBE:
+        this.onSubscribe(seq, payload);
+        break;
+      case MSG.SCOPE_CONFIG:
+        this.onScopeConfig(seq, payload);
+        break;
+      case MSG.SCOPE_ARM:
+        this.onScopeArm(seq, payload);
+        break;
+      case MSG.SCOPE_STATUS:
+        if (payload.length !== 0) this.replyError(MSG.SCOPE_STATUS, seq, PROTO_ERR.LEN);
+        else this.replyFrame(MSG.SCOPE_STATUS, seq, this.scopeStatusPayload());
+        break;
+      case MSG.SCOPE_READ:
+        this.onScopeRead(seq, payload);
+        break;
+      case MSG.BOOT_ENTER:
+        if (payload.length !== 0) this.replyError(MSG.BOOT_ENTER, seq, PROTO_ERR.LEN);
+        else this.replyFrame(MSG.BOOT_ENTER, seq, new Uint8Array(0));
+        break;
+      case MSG.BOOT_INFO:
+        if (payload.length !== 0) this.replyError(MSG.BOOT_INFO, seq, PROTO_ERR.LEN);
+        else this.replyFrame(MSG.BOOT_INFO, seq, this.bootInfoPayload());
+        break;
+      case MSG.BOOT_ERASE:
+        this.onBootErase(seq, payload);
+        break;
+      case MSG.BOOT_WRITE:
+        this.onBootWrite(seq, payload);
+        break;
+      case MSG.BOOT_VERIFY:
+        this.onBootVerify(seq, payload);
+        break;
+      case MSG.BOOT_ROLLBACK:
+        if (payload.length !== 0) this.replyError(MSG.BOOT_ROLLBACK, seq, PROTO_ERR.LEN);
+        else if (this.bootCandidateSlot === 0xff) this.replyError(MSG.BOOT_ROLLBACK, seq, PROTO_ERR.STATE);
+        else { this.bootCandidateSlot = 0xff; this.replyFrame(MSG.BOOT_ROLLBACK, seq, new Uint8Array(0)); }
+        break;
+      case MSG.BOOT_REBOOT:
+        if (payload.length !== 0) this.replyError(MSG.BOOT_REBOOT, seq, PROTO_ERR.LEN);
+        else {
+          if (this.bootCandidateSlot !== 0xff) this.bootActiveSlot = this.bootCandidateSlot;
+          this.bootCandidateSlot = 0xff;
+          this.replyFrame(MSG.BOOT_REBOOT, seq, new Uint8Array(0));
+        }
+        break;
       default:
         this.replyError(msgId, seq, PROTO_ERR.ID);
         break;
@@ -222,9 +325,235 @@ export class SimulatedDevice implements Transport {
       .u32(0xdead0002)
       .u32(0xdead0003)
       .u16(this.params.length)
-      .u16(0) // telem_signal_count : aucun signal à M1b
-      .u32(0) // capabilities : rien d'implémenté, rien d'annoncé
+      .u16(DEFAULT_SIM_SIGNALS.length)
+      .u32(PROTO_CAP.TELEMETRY | PROTO_CAP.SCOPE)
       .build();
+  }
+
+  private onSignals(seq: number, payload: Uint8Array): void {
+    if (payload.length !== 4) return this.replyError(MSG.TELEM_SIGNALS, seq, PROTO_ERR.LEN);
+    const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+    const start = view.getUint16(0, true);
+    let count = view.getUint16(2, true) || 1;
+    if (start >= DEFAULT_SIM_SIGNALS.length) {
+      return this.replyError(MSG.TELEM_SIGNALS, seq, PROTO_ERR.RANGE);
+    }
+    count = Math.min(count, 11, DEFAULT_SIM_SIGNALS.length - start);
+    const fixed = (text: string, width: number): Uint8Array => {
+      const out = new Uint8Array(width);
+      out.set(new TextEncoder().encode(text).subarray(0, width));
+      return out;
+    };
+    const w = new PayloadWriter().u16(start).u16(DEFAULT_SIM_SIGNALS.length).u16(count);
+    for (const s of DEFAULT_SIM_SIGNALS.slice(start, start + count)) {
+      w.u16(s.id).u8(s.type).u8(s.flags).raw(fixed(s.name, 32)).raw(fixed(s.unit, 8));
+    }
+    this.replyFrame(MSG.TELEM_SIGNALS, seq, w.build());
+  }
+
+  private onSubscribe(seq: number, payload: Uint8Array): void {
+    let requested: TelemSubscription;
+    try {
+      requested = decodeTelemSubscribe(payload);
+    } catch {
+      return this.replyError(MSG.TELEM_SUBSCRIBE, seq, PROTO_ERR.LEN);
+    }
+    if (requested.signalIds.length > 16 || new Set(requested.signalIds).size !== requested.signalIds.length) {
+      return this.replyError(MSG.TELEM_SUBSCRIBE, seq, PROTO_ERR.ARG);
+    }
+    if (requested.signalIds.some((id) => !DEFAULT_SIM_SIGNALS.some((s) => s.id === id))) {
+      return this.replyError(MSG.TELEM_SUBSCRIBE, seq, PROTO_ERR.ID);
+    }
+    if (this.telemTimer !== null) clearInterval(this.telemTimer);
+    const rateHz = requested.rateHz === 0 || requested.signalIds.length === 0
+      ? 0
+      : Math.floor(20_000 / Math.round(20_000 / Math.max(100, Math.min(500, requested.rateHz))));
+    this.telem = { rateHz, signalIds: rateHz === 0 ? [] : [...requested.signalIds] };
+    this.telemSeq = 0;
+    const response = new PayloadWriter().u16(rateHz).u8(this.telem.signalIds.length).u8(0);
+    for (const id of this.telem.signalIds) response.u16(id);
+    this.replyFrame(MSG.TELEM_SUBSCRIBE, seq, response.build());
+    if (rateHz > 0) {
+      this.telemTimer = setInterval(() => this.emitTelemetry(), 1000 / rateHz);
+    } else {
+      this.telemTimer = null;
+    }
+  }
+
+  private signalValue(id: number, sample: number): number {
+    const phase = sample * 0.03125;
+    switch (id) {
+      case 1: return Math.fround(2048 + 40 * Math.sin(phase));
+      case 2: return Math.fround(2048 + 40 * Math.sin(phase - (2 * Math.PI) / 3));
+      case 3: return Math.fround(2048 + 40 * Math.sin(phase + (2 * Math.PI) / 3));
+      case 4: return 300;
+      case 5: return 340;
+      case 6: return 0.6;
+      default: return 0;
+    }
+  }
+
+  private emitTelemetry(): void {
+    if (!this.open || this.telem.rateHz === 0) return;
+    const sample = this.telemSeq;
+    const w = new PayloadWriter()
+      .u32(Math.floor(performance.now() * 1000) >>> 0)
+      .u16(this.telemSeq++)
+      .u8(this.telem.signalIds.length)
+      .u8(0);
+    for (const id of this.telem.signalIds) w.f32(this.signalValue(id, sample));
+    this.push(MSG.TELEM_FRAME, w.build());
+  }
+
+  private onScopeConfig(seq: number, payload: Uint8Array): void {
+    let config: ScopeConfig;
+    try {
+      config = decodeScopeConfig(payload);
+    } catch {
+      return this.replyError(MSG.SCOPE_CONFIG, seq, PROTO_ERR.LEN);
+    }
+    const idsKnown = config.signalIds.every((id) => DEFAULT_SIM_SIGNALS.some((s) => s.id === id));
+    const triggerSelected = config.triggerMode === ScopeTrigger.IMMEDIATE ||
+      config.signalIds.includes(config.triggerSignalId);
+    if (config.depth < 1 || config.depth > 2048 || config.decimation < 1 ||
+        config.decimation > 256 || config.pretriggerSamples >= config.depth ||
+        config.signalIds.length < 1 || config.signalIds.length > 4 ||
+        new Set(config.signalIds).size !== config.signalIds.length || !idsKnown || !triggerSelected) {
+      return this.replyError(MSG.SCOPE_CONFIG, seq, PROTO_ERR.ARG);
+    }
+    this.scopeConfig = { ...config, signalIds: [...config.signalIds] };
+    this.scopeSamples = [];
+    this.replyFrame(MSG.SCOPE_CONFIG, seq, encodeScopeConfig(this.scopeConfig));
+  }
+
+  private onScopeArm(seq: number, payload: Uint8Array): void {
+    if (payload.length !== 0) return this.replyError(MSG.SCOPE_ARM, seq, PROTO_ERR.LEN);
+    this.scopeStartedUs = Math.floor(performance.now() * 1000) >>> 0;
+    this.scopeSamples = Array.from({ length: this.scopeConfig.depth }, (_, sample) =>
+      this.scopeConfig.signalIds.map((id) => this.signalValue(id, sample * this.scopeConfig.decimation)),
+    );
+    this.replyFrame(MSG.SCOPE_STATUS, seq, this.scopeStatusPayload());
+    this.push(MSG.SCOPE_STATUS, this.scopeStatusPayload());
+  }
+
+  private scopeStatusPayload(): Uint8Array {
+    const complete = this.scopeSamples.length === this.scopeConfig.depth;
+    return new PayloadWriter()
+      .u8(complete ? ScopeState.COMPLETE : ScopeState.IDLE)
+      .u8(this.scopeConfig.signalIds.length)
+      .u16(this.scopeSamples.length)
+      .u16(this.scopeConfig.depth)
+      .u16(complete ? this.scopeConfig.pretriggerSamples : 0xffff)
+      .u16(this.scopeConfig.decimation)
+      .u16(0)
+      .u32(50_000 * this.scopeConfig.decimation)
+      .u32(complete ? this.scopeStartedUs : 0)
+      .build();
+  }
+
+  private onScopeRead(seq: number, payload: Uint8Array): void {
+    if (payload.length !== 4) return this.replyError(MSG.SCOPE_READ, seq, PROTO_ERR.LEN);
+    if (this.scopeSamples.length !== this.scopeConfig.depth) {
+      return this.replyError(MSG.SCOPE_READ, seq, PROTO_ERR.STATE);
+    }
+    const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+    const start = view.getUint16(0, true);
+    let count = view.getUint16(2, true);
+    if (start >= this.scopeSamples.length || count === 0) {
+      return this.replyError(MSG.SCOPE_READ, seq, PROTO_ERR.RANGE);
+    }
+    const max = Math.floor((512 - 8) / (4 * this.scopeConfig.signalIds.length));
+    count = Math.min(count, max, this.scopeSamples.length - start);
+    const w = new PayloadWriter()
+      .u16(start)
+      .u16(this.scopeSamples.length)
+      .u16(count)
+      .u8(this.scopeConfig.signalIds.length)
+      .u8(0);
+    for (const point of this.scopeSamples.slice(start, start + count)) {
+      for (const value of point) w.f32(value);
+    }
+    const more = start + count < this.scopeSamples.length ? FRAME_FLAG.MORE : 0;
+    this.replyFrameFlags(MSG.SCOPE_READ, FRAME_FLAG.RESPONSE | more, seq, w.build());
+  }
+
+  private bootInfoPayload(): Uint8Array {
+    const fixed = (text: string): Uint8Array => {
+      const out = new Uint8Array(16);
+      out.set(new TextEncoder().encode(text).subarray(0, 16));
+      return out;
+    };
+    const w = new PayloadWriter()
+      .u16(0x0200).raw(fixed('0.1.0'))
+      .u8(this.bootActiveSlot).u8(this.bootCandidateSlot).u8(0).u8(0);
+    for (let slot = 0; slot < 2; slot++) {
+      const meta = this.bootMeta[slot]!;
+      w.u32(slot === 0 ? 0x08008000 : 0x08040000)
+        .u32(224 * 1024)
+        .u32(meta.imageSize)
+        .u32(meta.crc32)
+        .u8(meta.valid ? 1 : 0).u8(0).u8(0).u8(0)
+        .raw(fixed(meta.version));
+    }
+    return w.build();
+  }
+
+  private onBootErase(seq: number, payload: Uint8Array): void {
+    if (payload.length !== 4 || payload[1] !== 0 || payload[2] !== 0 || payload[3] !== 0) {
+      return this.replyError(MSG.BOOT_ERASE, seq, PROTO_ERR.LEN);
+    }
+    const slot = payload[0]!;
+    if (slot > 1 || slot === this.bootActiveSlot) {
+      return this.replyError(MSG.BOOT_ERASE, seq, PROTO_ERR.STATE);
+    }
+    this.bootSlots[slot]!.fill(0xff);
+    this.bootMeta[slot] = { imageSize: 0, crc32: 0, valid: false, version: '' };
+    this.bootErased.add(slot);
+    this.replyFrame(MSG.BOOT_ERASE, seq, payload);
+  }
+
+  private onBootWrite(seq: number, payload: Uint8Array): void {
+    if (payload.length < 8) return this.replyError(MSG.BOOT_WRITE, seq, PROTO_ERR.LEN);
+    const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+    const slot = payload[0]!;
+    const length = view.getUint16(2, true);
+    const offset = view.getUint32(4, true);
+    if (payload[1] !== 0 || length < 8 || length > 504 || length % 8 !== 0 ||
+        offset % 8 !== 0 || payload.length !== 8 + length) {
+      return this.replyError(MSG.BOOT_WRITE, seq, PROTO_ERR.LEN);
+    }
+    if (slot > 1 || slot === this.bootActiveSlot || !this.bootErased.has(slot) ||
+        offset + length > this.bootSlots[slot]!.length) {
+      return this.replyError(MSG.BOOT_WRITE, seq, PROTO_ERR.STATE);
+    }
+    this.bootSlots[slot]!.set(payload.subarray(8), offset);
+    this.replyFrame(MSG.BOOT_WRITE, seq, payload.subarray(0, 8));
+  }
+
+  private onBootVerify(seq: number, payload: Uint8Array): void {
+    if (payload.length !== 28) return this.replyError(MSG.BOOT_VERIFY, seq, PROTO_ERR.LEN);
+    const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+    const slot = payload[0]!;
+    const size = view.getUint32(4, true);
+    const expected = view.getUint32(8, true);
+    const base = slot === 0 ? 0x08008000 : 0x08040000;
+    const image = this.bootSlots[slot];
+    if (slot > 1 || image === undefined || !this.bootErased.has(slot) || slot === this.bootActiveSlot ||
+        size < 8 || size > image.length) {
+      return this.replyError(MSG.BOOT_VERIFY, seq, PROTO_ERR.STATE);
+    }
+    const vectors = new DataView(image.buffer, image.byteOffset, image.byteLength);
+    const sp = vectors.getUint32(0, true);
+    const reset = vectors.getUint32(4, true);
+    const vectorValid = sp >= 0x20000000 && sp <= 0x2001ff00 && (reset & 1) === 1 &&
+      (reset & ~1) >= base && (reset & ~1) < base + image.length;
+    if (!vectorValid || crc32(image.subarray(0, size)) !== expected) {
+      return this.replyError(MSG.BOOT_VERIFY, seq, PROTO_ERR.FLASH);
+    }
+    const version = new TextDecoder().decode(payload.subarray(12, 28)).replace(/\0.*$/s, '');
+    this.bootMeta[slot] = { imageSize: size, crc32: expected, valid: true, version };
+    this.bootCandidateSlot = slot;
+    this.replyFrame(MSG.BOOT_VERIFY, seq, new Uint8Array(0));
   }
 
   private onDictGet(seq: number, payload: Uint8Array): void {

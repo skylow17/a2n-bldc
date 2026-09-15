@@ -125,6 +125,9 @@ Autres points relevés à la lecture :
   pour cette référence. Le v1 l'avait correctement pris en compte.
 - **`PC13` porte `PWM1N`** : broche du domaine sauvegardé, drive et vitesse plafonnés par rapport
   aux cinq autres sorties PWM. Asymétrie de front à mesurer.
+- **`PB8/BOOT0` n'a pas de pull-down externe** sur la révision A. Une carte non provisionnée peut
+  démarrer accidentellement dans la ROM système. `controller-2/Makefile` fournit `make provision`
+  pour forcer le boot depuis la Flash principale ; ajouter 10 kΩ vers GND à la prochaine révision.
 - **`DRV_nFAULT` est sur `PB11`**, qui n'offre pas de `TIM1_BKIN` : la coupure du pont sur faute
   driver est logicielle (EXTI), pas matérielle.
 - **MOSFET** : `NVMFD024N06CT1G`, doubles canal N 60 V, un boîtier par demi-pont.

@@ -9,8 +9,9 @@ d'abord, puis des deux côtés dans la même passe.
 > paramètres (§5) et les messages `0x0001`–`0x0015`. Ces formats sont verrouillés par des
 > vecteurs de référence (§11) que le firmware et l'interface vérifient tous les deux.
 >
-> Tout le reste — télémétrie, scope, bootloader, CAN — est encore proposé et sera verrouillé
-> au fur et à mesure de son implémentation, jalon par jalon.
+> La télémétrie et le scope (§6, messages `0x0040`–`0x0053`) sont également figés. Le
+> Le bootloader USB (§8, messages `0x0070`–`0x0075`) est également figé. Le transport CAN
+> reste proposé et sera verrouillé au moment de son implémentation.
 
 - Version de protocole décrite : **2.0**
 - Transport : USB CDC (canal principal), FDCAN3 (sous-ensemble, pour le flashage)
@@ -109,6 +110,7 @@ Codes : `CRC`, `LEN`, `ID`, `ARG`, `RANGE`, `STATE`, `BUSY`, `NOTARMED`, `LOCKED
 | `0x0073` | `BOOT_WRITE` | PC → BL | Écriture d'un bloc |
 | `0x0074` | `BOOT_VERIFY` | PC → BL | Vérification CRC et marquage candidat |
 | `0x0075` | `BOOT_ROLLBACK` | PC → BL | Retour au slot précédent |
+| `0x0076` | `BOOT_REBOOT` | PC → BL | Redémarre après vérification |
 
 ---
 
@@ -212,35 +214,118 @@ avant de ranger dans un type entier.
 
 ## 6. Télémétrie
 
+### Dictionnaire de signaux
+
+Le PC découvre les signaux comme il découvre les paramètres. `TELEM_SIGNALS` est une requête
+paginée, de payload `u16 start_index, u16 count`. Sa réponse porte :
+
+```
+u16  start_index
+u16  total
+u16  count
+signal[count]
+```
+
+Chaque `signal` occupe exactement **44 octets** :
+
+```
+u16  id
+u8   type          6=f32 ; les autres valeurs sont réservées
+u8   flags         réservé, doit valoir 0
+char name[32]
+char unit[8]
+```
+
+Les règles des champs texte bornés du §5 s'appliquent. Une page contient au plus 11 entrées.
+Un identifiant est stable tant que le signal conserve sa signification et son unité.
+
+Signaux présents à M1c :
+
+| id | Nom | Unité | Source |
+|---:|---|---|---|
+| 1 | `current.raw_ia_count` | `count` | ADC1 IN1, non calibré |
+| 2 | `current.raw_ib_count` | `count` | ADC1 IN2, non calibré |
+| 3 | `current.raw_ic_count` | `count` | ADC1 IN3, non calibré |
+| 4 | `loop.duration_ns` | `ns` | dernier passage dans l'ISR |
+| 5 | `loop.max_duration_ns` | `ns` | pire passage depuis le reset des stats |
+| 6 | `loop.load_pct` | `%` | `duration / 50 us × 100` |
+
+**Règle firmware** : toute grandeur interne qu'on souhaite pouvoir tracer est déclarée comme
+signal au moment où elle est introduite. Une mesure brute reste explicitement nommée et un signal
+en ampères n'apparaît qu'après calibration de la chaîne de courant.
+
 ### Streaming souscrit
 
-`TELEM_SUBSCRIBE` : liste d'ids de signaux + cadence souhaitée (Hz). Le firmware renvoie la cadence
-réellement appliquée. Plage utile **100–500 Hz**, limitée par le débit CDC et le nombre de signaux.
-
-`TELEM_FRAME` (push) :
+`TELEM_SUBSCRIBE` demande puis renvoie la configuration réellement appliquée :
 
 ```
-u32  timestamp_us
-u16  seq            détection de perte de trame côté PC
-f32  values[n]      dans l'ordre de la souscription
+u16  rate_hz       0 désabonne ; sinon 100..500 Hz
+u8   count         0..16
+u8   reserved      doit valoir 0
+u16  signal_id[count]
 ```
 
-Signaux de base : `pos_rad`, `pos_ref_rad`, `vel_rad_s`, `vel_ref_rad_s`, `iq_a`, `iq_ref_a`,
-`id_a`, `id_ref_a`, `vbus_v`, `vmot_v`, `v5_v`, `v3v3_v`, `temp_c`, `duty`, `theta_e_rad`,
-`ia_a`, `ib_a`, `ic_a`, `loop_load_pct`.
+Le firmware choisit un diviseur entier de la boucle 20 kHz et renvoie la fréquence entière
+correspondante. Un id inconnu donne `ERR_ID`, un doublon ou un champ réservé non nul `ERR_ARG`.
+Une souscription vide équivaut à `rate_hz=0`.
 
-**Règle firmware** : toute grandeur interne qu'on souhaite pouvoir tracer est déclarée comme signal
-au moment où elle est introduite.
+`TELEM_FRAME` est une trame push :
+
+```
+u32  timestamp_us  horloge monotone modulo 2^32
+u16  sample_seq    détection de perte de trame côté PC
+u8   count
+u8   reserved      0
+f32  values[count] dans l'ordre de la souscription
+```
 
 ### Scope burst
 
-`SCOPE_CONFIG` : signaux, profondeur (échantillons), facteur de décimation depuis la cadence de
-boucle, et trigger — source, front (`rising` / `falling` / `both`), seuil, pré-trigger en pourcent.
-`SCOPE_ARM` puis `SCOPE_STATUS` en push à chaque changement. `SCOPE_READ` dumpe le buffer en trames
-fragmentées.
+Le scope échantillonne dans l'ISR de contrôle, à 20 kHz avant décimation. Il accepte au plus
+**4 signaux** et **2 048 échantillons**. `SCOPE_CONFIG` demande puis renvoie la configuration
+normalisée :
 
-Cadence native ≈ **20 kHz** (cadence de la boucle de courant). C'est le seul moyen de voir une
-réponse indicielle de boucle de courant — la capacité qui manquait au firmware v1.
+```
+u16  depth                 1..2048
+u16  decimation            1..256, depuis la boucle 20 kHz
+u16  pretrigger_samples    0..depth-1
+u8   trigger_mode          0=immediate, 1=rising, 2=falling, 3=either
+u8   signal_count          1..4
+u16  trigger_signal_id     doit appartenir à la sélection sauf en mode immediate
+f32  threshold
+u16  signal_id[signal_count]
+```
+
+`SCOPE_CONFIG` est refusé par `ERR_BUSY` pendant une capture. `SCOPE_ARM` a un payload vide et
+répond par un `SCOPE_STATUS`. Le firmware émet aussi `SCOPE_STATUS` en push à chaque transition :
+
+```
+u8   state                 0=idle, 1=armed, 2=triggered, 3=complete
+u8   signal_count
+u16  captured              nombre de points actuellement conservés
+u16  depth
+u16  trigger_index         index logique du trigger ; 0xffff avant trigger
+u16  decimation
+u16  reserved              0
+u32  sample_period_ns      50000 × decimation
+u32  start_timestamp_us    timestamp du premier point ; 0 avant trigger
+```
+
+Une requête `SCOPE_STATUS` a un payload vide et renvoie ce même payload. Quand l'état vaut
+`complete`, `SCOPE_READ` lit une tranche :
+
+```
+requête   u16 start, u16 count
+réponse  u16 start, u16 total, u16 count, u8 signal_count, u8 reserved,
+         f32 values[count][signal_count]
+```
+
+Les valeurs d'un point sont contiguës dans l'ordre de `SCOPE_CONFIG`. Le firmware réduit `count`
+pour tenir dans les 512 octets et pose le drapeau `MORE` s'il reste des points après la tranche.
+Lire avant l'état `complete` donne `ERR_STATE`; une plage vide ou hors buffer donne `ERR_RANGE`.
+
+La cadence native de **20 kHz** est le seul moyen de voir une réponse indicielle de boucle de
+courant — la capacité qui manquait au firmware v1.
 
 ---
 
@@ -258,9 +343,86 @@ Découpage flash (aligné sur les deux banques de 256 ko, pour permettre l'écri
 pendant l'exécution depuis l'autre), séquence de mise à jour et rollback : voir
 `../controller-2/AGENTS.md` §4.
 
-Le bootloader implémente le même framing binaire (§2) et les messages `0x0070`–`0x0075`, sur **USB
-CDC et CAN**. Il n'expose ni paramètres, ni télémétrie, ni commande moteur. Au démarrage : PWM en
-haute impédance et DRV8304 désactivé avant toute autre initialisation.
+Le bootloader implémente le même framing binaire (§2) sur **USB CDC**. Le transport CAN reprendra
+les mêmes payloads après que sa fragmentation aura été spécifiée (§10). Il n'expose ni paramètres,
+ni télémétrie, ni commande moteur. Au démarrage : PWM en haute impédance avant toute autre
+initialisation.
+
+`BOOT_ENTER` a un payload et une réponse vides. L'application attend que la réponse soit mise en
+file, puis redémarre avec un mot magique en SRAM réservée ; le bootloader efface ce mot avant de
+rester en mode mise à jour. Une perte d'alimentation ne peut donc pas laisser la carte bloquée en
+bootloader.
+
+`BOOT_INFO` a un payload vide. Sa réponse est :
+
+```
+u16  protocol_version
+char bootloader_version[16]
+u8   active_slot           0=A, 1=B, 0xff=aucun
+u8   candidate_slot        0=A, 1=B, 0xff=aucun
+u8   candidate_attempted   0 ou 1
+u8   reserved              0
+slot[2]
+```
+
+Chaque description `slot` occupe 36 octets :
+
+```
+u32  address
+u32  capacity
+u32  image_size
+u32  crc32                 CRC-32/ISO-HDLC des image_size octets
+u8   valid
+u8   reserved[3]
+char version[16]
+```
+
+La réponse fait donc 94 octets. Une flash vierge utilise A comme slot actif implicite si ses
+vecteurs sont plausibles ; elle n'est jamais déclarée valide sur la seule foi de ces vecteurs.
+
+`BOOT_ERASE` demande `u8 slot, u8 reserved[3]` et renvoie le même payload. Seul le slot inactif
+peut être effacé. `BOOT_WRITE` demande :
+
+```
+u8   slot
+u8   reserved              0
+u16  data_len              8..504, multiple de 8
+u32  offset                multiple de 8
+u8   data[data_len]
+```
+
+La réponse répète les huit premiers octets (`slot`, réservé, `data_len`, `offset`). Une écriture
+exige un `BOOT_ERASE` réussi dans la session courante, reste dans le slot et ne peut transformer
+un bit que de 1 vers 0. L'hôte complète le dernier bloc par `0xff`, mais `image_size` ci-dessous
+exclut ce padding.
+
+`BOOT_VERIFY` demande :
+
+```
+u8   slot
+u8   reserved[3]           0
+u32  image_size
+u32  expected_crc32
+char version[16]
+```
+
+Après contrôle des limites, des vecteurs Cortex-M et du CRC, la réponse est vide et les
+métadonnées marquent le slot comme candidat non essayé. Le changement est atomique : deux pages
+de métadonnées alternées portent un compteur de génération et leur propre CRC. Une coupure laisse
+toujours au moins l'ancien enregistrement lisible.
+
+Au reset suivant, le bootloader marque le candidat « essayé », arme l'IWDG et saute dessus. Le
+firmware candidat doit atteindre son point de santé (initialisation sûre, boucle temps réel et
+superloop vivantes) dans les deux secondes ; il écrit alors un mot de confirmation en SRAM et
+redémarre. Le bootloader valide ce mot et rend le candidat actif. Tout autre reset avant cette
+confirmation efface le candidat et repart sur l'ancien slot : c'est le rollback automatique.
+
+`BOOT_ROLLBACK` a un payload et une réponse vides. Il annule un candidat en attente ; sans candidat,
+il répond `ERR_STATE`. Il ne rend jamais exécutable une image invalide.
+
+`BOOT_REBOOT` a un payload et une réponse vides. Le bootloader met d'abord la réponse en file,
+attend 50 ms sans accepter d'autre opération flash, puis redémarre. Si un candidat vient d'être
+vérifié, la séquence probatoire ci-dessus commence ; sinon le slot actif reste inchangé.
 
 ---
 

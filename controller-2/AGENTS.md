@@ -149,11 +149,11 @@ compteur de version pour tolérer une coupure en cours d'écriture.
 
 ## 4. Découpage flash
 
-**Bring-up actuel sans bootloader** : le build utilise `ld/stm32g473ce_standalone.ld`, avec
-les vecteurs a `0x08000000`. `make flash` charge le HEX adresse. Le plan A/B ci-dessous
-reste une cible future : une image liee a `0x08008000` seule ne fournit pas de demarrage
-autonome au reset standard. VTOR est initialise depuis `g_pfnVectors` avant HAL_Init et
-les interruptions sont explicitement reactivees. Validation USB sur carte encore requise.
+**Bring-up par défaut sans bootloader** : `make` utilise toujours l'image autonome à
+`0x08000000`. `make boot-images` construit désormais le bootloader et les deux variantes
+applicatives A/B ; `make install-bootloader` est l'installation initiale destructive par SWD.
+Le layout et le client sont validés au build et sur simulateur, mais l'installation et le rollback
+restent à valider sur la carte avant d'en faire le chemin quotidien.
 
 
 À figer dans le linker script dès le premier commit, même si le bootloader n'est écrit que plus tard.
@@ -257,8 +257,9 @@ génération.
 
 - **Build** : `make` à la racine du projet. Pas de CMake — la machine de développement n'a
   que le GCC 13.3.1 et le `make` fournis par STM32CubeIDE, et le `CMakePresets.json` du v1
-  n'y était donc pas utilisable. `make flash` programme le firmware autonome par SWD, `make compdb`
-  régénère `compile_commands.json` pour clangd.
+  n'y était donc pas utilisable. `make provision` force une fois par carte le boot depuis la Flash
+  principale, `make flash` programme le firmware autonome par SWD, `make flash-check` programme
+  puis lance la recette matérielle, et `make compdb` régénère `compile_commands.json` pour clangd.
 - Ne jamais committer `build/`.
 - Toute nouvelle commande, trame ou paramètre du protocole arrive **avec** son entrée dans
   `../docs/protocol.md`, dans la même passe.

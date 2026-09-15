@@ -6,7 +6,7 @@
 #define VERSION_H
 
 #define FW_PRODUCT      "A2N-BLDC"
-#define FW_VERSION      "2.0.0-m1"
+#define FW_VERSION      "2.0.0-m1c"
 
 /* Version du protocole decrit dans ../../docs/protocol.md. Toute evolution incompatible
  * incremente le majeur ; l'interface refuse alors de dialoguer. */

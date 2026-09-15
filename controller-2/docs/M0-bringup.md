@@ -70,6 +70,21 @@ travers R23 1 kΩ. Masse sur J7 broche 3.
 | 3 | Largeur de l'impulsion haute | **< 10 µs**, typiquement 1 à 2 µs à ce stade | Budget d'ISR : au-delà de 10 µs il ne reste plus de marge pour la FOC |
 | 4 | Impulsion manquante sur 1 minute | **aucune** | Une trame perdue = un cycle de contrôle perdu |
 
+### Résultat sur la carte de bring-up — 2026-09-15
+
+Mesure sur `IO1/PC14`, pendant plus d'une minute :
+
+| Mesure | Résultat | Verdict |
+|---|---|---|
+| Fréquence instantanée min / max | 20,00 / 20,01 kHz | Conforme |
+| Gigue déduite des extrêmes de période | ≈ 25 ns crête à crête | Conforme (< 200 ns) |
+| Écart-type de fréquence | 5,8 Hz | Conforme |
+| Largeur de l'impulsion haute | ≈ 300 ns | Conforme (< 10 µs) |
+| Continuité sur plus d'une minute | aucune période doublée observée (`fmin = 20,00 kHz`) | Conforme |
+
+**M0 est validé sur matériel.** Cette mesure ne valide ni l'étage de puissance ni la chaîne
+moteur, qui restent désactivés à ce jalon.
+
 ### Validation sans oscilloscope
 
 Depuis M1a, la carte s'énumère en port série USB (`A2N BLDC Controller`) et répond à une

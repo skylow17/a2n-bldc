@@ -8,10 +8,10 @@
  * humain déclenche, et le journal ci-dessous en garde la trace avec sa source.
  */
 
-import { DeviceClient, ProtocolError, TimeoutError } from '../../shared/client.js';
-import { ParamStatus, PARAM_STATUS_NAME } from '../../shared/messages.js';
+import { DeviceClient, ProtocolError, TimeoutError, type ScopeCapture } from '../../shared/client.js';
+import { ParamStatus, PARAM_STATUS_NAME, type TelemFrame } from '../../shared/messages.js';
 import { ParamDictionary, clampToParam, paramDictHash } from '../../shared/params.js';
-import type { DeviceInfo } from '../../shared/protocol.js';
+import { ScopeTrigger, type DeviceInfo, type SignalDesc } from '../../shared/protocol.js';
 import { SimulatedDevice } from '../../shared/simulator.js';
 import { Emitter, type Transport } from '../../shared/transport.js';
 import { SerialTransport, listSerialPorts, type SerialPortInfo } from '../../node/serial.js';
@@ -266,6 +266,101 @@ export class DeviceCore {
     const { client } = this.require();
     this.log('debug', source, `> ${line}`);
     return client.console(line);
+  }
+
+  /** Console accessible aux agents : diagnostic en lecture et STOP uniquement. */
+  async sendSafeConsole(line: string, source: LogSource = 'mcp'): Promise<string> {
+    const verb = line.trim().split(/\s+/, 1)[0]?.toUpperCase() ?? '';
+    const allowed = new Set(['PING', 'INFO?', 'STATS?', 'LINK?', 'PROTO?', 'SELFTEST', 'PWM?', 'STOP']);
+    if (!allowed.has(verb)) {
+      throw new Error(`console command not allowed through MCP: ${verb || '(empty)'}`);
+    }
+    return this.sendConsole(line, source);
+  }
+
+  async readSignals(): Promise<SignalDesc[]> {
+    const { client } = this.require();
+    return client.readSignals();
+  }
+
+  async sampleTelemetry(
+    frames = 20,
+    rateHz = 100,
+    signalNames?: readonly string[],
+  ): Promise<{ signals: SignalDesc[]; frames: TelemFrame[]; rateHz: number }> {
+    const { client } = this.require();
+    const available = await client.readSignals();
+    const selected = signalNames === undefined || signalNames.length === 0
+      ? available
+      : signalNames.map((name) => {
+          const signal = available.find((candidate) => candidate.name === name);
+          if (signal === undefined) throw new Error(`unknown signal: ${name}`);
+          return signal;
+        });
+    if (selected.length > 16 || new Set(selected.map((s) => s.id)).size !== selected.length) {
+      throw new Error('telemetry accepts 1 to 16 unique signals');
+    }
+
+    const received: TelemFrame[] = [];
+    let resolveDone = (): void => undefined;
+    const done = new Promise<void>((resolve) => { resolveDone = resolve; });
+    const timer = setTimeout(() => resolveDone(), 5000);
+    const off = client.onTelemetry((frame) => {
+        received.push(frame);
+        if (received.length >= frames) {
+          clearTimeout(timer);
+          resolveDone();
+        }
+    });
+    let applied: { rateHz: number } | undefined;
+    try {
+      applied = await client.subscribeTelemetry(rateHz, selected.map((s) => s.id));
+      await done;
+    } finally {
+      clearTimeout(timer);
+      off();
+      await client.subscribeTelemetry(0, []).catch(() => undefined);
+    }
+    if (received.length < frames) {
+      throw new TimeoutError(`telemetry sample (${received.length}/${frames})`, 5000);
+    }
+    this.log('info', 'mcp', `sampled ${received.length} telemetry frames at ${applied.rateHz} Hz`);
+    return { signals: selected, frames: received, rateHz: applied.rateHz };
+  }
+
+  async captureScope(
+    depth = 2048,
+    decimation = 1,
+    signalNames?: readonly string[],
+  ): Promise<{ signals: SignalDesc[]; capture: ScopeCapture }> {
+    const { client } = this.require();
+    const available = await client.readSignals();
+    const selected = signalNames === undefined || signalNames.length === 0
+      ? available.slice(0, 4)
+      : signalNames.map((name) => {
+          const signal = available.find((candidate) => candidate.name === name);
+          if (signal === undefined) throw new Error(`unknown signal: ${name}`);
+          return signal;
+        });
+    if (selected.length < 1 || selected.length > 4 ||
+        new Set(selected.map((s) => s.id)).size !== selected.length) {
+      throw new Error('scope accepts 1 to 4 unique signals');
+    }
+    const capture = await client.captureScope({
+      depth,
+      decimation,
+      pretriggerSamples: 0,
+      triggerMode: ScopeTrigger.IMMEDIATE,
+      triggerSignalId: selected[0]!.id,
+      threshold: 0,
+      signalIds: selected.map((s) => s.id),
+    });
+    this.log(
+      'info',
+      'mcp',
+      `captured ${capture.samples.length} scope points on ${selected.map((s) => s.name).join(', ')}`,
+    );
+    return { signals: selected, capture };
   }
 
   /* ---------------------------------------------------------------- pilotage agent */

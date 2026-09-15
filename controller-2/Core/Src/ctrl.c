@@ -11,6 +11,7 @@
 #include "adc_sync.h"
 #include "dbg_pin.h"
 #include "pwm.h"
+#include "comm/scope.h"
 
 /* Compteur de cycles du cœur : 1 cycle = 1 / 144 MHz ≈ 6.94 ns. C'est la seule mesure
  * de durée disponible qui ne coûte rien à l'intérieur de l'ISR. */
@@ -46,6 +47,18 @@ void Ctrl_Isr(void)
   s_stats.raw_ib = ib;
   s_stats.raw_ic = ic;
   s_stats.ticks++;
+
+  /* Le scope est le seul consommateur autorisé dans l'ISR. Il ne transmet rien ici :
+   * il copie au plus quatre f32 dans son buffer RAM, puis la superloop dumpe la capture. */
+  const Signal_Snapshot_t snapshot = {
+    .ticks = s_stats.ticks,
+    .cycles_last = s_stats.cycles_last,
+    .cycles_max = s_stats.cycles_max,
+    .raw_ia = ia,
+    .raw_ib = ib,
+    .raw_ic = ic,
+  };
+  Scope_OnControlTick(&snapshot);
 
   DbgPin_Low();
 

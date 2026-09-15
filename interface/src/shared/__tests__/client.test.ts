@@ -11,8 +11,8 @@ import { describe, expect, it } from 'vitest';
 import { DeviceClient, ProtocolError, TimeoutError } from '../client.js';
 import { ParamStatus } from '../messages.js';
 import { paramDictHash } from '../params.js';
-import { PROTO_ERR } from '../protocol.js';
-import { DEFAULT_SIM_PARAMS, SimulatedDevice } from '../simulator.js';
+import { PROTO_CAP, PROTO_ERR, ScopeTrigger } from '../protocol.js';
+import { DEFAULT_SIM_PARAMS, DEFAULT_SIM_SIGNALS, SimulatedDevice } from '../simulator.js';
 
 function connect(options?: ConstructorParameters<typeof SimulatedDevice>[0]) {
   const device = new SimulatedDevice(options);
@@ -32,12 +32,76 @@ describe('handshake', () => {
     expect(info.uid).toHaveLength(3);
   });
 
-  it("n'annonce aucune capacité tant que rien n'est implémenté", async () => {
+  it("n'annonce que les capacités réellement implémentées", async () => {
     const { client } = connect();
     const info = await client.hello();
     // Un bit levé ici sans code derrière ferait proposer à l'UI un bouton qui échoue.
-    expect(info.capabilities).toBe(0);
-    expect(info.telemSignalCount).toBe(0);
+    expect(info.capabilities).toBe(PROTO_CAP.TELEMETRY | PROTO_CAP.SCOPE);
+    expect(info.telemSignalCount).toBe(DEFAULT_SIM_SIGNALS.length);
+  });
+});
+
+describe('observabilité M1c', () => {
+  it('découvre les signaux et reçoit un streaming ordonné', async () => {
+    const { client } = connect();
+    const signals = await client.readSignals(2);
+    expect(signals).toEqual(DEFAULT_SIM_SIGNALS);
+
+    const frames: number[] = [];
+    const received = new Promise<void>((resolve) => {
+      const off = client.onTelemetry((frame) => {
+        frames.push(frame.sampleSeq);
+        expect(frame.values).toHaveLength(signals.length);
+        if (frames.length === 4) {
+          off();
+          resolve();
+        }
+      });
+    });
+    const applied = await client.subscribeTelemetry(500, signals.map((s) => s.id));
+    expect(applied.rateHz).toBe(500);
+    await received;
+    await client.subscribeTelemetry(0, []);
+    expect(frames).toEqual([0, 1, 2, 3]);
+    await client.close();
+  });
+
+  it('capture et recompose 2048 points fragmentés', async () => {
+    const { client } = connect();
+    const capture = await client.captureScope({
+      depth: 2048,
+      decimation: 1,
+      pretriggerSamples: 0,
+      triggerMode: ScopeTrigger.IMMEDIATE,
+      triggerSignalId: 1,
+      threshold: 0,
+      signalIds: [1, 2, 3, 4],
+    });
+    expect(capture.samples).toHaveLength(2048);
+    expect(capture.samples[0]).toHaveLength(4);
+    expect(capture.status.samplePeriodNs).toBe(50_000);
+  });
+});
+
+describe('bootloader A/B', () => {
+  it('écrit, vérifie et marque le slot inactif comme candidat', async () => {
+    const { client } = connect();
+    await client.enterBootloader();
+    const image = new Uint8Array(1203).fill(0xa5);
+    const vectors = new DataView(image.buffer);
+    vectors.setUint32(0, 0x20010000, true);
+    vectors.setUint32(4, 0x08040101, true);
+
+    expect(await client.flashInactiveSlot(image, '2.0.0-test')).toBe(1);
+    const info = await client.bootInfo();
+    expect(info.activeSlot).toBe(0);
+    expect(info.candidateSlot).toBe(1);
+    expect(info.slots[1]).toMatchObject({ valid: true, imageSize: image.length, version: '2.0.0-test' });
+  });
+
+  it('refuse d’effacer le slot actif', async () => {
+    const { client } = connect();
+    await expect(client.bootErase(0)).rejects.toMatchObject({ code: PROTO_ERR.STATE });
   });
 });
 

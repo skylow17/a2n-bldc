@@ -22,6 +22,14 @@
 #define MSG_PARAM_WRITE           0x0013U
 #define MSG_PARAM_SAVE_NVM        0x0014U
 #define MSG_PARAM_RESET_DEFAULTS  0x0015U
+#define MSG_TELEM_SIGNALS         0x0040U
+#define MSG_TELEM_SUBSCRIBE       0x0041U
+#define MSG_TELEM_FRAME           0x0042U
+#define MSG_SCOPE_CONFIG          0x0050U
+#define MSG_SCOPE_ARM             0x0051U
+#define MSG_SCOPE_STATUS          0x0052U
+#define MSG_SCOPE_READ            0x0053U
+#define MSG_BOOT_ENTER            0x0070U
 
 /* Codes d'erreur — docs/protocol.md §2. */
 #define PROTO_ERR_CRC       1U
@@ -46,6 +54,9 @@
 #define PROTO_CAP_ENCODER_INC 0x00000020U
 
 void Proto_Init(void);
+
+/** Tâches asynchrones de communication : télémétrie et notifications de scope. */
+void Proto_Process(void);
 
 /** Traite une trame binaire deja validee (COBS decode, CRC verifie). */
 void Proto_HandleFrame(uint16_t msg_id, uint8_t flags, uint8_t seq,

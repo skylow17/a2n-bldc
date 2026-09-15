@@ -14,7 +14,9 @@
     "cli": "tsx src/cli/main.ts",
     "dev": "electron-vite dev",
     "build": "electron-vite build",
-    "start": "electron-vite preview"
+    "start": "electron-vite preview",
+    "mcp": "electron-vite build && electron . --mcp",
+    "mcp:check": "electron-vite build && tsx src/cli/mcp-check.ts"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
@@ -31,10 +33,12 @@
     "vitest": "^3.2.7"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "serialport": "^13.0.0",
-    "uplot": "^1.6.32"
+    "uplot": "^1.6.32",
+    "zod": "^4.6.5"
   },
   "main": "out/main/index.js"
 }

@@ -55,6 +55,10 @@ Cibles disponibles :
 |---|---|
 | `make` | Construit `.elf`, `.hex` et `.bin` dans `build/` |
 | `make flash` | Programme la carte par SWD (ST-LINK ou Tag-Connect sur J4) |
+| `make provision` | Force le boot depuis la Flash principale, une fois par carte |
+| `make flash-check` | Programme, redémarre puis valide la carte avec la CLI |
+| `make boot-images` | Construit le bootloader et les applications liées pour A et B |
+| `make install-bootloader` | **Efface la flash applicative**, puis installe le bootloader et le slot A par SWD |
 | `make size` | Occupation flash / RAM |
 | `make compdb` | `compile_commands.json` pour clangd |
 | `make clean` | Efface `build/` |
@@ -66,8 +70,19 @@ moment plutôt que de se fier à un chiffre recopié :
 python tools/status.py fw
 ```
 
-L'image est liée à `0x08000000` (`ld/stm32g473ce_standalone.ld`). `ld/stm32g473ce_slotA.ld` décrit
-le découpage A/B destiné au futur bootloader ; il n'est pas utilisé tant que celui-ci n'existe pas.
+Le build par défaut reste l'image de bring-up liée à `0x08000000`. `make boot-images` produit
+séparément le bootloader à `0x08000000`, l'application A à `0x08008000` et l'application B à
+`0x08040000`. L'installation initiale reste une opération SWD explicite et destructive ; les mises
+à jour suivantes n'effacent que le slot inactif et passent par CRC + probation + rollback.
+
+La révision A n'a pas de pull-down externe sur `PB8/BOOT0`. Avant le premier flash d'une carte,
+exécuter `make provision` : il programme `nSWBOOT0=0` et `nBOOT0=1`, ce qui rend le démarrage
+indépendant du niveau de la broche tout en conservant la récupération par SWD. Cette cible est
+séparée du flash ordinaire afin de ne pas réécrire les option bytes à chaque build.
+
+Pour la recette courante, préférer `make flash-check`. La cible attend l'énumération USB puis lance
+le check matériel complet. Si plusieurs cartes sont branchées, préciser par exemple
+`make flash-check BOARD_PORT=COM3`.
 
 ### Pour vérifier que la carte répond
 
@@ -120,6 +135,10 @@ npm run cli -- dict             # dictionnaire de paramètres et valeurs courant
 npm run cli -- get pwm.freq_hz
 npm run cli -- set dbg.echo_f32 1.5
 npm run cli -- console SELFTEST
+npm run cli -- signals          # dictionnaire de signaux M1c
+npm run cli -- telem 100 500    # 100 trames à 500 Hz, contrôle des trous
+npm run cli -- scope 2048       # capture synchrone complète
+npm run cli -- boot-check       # entrée bootloader puis retour à l'application
 npm run cli -- monitor          # tout ce qui passe sur le lien
 ```
 
@@ -136,9 +155,24 @@ npm run build      # empaquetage dans out/
 
 Elle se connecte au choix à une carte ou au device simulé, par le même sélecteur. Ce qui
 est visible correspond à ce que le firmware sait faire : les vues **Control**, **Scope**,
-**Recipes** et **Firmware** sont grisées avec le jalon qui les rendra disponibles, parce
-qu'aucune commande de mouvement, capture, persistance ni bootloader n'existe encore.
+**Recipes** et **Firmware** restent grisées tant que leurs workflows UI ne sont pas raccordés.
+Le codec de capture et la première cible bootloader existent déjà en dessous.
 Proposer des boutons qui échoueraient serait pire que de ne rien proposer.
+
+### Le serveur MCP
+
+Le serveur MCP tourne dans le processus principal Electron et reçoit le même `DeviceCore` que
+l'interface :
+
+```
+cd interface
+npm run mcp
+```
+
+Il expose la connexion, l'identité, les paramètres, la télémétrie, le scope et une console de
+diagnostic strictement allow-listée. Une écriture de paramètre d'origine MCP reste refusée tant
+que l'humain n'a pas activé « Enable AI control » ; aucun outil MCP ne peut activer ce toggle.
+`ARM`, les consignes et le mouvement ne sont pas encore exposés.
 
 ### Régénérer les vecteurs de protocole
 

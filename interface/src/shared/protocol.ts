@@ -16,6 +16,20 @@ export const MSG = {
   PARAM_WRITE: 0x0013,
   PARAM_SAVE_NVM: 0x0014,
   PARAM_RESET_DEFAULTS: 0x0015,
+  TELEM_SIGNALS: 0x0040,
+  TELEM_SUBSCRIBE: 0x0041,
+  TELEM_FRAME: 0x0042,
+  SCOPE_CONFIG: 0x0050,
+  SCOPE_ARM: 0x0051,
+  SCOPE_STATUS: 0x0052,
+  SCOPE_READ: 0x0053,
+  BOOT_ENTER: 0x0070,
+  BOOT_INFO: 0x0071,
+  BOOT_ERASE: 0x0072,
+  BOOT_WRITE: 0x0073,
+  BOOT_VERIFY: 0x0074,
+  BOOT_ROLLBACK: 0x0075,
+  BOOT_REBOOT: 0x0076,
 } as const;
 
 export type MsgId = (typeof MSG)[keyof typeof MSG];
@@ -82,3 +96,33 @@ export interface DeviceInfo {
 export function hasCapability(info: DeviceInfo, cap: number): boolean {
   return (info.capabilities & cap) !== 0;
 }
+
+export const SIGNAL_ENTRY_WIRE_LEN = 44;
+export const SCOPE_MAX_DEPTH = 2048;
+export const SCOPE_MAX_SIGNALS = 4;
+
+export interface SignalDesc {
+  id: number;
+  type: number;
+  flags: number;
+  name: string;
+  unit: string;
+}
+
+export const ScopeState = {
+  IDLE: 0,
+  ARMED: 1,
+  TRIGGERED: 2,
+  COMPLETE: 3,
+} as const;
+
+export type ScopeStateValue = (typeof ScopeState)[keyof typeof ScopeState];
+
+export const ScopeTrigger = {
+  IMMEDIATE: 0,
+  RISING: 1,
+  FALLING: 2,
+  EITHER: 3,
+} as const;
+
+export type ScopeTriggerValue = (typeof ScopeTrigger)[keyof typeof ScopeTrigger];

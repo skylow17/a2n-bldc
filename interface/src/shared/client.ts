@@ -9,24 +9,45 @@
 
 import {
   decodeDeviceInfo,
+  decodeBootInfo,
+  decodeBootWriteAck,
   decodeError,
   decodeParamDictEntry,
   decodeParamRead,
   decodeParamWrite,
+  decodeScopeConfig,
+  decodeScopeRead,
+  decodeScopeStatus,
+  decodeTelemFrame,
+  decodeTelemSignals,
+  decodeTelemSubscribe,
   encodeHello,
+  encodeBootErase,
+  encodeBootVerify,
+  encodeBootWrite,
   encodeParamDictGet,
   encodeParamRead,
   encodeParamWrite,
+  encodeScopeConfig,
+  encodeScopeRead,
+  encodeTelemSignals,
+  encodeTelemSubscribe,
   ParamStatus,
   PARAM_STATUS_NAME,
   type ParamReadResult,
   type ParamWriteRequest,
   type ParamWriteResult,
+  type BootInfo,
+  type ScopeConfig,
+  type ScopeStatus,
+  type TelemFrame,
+  type TelemSubscription,
 } from './messages.js';
 import { FrameStream, encodeFrame, type Frame } from './frame.js';
 import { ParamDictionary, type ParamDesc } from './params.js';
-import { MSG, FRAME_FLAG, type DeviceInfo } from './protocol.js';
+import { MSG, FRAME_FLAG, ScopeState, type DeviceInfo, type SignalDesc } from './protocol.js';
 import { Emitter, type Transport } from './transport.js';
+import { crc32 } from './crc16.js';
 
 export class ProtocolError extends Error {
   constructor(
@@ -65,6 +86,8 @@ export class DeviceClient {
   private readonly pending = new Map<number, Pending>();
   private readonly lineEmitter = new Emitter<string>();
   private readonly pushEmitter = new Emitter<Frame>();
+  private readonly telemEmitter = new Emitter<TelemFrame>();
+  private readonly scopeStatusEmitter = new Emitter<ScopeStatus>();
   private readonly linkErrorEmitter = new Emitter<Error>();
   private readonly unsubscribe: Array<() => void> = [];
   private seq = 0;
@@ -96,6 +119,14 @@ export class DeviceClient {
     return this.pushEmitter.on(listener);
   }
 
+  onTelemetry(listener: (frame: TelemFrame) => void): () => void {
+    return this.telemEmitter.on(listener);
+  }
+
+  onScopeStatus(listener: (status: ScopeStatus) => void): () => void {
+    return this.scopeStatusEmitter.on(listener);
+  }
+
   onLinkError(listener: (error: Error) => void): () => void {
     return this.linkErrorEmitter.on(listener);
   }
@@ -118,6 +149,21 @@ export class DeviceClient {
         // Une trame illisible n'est rattachable à aucune requête : on ne peut pas la
         // faire échouer sélectivement. On la laisse expirer — c'est le comportement juste,
         // puisqu'une trame perdue et une trame corrompue sont indiscernables pour l'hôte.
+        continue;
+      }
+
+      if ((item.frame.flags & FRAME_FLAG.PUSH) !== 0) {
+        this.pushEmitter.emit(item.frame);
+        try {
+          if (item.frame.msgId === MSG.TELEM_FRAME) {
+            this.telemEmitter.emit(decodeTelemFrame(item.frame.payload));
+          } else if (item.frame.msgId === MSG.SCOPE_STATUS) {
+            this.scopeStatusEmitter.emit(decodeScopeStatus(item.frame.payload));
+          }
+        } catch {
+          // Une notification mal formée ne doit jamais voler la réponse d'une requête qui
+          // porte le même seq. Le monitor brut la voit encore pour le diagnostic.
+        }
         continue;
       }
 
@@ -160,6 +206,7 @@ export class DeviceClient {
     expect: number,
     payload: Uint8Array,
     label: string,
+    timeoutMs = this.timeoutMs,
   ): Promise<Frame> {
     // `seq` est un octet : 256 requêtes en vol au maximum, largement au-delà de l'usage.
     // Si l'emplacement est déjà pris, c'est qu'une réponse n'est jamais revenue.
@@ -174,8 +221,8 @@ export class DeviceClient {
     return new Promise<Frame>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(seq);
-        reject(new TimeoutError(label, this.timeoutMs));
-      }, this.timeoutMs);
+        reject(new TimeoutError(label, timeoutMs));
+      }, timeoutMs);
 
       this.pending.set(seq, { expect, requestId: msgId, resolve, reject, timer, label });
 
@@ -260,6 +307,166 @@ export class DeviceClient {
     );
   }
 
+  async readSignals(pageSize = 11): Promise<SignalDesc[]> {
+    const signals: SignalDesc[] = [];
+    let total = Number.POSITIVE_INFINITY;
+    while (signals.length < total) {
+      const f = await this.request(
+        MSG.TELEM_SIGNALS,
+        MSG.TELEM_SIGNALS,
+        encodeTelemSignals(signals.length, pageSize),
+        `TELEM_SIGNALS(${signals.length})`,
+      );
+      const page = decodeTelemSignals(f.payload);
+      total = page.total;
+      if (page.startIndex !== signals.length || page.signals.length === 0) {
+        throw new Error('signal dictionary pagination stalled');
+      }
+      signals.push(...page.signals);
+    }
+    return signals;
+  }
+
+  async subscribeTelemetry(rateHz: number, signalIds: readonly number[]): Promise<TelemSubscription> {
+    const f = await this.request(
+      MSG.TELEM_SUBSCRIBE,
+      MSG.TELEM_SUBSCRIBE,
+      encodeTelemSubscribe(rateHz, signalIds),
+      'TELEM_SUBSCRIBE',
+    );
+    return decodeTelemSubscribe(f.payload);
+  }
+
+  async configureScope(config: ScopeConfig): Promise<ScopeConfig> {
+    const f = await this.request(
+      MSG.SCOPE_CONFIG,
+      MSG.SCOPE_CONFIG,
+      encodeScopeConfig(config),
+      'SCOPE_CONFIG',
+    );
+    return decodeScopeConfig(f.payload);
+  }
+
+  async armScope(): Promise<ScopeStatus> {
+    const f = await this.request(
+      MSG.SCOPE_ARM,
+      MSG.SCOPE_STATUS,
+      new Uint8Array(0),
+      'SCOPE_ARM',
+    );
+    return decodeScopeStatus(f.payload);
+  }
+
+  async scopeStatus(): Promise<ScopeStatus> {
+    const f = await this.request(
+      MSG.SCOPE_STATUS,
+      MSG.SCOPE_STATUS,
+      new Uint8Array(0),
+      'SCOPE_STATUS',
+    );
+    return decodeScopeStatus(f.payload);
+  }
+
+  async readScope(): Promise<number[][]> {
+    const samples: number[][] = [];
+    let total = Number.POSITIVE_INFINITY;
+    while (samples.length < total) {
+      const f = await this.request(
+        MSG.SCOPE_READ,
+        MSG.SCOPE_READ,
+        encodeScopeRead(samples.length, 0xffff),
+        `SCOPE_READ(${samples.length})`,
+      );
+      const chunk = decodeScopeRead(f.payload);
+      total = chunk.total;
+      if (chunk.start !== samples.length || chunk.samples.length === 0) {
+        throw new Error('scope pagination stalled');
+      }
+      samples.push(...chunk.samples);
+    }
+    return samples;
+  }
+
+  async captureScope(config: ScopeConfig, timeoutMs = 3000): Promise<ScopeCapture> {
+    const applied = await this.configureScope(config);
+    let status = await this.armScope();
+    const deadline = Date.now() + timeoutMs;
+    while (status.state !== ScopeState.COMPLETE) {
+      if (Date.now() >= deadline) throw new TimeoutError('scope capture', timeoutMs);
+      await new Promise<void>((resolve) => setTimeout(resolve, 5));
+      status = await this.scopeStatus();
+    }
+    const samples = await this.readScope();
+    return { config: applied, status, samples };
+  }
+
+  async enterBootloader(): Promise<void> {
+    await this.request(MSG.BOOT_ENTER, MSG.BOOT_ENTER, new Uint8Array(0), 'BOOT_ENTER');
+  }
+
+  async bootInfo(): Promise<BootInfo> {
+    const f = await this.request(MSG.BOOT_INFO, MSG.BOOT_INFO, new Uint8Array(0), 'BOOT_INFO');
+    return decodeBootInfo(f.payload);
+  }
+
+  async bootErase(slot: number): Promise<void> {
+    await this.request(MSG.BOOT_ERASE, MSG.BOOT_ERASE, encodeBootErase(slot), 'BOOT_ERASE', 15_000);
+  }
+
+  async bootWrite(slot: number, offset: number, data: Uint8Array): Promise<void> {
+    const f = await this.request(
+      MSG.BOOT_WRITE,
+      MSG.BOOT_WRITE,
+      encodeBootWrite(slot, offset, data),
+      `BOOT_WRITE(${offset})`,
+      3000,
+    );
+    const ack = decodeBootWriteAck(f.payload);
+    if (ack.slot !== slot || ack.offset !== offset || ack.length !== data.length) {
+      throw new Error('BOOT_WRITE acknowledgement mismatch');
+    }
+  }
+
+  async bootVerify(slot: number, image: Uint8Array, version: string): Promise<void> {
+    await this.request(
+      MSG.BOOT_VERIFY,
+      MSG.BOOT_VERIFY,
+      encodeBootVerify(slot, image.length, crc32(image), version),
+      'BOOT_VERIFY',
+      15_000,
+    );
+  }
+
+  async bootRollback(): Promise<void> {
+    await this.request(MSG.BOOT_ROLLBACK, MSG.BOOT_ROLLBACK, new Uint8Array(0), 'BOOT_ROLLBACK');
+  }
+
+  async bootReboot(): Promise<void> {
+    await this.request(MSG.BOOT_REBOOT, MSG.BOOT_REBOOT, new Uint8Array(0), 'BOOT_REBOOT');
+  }
+
+  async flashInactiveSlot(
+    image: Uint8Array,
+    version: string,
+    onProgress?: (written: number, total: number) => void,
+  ): Promise<number> {
+    const info = await this.bootInfo();
+    const slot = info.activeSlot === 1 ? 0 : 1;
+    if (image.length < 8 || image.length > info.slots[slot]!.capacity) {
+      throw new RangeError(`firmware image size ${image.length} is outside the inactive slot`);
+    }
+    await this.bootErase(slot);
+    for (let offset = 0; offset < image.length; offset += 504) {
+      const source = image.subarray(offset, Math.min(offset + 504, image.length));
+      const padded = new Uint8Array(Math.ceil(source.length / 8) * 8).fill(0xff);
+      padded.set(source);
+      await this.bootWrite(slot, offset, padded);
+      onProgress?.(Math.min(offset + source.length, image.length), image.length);
+    }
+    await this.bootVerify(slot, image, version);
+    return slot;
+  }
+
   /**
    * Envoie une ligne de console et attend la première réponse.
    *
@@ -306,4 +513,10 @@ export class DeviceClient {
     });
     return out;
   }
+}
+
+export interface ScopeCapture {
+  config: ScopeConfig;
+  status: ScopeStatus;
+  samples: number[][];
 }

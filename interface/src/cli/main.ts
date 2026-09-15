@@ -13,6 +13,7 @@
  */
 
 import { parseArgs } from 'node:util';
+import { readFile } from 'node:fs/promises';
 
 import { DeviceClient } from '../shared/client.js';
 import { PARAM_STATUS_NAME, ParamStatus } from '../shared/messages.js';
@@ -23,7 +24,7 @@ import {
   type ParamDesc,
   type ParamDictionary,
 } from '../shared/params.js';
-import { PROTO_CAP, type DeviceInfo } from '../shared/protocol.js';
+import { PROTO_CAP, ScopeTrigger, type DeviceInfo } from '../shared/protocol.js';
 import { SimulatedDevice } from '../shared/simulator.js';
 import type { Transport } from '../shared/transport.js';
 import { SerialTransport, findBoardPorts, listSerialPorts } from '../node/serial.js';
@@ -125,6 +126,30 @@ async function withClient<T>(
   }
 }
 
+const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function waitForClient(
+  o: GlobalOptions,
+  probe: (client: DeviceClient) => Promise<unknown>,
+  timeoutMs = 8000,
+): Promise<DeviceClient> {
+  const deadline = Date.now() + timeoutMs;
+  let last: unknown;
+  while (Date.now() < deadline) {
+    let client: DeviceClient | undefined;
+    try {
+      client = new DeviceClient(await openTransport(o), { timeoutMs: 1000 });
+      await probe(client);
+      return client;
+    } catch (error) {
+      last = error;
+      await client?.close().catch(() => undefined);
+      await delay(250);
+    }
+  }
+  throw last instanceof Error ? last : new Error('device did not reconnect');
+}
+
 /* ------------------------------------------------------------------ commandes */
 
 function printInfo(info: DeviceInfo): void {
@@ -176,6 +201,188 @@ async function cmdInfo(o: GlobalOptions): Promise<number> {
     printInfo(await c.hello());
     return 0;
   });
+}
+
+async function cmdSignals(o: GlobalOptions): Promise<number> {
+  return withClient(o, async (c) => {
+    await c.hello();
+    const signals = await c.readSignals();
+    console.log(
+      table(
+        signals.map((s) => [String(s.id), s.name, s.unit, s.type === 6 ? 'f32' : String(s.type)]),
+        ['id', 'name', 'unit', 'type'],
+      ),
+    );
+    return 0;
+  });
+}
+
+async function cmdTelem(o: GlobalOptions, rawCount?: string, rawRate?: string): Promise<number> {
+  const count = Math.max(1, Math.min(1000, Number(rawCount ?? 20) || 20));
+  const rate = Math.max(100, Math.min(500, Number(rawRate ?? 100) || 100));
+  return withClient(o, async (c) => {
+    await c.hello();
+    const signals = await c.readSignals();
+    const ids = signals.map((s) => s.id);
+    const frames: Array<{ timestampUs: number; sampleSeq: number; values: number[] }> = [];
+    const done = new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`telemetry stopped at ${frames.length}/${count} frames`)), 5000);
+      const off = c.onTelemetry((frame) => {
+        frames.push(frame);
+        if (frames.length >= count) {
+          clearTimeout(timer);
+          off();
+          resolve();
+        }
+      });
+    });
+    const applied = await c.subscribeTelemetry(rate, ids);
+    await done;
+    await c.subscribeTelemetry(0, []);
+    const lost = frames.slice(1).reduce((n, f, i) =>
+      n + (((f.sampleSeq - frames[i]!.sampleSeq) & 0xffff) === 1 ? 0 : 1), 0);
+    console.log(`${ok('✓')} ${frames.length} telemetry frames at ${applied.rateHz} Hz; gaps=${lost}`);
+    const last = frames.at(-1)!;
+    console.log(
+      table(
+        signals.map((s, i) => [s.name, num(last.values[i] ?? Number.NaN), s.unit]),
+        ['signal', 'last', 'unit'],
+      ),
+    );
+    return lost === 0 ? 0 : 1;
+  });
+}
+
+async function cmdScope(o: GlobalOptions, rawDepth?: string): Promise<number> {
+  const depth = Math.max(1, Math.min(2048, Number(rawDepth ?? 2048) || 2048));
+  return withClient(o, async (c) => {
+    await c.hello();
+    const signals = (await c.readSignals()).slice(0, 4);
+    const capture = await c.captureScope({
+      depth,
+      decimation: 1,
+      pretriggerSamples: 0,
+      triggerMode: ScopeTrigger.IMMEDIATE,
+      triggerSignalId: signals[0]!.id,
+      threshold: 0,
+      signalIds: signals.map((s) => s.id),
+    });
+    const durationMs = (capture.samples.length * capture.status.samplePeriodNs) / 1_000_000;
+    console.log(
+      `${ok('✓')} scope complete: ${capture.samples.length}/${depth} points, ` +
+        `${capture.config.signalIds.length} signals, ${num(durationMs)} ms`,
+    );
+    console.log(
+      table(
+        signals.map((s, column) => {
+          const values = capture.samples.map((point) => point[column]!);
+          const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
+          return [s.name, num(Math.min(...values)), num(Math.max(...values)), num(mean), s.unit];
+        }),
+        ['signal', 'min', 'max', 'mean', 'unit'],
+      ),
+    );
+    return capture.samples.length === depth ? 0 : 1;
+  });
+}
+
+async function cmdBootCheck(o: GlobalOptions): Promise<number> {
+  const app = new DeviceClient(await openTransport(o), { timeoutMs: o.timeout });
+  const before = await app.hello();
+  await app.enterBootloader();
+  await app.close().catch(() => undefined);
+  await delay(o.sim ? 10 : 750);
+
+  const boot = await waitForClient(o, (client) => client.bootInfo());
+  const info = await boot.bootInfo();
+  console.log(
+    `${ok('✓')} bootloader ${info.bootloaderVersion}; active=${info.activeSlot} ` +
+      `candidate=${info.candidateSlot}`,
+  );
+  console.log(
+    table(
+      info.slots.map((slot, index) => [
+        index === 0 ? 'A' : 'B',
+        `0x${slot.address.toString(16).toUpperCase()}`,
+        String(slot.imageSize),
+        slot.valid ? ok('valid') : dim('empty/implicit'),
+        slot.version,
+      ]),
+      ['slot', 'address', 'bytes', 'state', 'version'],
+    ),
+  );
+  await boot.bootReboot();
+  await boot.close().catch(() => undefined);
+  await delay(o.sim ? 10 : 750);
+  const restored = await waitForClient(o, (client) => client.hello());
+  const after = await restored.hello();
+  await restored.close();
+  const good = before.product === after.product && before.protocolVersion === after.protocolVersion;
+  console.log(`${good ? ok('✓') : bad('✗')} application restored: ${after.product} ${after.fwVersion}`);
+  return good ? 0 : 1;
+}
+
+async function cmdFirmwareUpdate(o: GlobalOptions, path?: string, version?: string): Promise<number> {
+  if (path === undefined || version === undefined) {
+    throw new Error('firmware-update expects a slot-specific .bin path and a version');
+  }
+  const image = new Uint8Array(await readFile(path));
+  const app = new DeviceClient(await openTransport(o), { timeoutMs: o.timeout });
+  const before = await app.hello();
+  if ((before.capabilities & PROTO_CAP.BOOTLOADER) === 0) {
+    await app.close();
+    throw new Error('connected application does not advertise a bootloader');
+  }
+  await app.enterBootloader();
+  await app.close().catch(() => undefined);
+  await delay(o.sim ? 10 : 750);
+
+  const boot = await waitForClient(o, (client) => client.bootInfo());
+  let shown = -1;
+  const slot = await boot.flashInactiveSlot(image, version, (written, total) => {
+    const percent = Math.floor((written * 100) / total);
+    if (percent >= shown + 10 || percent === 100) {
+      shown = percent;
+      console.log(dim(`write ${written}/${total} bytes (${percent}%)`));
+    }
+  });
+  const staged = await boot.bootInfo();
+  const stagedOk = staged.candidateSlot === slot && staged.slots[slot]!.valid;
+  console.log(
+    `${stagedOk ? ok('✓') : bad('✗')} slot ${slot === 0 ? 'A' : 'B'} verified ` +
+      `crc=${staged.slots[slot]!.crc32.toString(16).toUpperCase().padStart(8, '0')}`,
+  );
+  if (!stagedOk) {
+    await boot.close();
+    return 1;
+  }
+  await boot.bootReboot();
+  await boot.close().catch(() => undefined);
+
+  // Le candidat démarre, tient deux secondes, écrit sa confirmation puis redémarre une
+  // seconde fois. Attendre évite de prendre sa première énumération transitoire pour le succès.
+  await delay(o.sim ? 10 : 4000);
+  const healthy = await waitForClient(o, (client) => client.hello(), 10_000);
+  const after = await healthy.hello();
+  await healthy.enterBootloader();
+  await healthy.close().catch(() => undefined);
+  await delay(o.sim ? 10 : 750);
+
+  const audit = await waitForClient(o, (client) => client.bootInfo());
+  const committed = await audit.bootInfo();
+  const committedOk = committed.activeSlot === slot && committed.candidateSlot === 0xff;
+  console.log(
+    `${committedOk ? ok('✓') : bad('✗')} probation ${committedOk ? 'committed' : 'not committed'}; ` +
+      `active=${committed.activeSlot} candidate=${committed.candidateSlot}`,
+  );
+  await audit.bootReboot();
+  await audit.close().catch(() => undefined);
+  await delay(o.sim ? 10 : 750);
+  const restored = await waitForClient(o, (client) => client.hello());
+  const finalInfo = await restored.hello();
+  await restored.close();
+  console.log(`${ok('✓')} application restored: ${finalInfo.product} ${finalInfo.fwVersion}`);
+  return committedOk && after.product === before.product ? 0 : 1;
 }
 
 async function cmdDict(o: GlobalOptions, filter?: string): Promise<number> {
@@ -431,6 +638,12 @@ ${head('Commands')}
   ports                    list serial ports and spot the board
   info                     handshake and device identity
   check                    full M1b validation sequence
+  signals                  list observable signals
+  telem [frames] [rate]    validate streaming (default 20 frames at 100 Hz)
+  scope [depth]            capture up to 2048 points at the control-loop rate
+  boot-check               enter the bootloader, read both slots, return to the app
+  firmware-update <bin> <version>
+                           write the inactive slot, verify, reboot and audit probation
   dict [pattern]           parameter dictionary and current values
   get <name> [name...]     read one or more parameters
   set <name> <value>       write a parameter, then read it back
@@ -479,6 +692,16 @@ async function main(): Promise<number> {
       return cmdInfo(o);
     case 'check':
       return cmdCheck(o);
+    case 'signals':
+      return cmdSignals(o);
+    case 'telem':
+      return cmdTelem(o, rest[0], rest[1]);
+    case 'scope':
+      return cmdScope(o, rest[0]);
+    case 'boot-check':
+      return cmdBootCheck(o);
+    case 'firmware-update':
+      return cmdFirmwareUpdate(o, rest[0], rest[1]);
     case 'dict':
       return cmdDict(o, rest[0]);
     case 'get':
