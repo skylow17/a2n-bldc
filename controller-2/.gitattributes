@@ -1,0 +1,9 @@
+# Les fins de ligne restent en LF dans l'arbre de travail, y compris sous Windows.
+# Un Makefile en CRLF casse les continuations de ligne de façon silencieuse, et un
+# linker script en CRLF pose les mêmes problèmes : on ne laisse pas git décider.
+* text=auto eol=lf
+
+*.bin  binary
+*.hex  binary
+*.elf  binary
+*.pdf  binary
