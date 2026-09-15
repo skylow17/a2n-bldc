@@ -1,0 +1,1923 @@
+<title>A2N BLDC Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Semi+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<style>
+:root{
+  --bg:#0C0F13; --panel:#14181E; --panel-2:#1B2028; --raise:#222832;
+  --line:#2A313B; --line-soft:#1F252D;
+  --fg:#E6EAF0; --fg-2:#96A0AF; --fg-3:#636D7B;
+  --accent:#F0A02C; --accent-dim:#8A5E1B; --accent-ghost:rgba(240,160,44,.12);
+  --ok:#4CAF6D; --fault:#E35D5D; --info:#4EA8DE;
+  --ch1:#E8C547; --ch2:#4EC9E0; --ch3:#D06BC9; --ch4:#6FCF7F;
+  --ch5:#E8804F; --ch6:#7F8FE8; --ch7:#E86F8C; --ch8:#9FD64E;
+  --r:4px;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Consolas,monospace;
+  --ui:"Barlow","Segoe UI",system-ui,sans-serif;
+  --cond:"Barlow Semi Condensed","Barlow","Segoe UI",system-ui,sans-serif;
+}
+.app[data-theme="light"]{
+  --bg:#DDE1E7; --panel:#F4F6F8; --panel-2:#E9ECF1; --raise:#FFFFFF;
+  --line:#C3CAD4; --line-soft:#D8DDE4;
+  --fg:#181D24; --fg-2:#525C6A; --fg-3:#7D8795;
+  --accent:#B96E00; --accent-dim:#E0B77A; --accent-ghost:rgba(185,110,0,.12);
+  --ok:#2E7D4F; --fault:#C0392F; --info:#1F6FB2;
+  --ch1:#8F7100; --ch2:#0E7C99; --ch3:#96328D; --ch4:#2E7D4F;
+  --ch5:#B2521F; --ch6:#3E4FA8; --ch7:#B23256; --ch8:#5A8210;
+}
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--ui);font-size:14px;line-height:1.5;
+  -webkit-font-smoothing:antialiased;padding:22px 20px 40px}
+
+/* ---------- page chrome around the mockup ---------- */
+.sheet{max-width:1560px;margin:0 auto}
+.sheet-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 16px;margin-bottom:14px;
+  padding-bottom:12px;border-bottom:1px solid var(--line-soft)}
+.sheet-head h1{font-family:var(--cond);font-size:20px;font-weight:700;letter-spacing:.09em;
+  text-transform:uppercase;margin:0;text-wrap:balance}
+.sheet-head .dot{color:var(--accent)}
+.sheet-head p{margin:0;color:var(--fg-3);font-size:13px;max-width:62ch}
+.sheet-note{margin:16px 0 0;color:var(--fg-3);font-size:12.5px;max-width:82ch}
+.sheet-note code{font-family:var(--mono);color:var(--fg-2);font-size:12px}
+.sheet-note b{color:var(--fg-2);font-weight:500}
+
+/* ---------- app shell ---------- */
+.frame-scroll{overflow-x:auto;padding-bottom:6px}
+.app{position:relative;min-width:1180px;height:900px;display:flex;flex-direction:column;
+  background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:6px;overflow:hidden;
+  box-shadow:0 18px 50px rgba(0,0,0,.42)}
+
+/* top status bar */
+.topbar{display:flex;align-items:center;gap:14px;height:52px;flex:0 0 52px;padding:0 14px;
+  background:var(--panel-2);border-bottom:1px solid var(--line);z-index:3}
+.brand{display:flex;align-items:baseline;gap:7px;padding-right:14px;border-right:1px solid var(--line)}
+.brand b{font-family:var(--cond);font-weight:700;font-size:17px;letter-spacing:.14em;color:var(--accent)}
+.brand span{font-family:var(--cond);font-weight:600;font-size:11px;letter-spacing:.17em;
+  text-transform:uppercase;color:var(--fg-3)}
+
+.conn{display:flex;align-items:center;gap:9px;height:32px;padding:0 10px;background:var(--panel);
+  border:1px solid var(--line);border-radius:var(--r);font-family:var(--mono);font-size:12px}
+.conn .lamp{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 7px var(--ok)}
+.conn .sep{color:var(--fg-3)}
+.conn .caret{color:var(--fg-3);font-size:10px;margin-left:2px}
+.meta{font-family:var(--mono);font-size:11.5px;color:var(--fg-3);display:flex;gap:14px}
+.meta b{color:var(--fg-2);font-weight:500}
+.topbar .spacer{flex:1}
+
+.state{display:flex;align-items:center;gap:8px;height:32px;padding:0 13px;border-radius:var(--r);
+  font-family:var(--cond);font-weight:700;font-size:13px;letter-spacing:.14em;text-transform:uppercase;
+  background:var(--accent-ghost);color:var(--accent);border:1px solid var(--accent-dim)}
+.state .bead{width:8px;height:8px;border-radius:50%;background:var(--accent);
+  box-shadow:0 0 9px var(--accent);animation:pulse 1.9s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.34}}
+
+.ai{display:flex;align-items:center;gap:9px;height:32px;padding:0 11px 0 10px;border-radius:var(--r);
+  background:var(--panel);border:1px solid var(--line);cursor:pointer;color:var(--fg-2);
+  font-family:var(--cond);font-weight:600;font-size:12px;letter-spacing:.13em;text-transform:uppercase}
+.ai .sw{width:30px;height:16px;border-radius:9px;background:var(--line);position:relative;transition:background .16s}
+.ai .sw::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;
+  background:var(--fg-3);transition:transform .16s,background .16s}
+.ai[aria-pressed="true"]{border-color:var(--accent-dim);color:var(--accent);background:var(--accent-ghost)}
+.ai[aria-pressed="true"] .sw{background:var(--accent-dim)}
+.ai[aria-pressed="true"] .sw::after{transform:translateX(14px);background:var(--accent)}
+
+.estop{height:34px;padding:0 20px;border:1px solid #7E2B2B;border-radius:var(--r);cursor:pointer;
+  background:linear-gradient(180deg,#B53B3B,#8E2B2B);color:#FFECEC;
+  font-family:var(--cond);font-weight:700;font-size:14px;letter-spacing:.2em;text-transform:uppercase}
+.estop:hover{background:linear-gradient(180deg,#C94444,#9E3030)}
+
+.icon-btn{width:32px;height:32px;display:grid;place-items:center;border-radius:var(--r);cursor:pointer;
+  background:var(--panel);border:1px solid var(--line);color:var(--fg-2)}
+.icon-btn:hover{color:var(--fg);border-color:var(--fg-3)}
+
+.body{flex:1;display:flex;min-height:0}
+
+/* nav rail */
+.rail{flex:0 0 92px;background:var(--panel-2);border-right:1px solid var(--line);
+  display:flex;flex-direction:column;padding:10px 0;gap:2px}
+.rail button{display:flex;flex-direction:column;align-items:center;gap:5px;padding:11px 4px;
+  background:none;border:0;border-left:2px solid transparent;cursor:pointer;color:var(--fg-3);
+  font-family:var(--cond);font-weight:600;font-size:11px;letter-spacing:.1em;text-transform:uppercase}
+.rail button:hover{color:var(--fg-2);background:rgba(255,255,255,.03)}
+.rail button[aria-current="page"]{color:var(--accent);border-left-color:var(--accent);background:var(--accent-ghost)}
+.rail svg{width:19px;height:19px;stroke:currentColor;fill:none;stroke-width:1.6;
+  stroke-linecap:round;stroke-linejoin:round}
+.rail .rail-gap{flex:1}
+
+.stage{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0}
+.view{flex:1;min-height:0;display:none;overflow:hidden}
+.view[data-active]{display:flex}
+
+/* panes */
+.col{display:flex;flex-direction:column;min-height:0;min-width:0}
+.pane{background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+.pane:last-child{border-right:0}
+.pane-h{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:10px;
+  height:34px;padding:0 12px;border-bottom:1px solid var(--line-soft);background:var(--panel-2)}
+.pane-h h2{margin:0;font-family:var(--cond);font-weight:700;font-size:11.5px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--fg-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pane-b{flex:1;min-height:0;overflow:auto;padding:12px}
+.pane.hidden{display:none}
+
+/* form atoms */
+.lab{display:block;font-family:var(--cond);font-weight:600;font-size:11px;letter-spacing:.13em;
+  text-transform:uppercase;color:var(--fg-3);margin-bottom:5px}
+.field{display:flex;align-items:center;gap:0;margin-bottom:11px}
+.field input{flex:1;min-width:0;height:30px;padding:0 9px;background:var(--bg);color:var(--fg);
+  border:1px solid var(--line);border-radius:var(--r) 0 0 var(--r);font-family:var(--mono);font-size:13px;
+  text-align:right;font-variant-numeric:tabular-nums}
+.field .unit{height:30px;min-width:52px;padding:0 9px;display:grid;place-items:center;
+  background:var(--panel-2);border:1px solid var(--line);border-left:0;border-radius:0 var(--r) var(--r) 0;
+  font-family:var(--mono);font-size:11.5px;color:var(--fg-3)}
+input:focus-visible,select:focus-visible,button:focus-visible,[tabindex]:focus-visible{
+  outline:2px solid var(--accent);outline-offset:2px}
+
+.segment{display:flex;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;margin-bottom:14px}
+.segment button{flex:1;height:30px;background:var(--bg);border:0;border-right:1px solid var(--line);cursor:pointer;
+  color:var(--fg-3);font-family:var(--cond);font-weight:600;font-size:11.5px;letter-spacing:.09em;
+  text-transform:uppercase;white-space:nowrap;padding:0 4px}
+.segment button:last-child{border-right:0}
+.segment button:hover{color:var(--fg-2)}
+.segment button[aria-pressed="true"]{background:var(--accent-ghost);color:var(--accent)}
+
+.btn{height:30px;padding:0 13px;border-radius:var(--r);cursor:pointer;background:var(--panel-2);
+  border:1px solid var(--line);color:var(--fg-2);
+  font-family:var(--cond);font-weight:600;font-size:12px;letter-spacing:.1em;text-transform:uppercase}
+.btn:hover{color:var(--fg);border-color:var(--fg-3)}
+.btn.primary{background:var(--accent-ghost);border-color:var(--accent-dim);color:var(--accent)}
+.btn.wide{width:100%}
+.btn-row{display:flex;gap:7px;margin-bottom:12px}
+.rule{height:1px;background:var(--line-soft);margin:15px 0 14px}
+
+/* ---------- 360° position dial ---------- */
+.dial-wrap{display:flex;flex-direction:column;align-items:center;margin-bottom:12px}
+.dial{position:relative;width:100%;max-width:206px;aspect-ratio:1;cursor:grab;touch-action:none}
+.dial:active{cursor:grabbing}
+.dial svg{width:100%;height:100%;display:block;overflow:visible}
+.dial .track{fill:none;stroke:var(--line);stroke-width:9}
+.dial .arc{fill:none;stroke:var(--accent);stroke-width:9;stroke-linecap:round;opacity:.85}
+.dial .tick{stroke:var(--line);stroke-width:1}
+.dial .tick.major{stroke:var(--fg-3)}
+.dial .tlab{fill:var(--fg-3);font-family:var(--cond);font-size:10px;font-weight:600;
+  letter-spacing:.08em;text-anchor:middle;dominant-baseline:middle}
+.dial .needle{stroke:var(--ch1);stroke-width:2;stroke-linecap:round}
+.dial .hub{fill:var(--panel-2);stroke:var(--line)}
+.dial .knob{fill:var(--accent);stroke:var(--panel);stroke-width:2.5}
+.dial-read{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;pointer-events:none;gap:1px}
+.dial-read b{font-family:var(--mono);font-size:22px;font-weight:500;font-variant-numeric:tabular-nums;color:var(--accent)}
+.dial-read span{font-family:var(--cond);font-size:10px;font-weight:600;letter-spacing:.15em;
+  text-transform:uppercase;color:var(--fg-3)}
+.dial-read em{font-family:var(--mono);font-size:11px;font-style:normal;color:var(--ch1);
+  font-variant-numeric:tabular-nums}
+.dial-hint{font-size:11px;color:var(--fg-3);margin:0 0 12px;text-align:center}
+
+/* jog + sequence */
+.jog{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:12px}
+.jog button{height:42px;background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r);
+  cursor:pointer;color:var(--fg);font-family:var(--mono);font-size:19px}
+.jog button:hover{border-color:var(--accent-dim);color:var(--accent)}
+.seq{border:1px solid var(--line-soft);border-radius:var(--r);overflow:hidden;margin-bottom:11px}
+.seq div{display:flex;justify-content:space-between;gap:8px;padding:6px 9px;
+  font-family:var(--mono);font-size:12px;color:var(--fg-2);border-bottom:1px solid var(--line-soft)}
+.seq div:last-child{border-bottom:0}
+.seq div.on{background:var(--accent-ghost);color:var(--accent)}
+.seq .n{color:var(--fg-3)}
+
+/* ---------- detachable panel ---------- */
+.float{position:absolute;top:74px;left:118px;width:302px;max-height:calc(100% - 120px);
+  display:flex;flex-direction:column;z-index:20;background:var(--panel);
+  border:1px solid var(--accent-dim);border-radius:6px;overflow:hidden;
+  box-shadow:0 22px 56px rgba(0,0,0,.55)}
+.float-h{flex:0 0 32px;display:flex;align-items:center;gap:8px;padding:0 6px 0 11px;cursor:grab;
+  background:var(--accent-ghost);border-bottom:1px solid var(--accent-dim);touch-action:none}
+.float-h.dragging{cursor:grabbing}
+.float-h h2{flex:1;margin:0;font-family:var(--cond);font-weight:700;font-size:11.5px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--accent)}
+.float-h .grip{display:flex;gap:2px}
+.float-h .grip i{width:2px;height:11px;background:var(--accent-dim);border-radius:1px}
+.float .pane{border-right:0;flex:1;min-height:0}
+.float .pane-h{display:none}
+.mini{height:22px;padding:0 9px;border-radius:3px;cursor:pointer;background:transparent;
+  border:1px solid transparent;color:var(--accent);
+  font-family:var(--cond);font-weight:600;font-size:11px;letter-spacing:.11em;text-transform:uppercase}
+.mini:hover{border-color:var(--accent-dim)}
+
+/* plots (control view) */
+.plots{display:flex;flex-direction:column;gap:1px;background:var(--line-soft)}
+.plot{background:var(--panel);position:relative;flex:1;min-height:0;overflow:hidden}
+/* sizing canvases are taken out of flow: their intrinsic size must never feed back
+   into the flex layout that determines their own size */
+.plot canvas{position:absolute;inset:0;display:block;width:100%;height:100%}
+.plot-tag{position:absolute;top:7px;left:10px;display:flex;align-items:center;gap:11px;
+  font-family:var(--cond);font-weight:600;font-size:11px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--fg-3);pointer-events:none}
+.plot-tag i{display:inline-flex;align-items:center;gap:5px;font-style:normal}
+.plot-tag i::before{content:"";width:13px;height:2px;border-radius:1px;background:currentColor}
+.plot-val{position:absolute;top:7px;right:10px;font-family:var(--mono);font-size:12px;
+  font-variant-numeric:tabular-nums;color:var(--fg-2);pointer-events:none}
+
+/* readout tiles */
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+.tile{background:var(--panel-2);border:1px solid var(--line-soft);border-radius:var(--r);padding:8px 9px}
+.tile .k{font-family:var(--cond);font-weight:600;font-size:10.5px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--fg-3)}
+.tile .v{font-family:var(--mono);font-size:19px;font-weight:500;font-variant-numeric:tabular-nums;
+  line-height:1.25;margin-top:1px}
+.tile .v small{font-size:11px;color:var(--fg-3);margin-left:3px;font-weight:400}
+.tile.span{grid-column:1/-1}
+
+.flags{display:flex;flex-direction:column;gap:4px}
+.flag{display:flex;align-items:center;justify-content:space-between;gap:9px;padding:5px 9px;
+  border:1px solid var(--line-soft);border-radius:var(--r);background:var(--panel-2);
+  font-family:var(--mono);font-size:12px;color:var(--fg-2)}
+.flag b{font-weight:500;font-family:var(--cond);font-size:11px;letter-spacing:.11em;
+  text-transform:uppercase;color:var(--fg-3)}
+.pill{padding:1px 7px;border-radius:9px;font-family:var(--cond);font-weight:700;font-size:10px;
+  letter-spacing:.11em;text-transform:uppercase}
+.pill.ok{background:rgba(76,175,109,.14);color:var(--ok)}
+.pill.bad{background:rgba(227,93,93,.15);color:var(--fault)}
+.pill.warn{background:var(--accent-ghost);color:var(--accent)}
+.pill.idle{background:var(--line-soft);color:var(--fg-3)}
+
+/* tables */
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;font-family:var(--cond);font-weight:600;font-size:10.5px;letter-spacing:.13em;
+  text-transform:uppercase;color:var(--fg-3);padding:0 9px 7px;border-bottom:1px solid var(--line);
+  position:sticky;top:0;background:var(--panel)}
+td{padding:6px 9px;border-bottom:1px solid var(--line-soft);font-family:var(--mono);font-size:12.5px;
+  font-variant-numeric:tabular-nums;color:var(--fg-2)}
+td.name{color:var(--fg);font-size:12.5px}
+td.num{text-align:right}
+td.dim{color:var(--fg-3)}
+tr.mod td{background:var(--accent-ghost)}
+tr.mod td.num.edit{color:var(--accent)}
+.dot-s{display:inline-block;width:7px;height:7px;border-radius:50%;vertical-align:middle}
+.dot-s.sync{background:var(--ok)}
+.dot-s.mod{background:var(--accent)}
+.dot-s.ro{background:var(--fg-3);opacity:.5}
+
+.tree{display:flex;flex-direction:column;gap:1px}
+.tree button{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;
+  background:none;border:0;border-left:2px solid transparent;cursor:pointer;text-align:left;
+  color:var(--fg-2);font-family:var(--ui);font-size:13px}
+.tree button:hover{background:rgba(255,255,255,.03);color:var(--fg)}
+.tree button[aria-current="true"]{background:var(--accent-ghost);color:var(--accent);border-left-color:var(--accent)}
+.tree button span{font-family:var(--mono);font-size:11px;color:var(--fg-3)}
+.search{width:100%;height:30px;padding:0 9px;margin-bottom:10px;background:var(--bg);color:var(--fg);
+  border:1px solid var(--line);border-radius:var(--r);font-family:var(--mono);font-size:12.5px}
+
+.rlist{display:flex;flex-direction:column;gap:6px}
+.rcard{padding:9px 10px;border:1px solid var(--line-soft);border-radius:var(--r);background:var(--panel-2);cursor:pointer}
+.rcard:hover{border-color:var(--fg-3)}
+.rcard[aria-current="true"]{border-color:var(--accent-dim);background:var(--accent-ghost)}
+.rcard b{display:block;font-family:var(--mono);font-size:12.5px;font-weight:500;color:var(--fg)}
+.rcard span{font-family:var(--mono);font-size:11px;color:var(--fg-3)}
+.banner{display:flex;align-items:center;gap:9px;padding:8px 11px;border-radius:var(--r);margin-bottom:12px;
+  background:var(--accent-ghost);border:1px solid var(--accent-dim);color:var(--accent);font-size:12.5px}
+.banner b{font-family:var(--cond);font-weight:700;letter-spacing:.11em;text-transform:uppercase;font-size:11px}
+.delta.up{color:var(--accent)}
+.delta.same{color:var(--fg-3)}
+
+.slots{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px}
+.slot{border:1px solid var(--line);border-radius:var(--r);background:var(--panel-2);padding:12px}
+.slot.active{border-color:var(--ok)}
+.slot h3{margin:0 0 9px;font-family:var(--cond);font-weight:700;font-size:12px;letter-spacing:.15em;
+  text-transform:uppercase;color:var(--fg-2);display:flex;justify-content:space-between;align-items:center}
+.kv{display:flex;justify-content:space-between;gap:10px;padding:3px 0;font-family:var(--mono);
+  font-size:12px;color:var(--fg-2)}
+.kv span{color:var(--fg-3)}
+.bar{height:6px;border-radius:3px;background:var(--line-soft);overflow:hidden;margin:9px 0 6px}
+.bar i{display:block;height:100%;background:var(--accent);border-radius:3px}
+.drop{border:1px dashed var(--line);border-radius:var(--r);padding:20px;text-align:center;color:var(--fg-3);
+  background:var(--bg);font-size:13px}
+.drop b{display:block;font-family:var(--mono);font-size:12.5px;color:var(--fg-2);margin-bottom:3px}
+
+/* ---------- scope ---------- */
+.scope-stage{flex:1 1 0;display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--panel)}
+.legend{flex:0 0 auto;display:flex;align-items:center;flex-wrap:wrap;gap:5px;padding:6px 12px;
+  border-bottom:1px solid var(--line-soft);background:var(--panel-2)}
+.legend .lg{display:flex;align-items:center;gap:6px;height:24px;padding:0 9px 0 7px;border-radius:12px;
+  cursor:pointer;background:var(--panel);border:1px solid var(--line);color:var(--fg-3);
+  font-family:var(--mono);font-size:11.5px}
+.legend .lg i{width:11px;height:3px;border-radius:2px;background:currentColor;opacity:.35}
+.legend .lg[aria-pressed="true"]{color:var(--fg);border-color:currentColor}
+.legend .lg[aria-pressed="true"] i{opacity:1}
+.legend .lg em{font-style:normal;color:var(--fg-3);font-size:10.5px}
+.legend .lgsep{width:1px;height:18px;background:var(--line);margin:0 4px}
+.scope-plot{flex:1 1 0;min-height:120px;position:relative;background:var(--panel);overflow:hidden}
+.scope-plot canvas{position:absolute;inset:0;display:block;width:100%;height:100%;cursor:crosshair}
+.scope-hud{position:absolute;top:8px;right:12px;padding:5px 9px;border-radius:var(--r);
+  background:var(--panel-2);border:1px solid var(--line);font-family:var(--mono);font-size:11.5px;
+  font-variant-numeric:tabular-nums;color:var(--fg-2);pointer-events:none;display:none;line-height:1.6}
+.scope-hud.on{display:block}
+.scope-hud b{color:var(--accent);font-weight:500}
+.brush{flex:0 0 62px;min-height:0;position:relative;overflow:hidden;
+  border-top:1px solid var(--line-soft);background:var(--panel-2)}
+.brush canvas{position:absolute;inset:0;display:block;width:100%;height:100%;
+  cursor:ew-resize;touch-action:none}
+.brush-lab{position:absolute;left:12px;top:5px;font-family:var(--cond);font-weight:600;font-size:10px;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--fg-3);pointer-events:none}
+.measbar{flex:0 0 auto;display:flex;align-items:center;flex-wrap:wrap;gap:6px;padding:7px 12px;
+  border-top:1px solid var(--line-soft);background:var(--panel)}
+.mchip{display:flex;align-items:baseline;gap:7px;padding:3px 10px;border-radius:var(--r);
+  background:var(--panel-2);border:1px solid var(--line-soft);
+  font-family:var(--mono);font-size:12px;font-variant-numeric:tabular-nums;color:var(--fg)}
+.mchip span{font-family:var(--cond);font-weight:600;font-size:10px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--fg-3)}
+.mchip.hot{border-color:var(--accent-dim);background:var(--accent-ghost)}
+.mchip.hot b{color:var(--accent);font-weight:500}
+.rec-block{display:none}
+.rec-block.on{display:block}
+.rec-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--fault);
+  margin-right:6px;vertical-align:middle;animation:pulse 1.3s ease-in-out infinite}
+
+/* dashboard */
+.view.dash[data-active]{display:grid}
+.dash{grid-template-columns:repeat(4,1fr);gap:10px;padding:14px;align-content:start;overflow:auto}
+.card{background:var(--panel-2);border:1px solid var(--line-soft);border-radius:var(--r);padding:12px}
+.card h3{margin:0 0 10px;font-family:var(--cond);font-weight:700;font-size:11px;letter-spacing:.15em;
+  text-transform:uppercase;color:var(--fg-3)}
+.card.w2{grid-column:span 2}
+.big{font-family:var(--mono);font-size:26px;font-weight:500;font-variant-numeric:tabular-nums}
+.big small{font-size:12px;color:var(--fg-3);margin-left:4px}
+.spark{width:100%;height:36px;display:block;margin-top:6px}
+
+/* log console */
+.console{flex:0 0 172px;min-height:0;display:flex;flex-direction:column;
+  border-top:1px solid var(--line);background:var(--panel)}
+.console.collapsed{flex-basis:34px}
+.console.collapsed .log{display:none}
+.console-h{flex:0 0 34px;display:flex;align-items:center;gap:9px;padding:0 12px;background:var(--panel-2);
+  border-bottom:1px solid var(--line-soft)}
+.console-h h2{margin:0;font-family:var(--cond);font-weight:700;font-size:11.5px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--fg-2)}
+.chips{display:flex;gap:5px;flex-wrap:wrap}
+.chip{padding:2px 8px;border-radius:9px;border:1px solid var(--line);background:var(--panel);cursor:pointer;
+  color:var(--fg-3);font-family:var(--cond);font-weight:600;font-size:10.5px;letter-spacing:.11em;
+  text-transform:uppercase;white-space:nowrap}
+.chip:hover{color:var(--fg-2)}
+.chip[aria-pressed="true"]{border-color:var(--accent-dim);color:var(--accent);background:var(--accent-ghost)}
+.chip[disabled]{opacity:.35;cursor:default}
+.log{flex:1;min-height:0;overflow:auto;padding:6px 12px 10px;font-family:var(--mono);font-size:12px;line-height:1.75}
+.log p{margin:0;display:flex;gap:10px;white-space:pre}
+.log .t{color:var(--fg-3)}
+.log .src{width:34px;flex:0 0 34px;font-weight:600;font-size:10.5px;letter-spacing:.06em}
+.log .src.dev{color:var(--info)}
+.log .src.gui{color:var(--fg-3)}
+.log .src.mcp{color:var(--accent)}
+.log .m{color:var(--fg-2)}
+.log .m.err{color:var(--fault)}
+.log .m.ok{color:var(--ok)}
+
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+
+<div class="sheet">
+  <div class="sheet-head">
+    <h1>A2N BLDC Console <span class="dot">/</span> maquette v0.2</h1>
+    <p>Référence visuelle pour <code>a2n-bldc-interface</code>. Les six vues sont navigables ; les
+      valeurs et les courbes sont simulées mais conformes au protocole décrit dans
+      <code>docs/protocol.md</code>.</p>
+  </div>
+
+  <div class="frame-scroll">
+  <div class="app" id="app" data-theme="dark">
+
+    <!-- ======================= TOP BAR ======================= -->
+    <header class="topbar">
+      <div class="brand"><b>A2N</b><span>BLDC Console</span></div>
+
+      <div class="conn" role="button" tabindex="0">
+        <i class="lamp"></i>COM7<span class="sep">·</span>A2N-BLDC<span class="sep">·</span>fw 2.0.3<i class="caret">▼</i>
+      </div>
+
+      <div class="meta">
+        <span>dict <b>a3f1c920</b></span>
+        <span>telem <b>247 Hz</b></span>
+        <span>loop <b>31 %</b></span>
+      </div>
+
+      <div class="spacer"></div>
+
+      <div class="state"><i class="bead"></i>Run</div>
+
+      <button class="ai" id="aiToggle" aria-pressed="true"><i class="sw"></i>AI control</button>
+
+      <button class="icon-btn" id="themeBtn" title="Light / dark theme" aria-label="Toggle theme">
+        <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6"
+             stroke-linecap="round"><circle cx="12" cy="12" r="4"></circle>
+          <path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"></path></svg>
+      </button>
+
+      <button class="estop">Stop</button>
+    </header>
+
+    <!-- ======================= BODY ======================= -->
+    <div class="body">
+      <nav class="rail" id="rail">
+        <button data-go="dash" aria-current="false">
+          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="8"></rect><rect x="14" y="3" width="7" height="5"></rect><rect x="14" y="11" width="7" height="10"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+          Dashboard</button>
+        <button data-go="control" aria-current="page">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"></circle><path d="M12 12l4.5-3.2"></path><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"></circle></svg>
+          Control</button>
+        <button data-go="tuning" aria-current="false">
+          <svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"></path><circle cx="16" cy="7" r="2.4"></circle><circle cx="10" cy="17" r="2.4"></circle></svg>
+          Tuning</button>
+        <button data-go="recipes" aria-current="false">
+          <svg viewBox="0 0 24 24"><path d="M5 4h9l5 5v11H5z"></path><path d="M14 4v5h5M8.5 13h7M8.5 16.5h4.5"></path></svg>
+          Recipes</button>
+        <button data-go="scope" aria-current="false">
+          <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="1.5"></rect><path d="M6 14.5l2.5 0 1.6-5.5 2 8.5 1.8-6 1.4 3h2.7"></path></svg>
+          Scope</button>
+        <button data-go="firmware" aria-current="false">
+          <svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5"></rect><path d="M9.5 3v3M14.5 3v3M9.5 18v3M14.5 18v3M3 9.5h3M3 14.5h3M18 9.5h3M18 14.5h3"></path></svg>
+          Firmware</button>
+        <div class="rail-gap"></div>
+      </nav>
+
+      <div class="stage">
+
+        <!-- ------------------- DASHBOARD ------------------- -->
+        <section class="view dash" data-view="dash">
+          <div class="card w2">
+            <h3>Device</h3>
+            <div class="kv"><span>Product</span>A2N-BLDC</div>
+            <div class="kv"><span>Firmware</span>2.0.3</div>
+            <div class="kv"><span>Protocol</span>2.0</div>
+            <div class="kv"><span>Param dict</span>a3f1c920 · 74 params</div>
+            <div class="kv"><span>MCU UID</span>0x0043002E 3137510B</div>
+            <div class="kv"><span>Capabilities</span>scope · nvm · can · encoder_inc</div>
+          </div>
+          <div class="card w2">
+            <h3>Motor</h3>
+            <div class="kv"><span>Pole pairs</span>7</div>
+            <div class="kv"><span>Phase R</span>0.348 Ω</div>
+            <div class="kv"><span>Phase L</span>121.4 µH</div>
+            <div class="kv"><span>Encoder</span>AS5600 · I²C4</div>
+            <div class="kv"><span>Electrical offset</span>2.417 rad</div>
+            <div class="kv"><span>Calibrated</span>2026-09-14 09:12</div>
+          </div>
+
+          <div class="card"><h3>Bus voltage</h3><div class="big">23.84<small>V</small></div>
+            <canvas class="spark" data-spark="vbus"></canvas></div>
+          <div class="card"><h3>Motor rail</h3><div class="big">23.79<small>V</small></div>
+            <canvas class="spark" data-spark="vmot"></canvas></div>
+          <div class="card"><h3>MCU temp</h3><div class="big">41.2<small>°C</small></div>
+            <canvas class="spark" data-spark="temp"></canvas></div>
+          <div class="card"><h3>Loop load</h3><div class="big">31<small>%</small></div>
+            <canvas class="spark" data-spark="load"></canvas></div>
+
+          <div class="card w2">
+            <h3>Rails &amp; protection</h3>
+            <div class="flags">
+              <div class="flag"><b>5 V rail</b><span>5.02 V <span class="pill ok">ok</span></span></div>
+              <div class="flag"><b>3V3 rail</b><span>3.31 V <span class="pill ok">ok</span></span></div>
+              <div class="flag"><b>DRV8304 nFAULT</b><span class="pill ok">clear</span></div>
+              <div class="flag"><b>Link watchdog</b><span>250 ms <span class="pill ok">armed</span></span></div>
+            </div>
+          </div>
+          <div class="card w2">
+            <h3>Fault counters since boot</h3>
+            <div class="kv"><span>Overcurrent</span>0</div>
+            <div class="kv"><span>Overtemperature</span>0</div>
+            <div class="kv"><span>Undervoltage</span>2 — last 11:02:47</div>
+            <div class="kv"><span>Encoder loss</span>0</div>
+            <div class="kv"><span>Watchdog timeout</span>1 — last 10:41:09</div>
+            <div class="rule"></div>
+            <div class="kv"><span>Active recipe</span>gimbal-2208-14pp.a2nrcp</div>
+          </div>
+        </section>
+
+        <!-- ------------------- CONTROL ------------------- -->
+        <section class="view" data-view="control" data-active id="controlView">
+          <div class="pane" id="cmdPane" style="flex:0 0 288px">
+            <div class="pane-h">
+              <h2>Command</h2>
+              <button class="chip" id="detachBtn" title="Detach into a floating window">Detach ⧉</button>
+            </div>
+            <div class="pane-b">
+              <span class="lab">Control mode</span>
+              <div class="segment">
+                <button aria-pressed="false">Torque</button>
+                <button aria-pressed="false">Vel</button>
+                <button aria-pressed="true">Pos</button>
+                <button aria-pressed="false">Open</button>
+              </div>
+
+              <span class="lab">Target position</span>
+              <div class="dial-wrap">
+                <div class="dial" id="dial" tabindex="0" role="slider" aria-label="Target position"
+                     aria-valuemin="0" aria-valuemax="360" aria-valuenow="180" aria-valuetext="180 degrees">
+                  <svg viewBox="0 0 200 200" id="dialSvg" aria-hidden="true"></svg>
+                  <div class="dial-read">
+                    <span>Target</span>
+                    <b id="dialVal">180.0°</b>
+                    <em id="dialNow">now 128.4°</em>
+                  </div>
+                </div>
+              </div>
+              <p class="dial-hint">Drag the ring, or hold <b>Shift</b> to snap to 15°</p>
+              <div class="field"><input id="posTarget" value="180.0"><i class="unit">deg</i></div>
+
+              <span class="lab">Direction</span>
+              <div class="segment">
+                <button aria-pressed="true">Shortest</button>
+                <button aria-pressed="false">CW</button>
+                <button aria-pressed="false">CCW</button>
+              </div>
+
+              <div class="rule"></div>
+              <span class="lab">Motion profile</span>
+              <div class="field"><input value="31.400"><i class="unit">rad/s</i></div>
+              <div class="field"><input value="120.00"><i class="unit">rad/s²</i></div>
+              <div class="field"><input value="180.00"><i class="unit">rad/s²</i></div>
+              <div class="field"><input value="2400.0"><i class="unit">rad/s³</i></div>
+
+              <div class="btn-row">
+                <button class="btn primary" style="flex:1">Go</button>
+                <button class="btn" style="flex:1">Hold</button>
+              </div>
+
+              <div class="rule"></div>
+              <span class="lab">Jog · 5.00 deg</span>
+              <div class="jog"><button>−</button><button>+</button></div>
+
+              <span class="lab">Test sequence</span>
+              <div class="seq">
+                <div><span class="n">1</span><span>0.00 deg</span><span>dwell 0.5 s</span></div>
+                <div class="on"><span class="n">2</span><span>180.00 deg</span><span>dwell 0.5 s</span></div>
+                <div><span class="n">3</span><span>90.00 deg</span><span>dwell 1.0 s</span></div>
+                <div><span class="n">4</span><span>0.00 deg</span><span>dwell 0.5 s</span></div>
+              </div>
+              <div class="btn-row">
+                <button class="btn" style="flex:1">Loop ×20</button>
+                <button class="btn" style="flex:1">Stop seq</button>
+              </div>
+
+              <div class="rule"></div>
+              <span class="lab">Calibration</span>
+              <button class="btn wide" style="margin-bottom:7px">Align &amp; encoder offset</button>
+              <button class="btn wide" style="margin-bottom:7px">Identify R / L</button>
+              <button class="btn wide">Detect pole pairs</button>
+            </div>
+          </div>
+
+          <div class="pane col" style="flex:1">
+            <div class="pane-h">
+              <h2>Live telemetry</h2>
+              <div class="chips">
+                <button class="chip" id="dockHint" style="display:none">Command detached — dock ⧉</button>
+                <button class="chip" aria-pressed="true">5 s</button>
+                <button class="chip" aria-pressed="false">30 s</button>
+                <button class="chip" aria-pressed="false">2 min</button>
+                <button class="chip" aria-pressed="false">Pause</button>
+                <button class="chip" aria-pressed="false">Export csv</button>
+              </div>
+            </div>
+            <div class="plots" style="flex:1;min-height:0">
+              <div class="plot">
+                <canvas data-strip="pos"></canvas>
+                <div class="plot-tag"><i style="color:var(--ch1)">pos_rad</i><i style="color:var(--ch2)">pos_ref_rad</i></div>
+                <div class="plot-val" data-val="pos"></div>
+              </div>
+              <div class="plot">
+                <canvas data-strip="vel"></canvas>
+                <div class="plot-tag"><i style="color:var(--ch1)">vel_rad_s</i><i style="color:var(--ch2)">vel_ref_rad_s</i></div>
+                <div class="plot-val" data-val="vel"></div>
+              </div>
+              <div class="plot">
+                <canvas data-strip="iq"></canvas>
+                <div class="plot-tag"><i style="color:var(--ch3)">iq_a</i><i style="color:var(--ch2)">iq_ref_a</i></div>
+                <div class="plot-val" data-val="iq"></div>
+              </div>
+              <div class="plot">
+                <canvas data-strip="bus"></canvas>
+                <div class="plot-tag"><i style="color:var(--ch4)">vbus_v</i><i style="color:var(--ch1)">temp_c</i></div>
+                <div class="plot-val" data-val="bus"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="pane" style="flex:0 0 238px">
+            <div class="pane-h"><h2>Readout</h2></div>
+            <div class="pane-b">
+              <div class="tiles">
+                <div class="tile span"><div class="k">Position</div><div class="v" data-live="pos">128.44<small>deg</small></div></div>
+                <div class="tile span"><div class="k">Velocity</div><div class="v" data-live="vel">31.40<small>rad/s</small></div></div>
+                <div class="tile"><div class="k">Iq</div><div class="v" data-live="iq">1.82<small>A</small></div></div>
+                <div class="tile"><div class="k">Id</div><div class="v" data-live="id">0.04<small>A</small></div></div>
+                <div class="tile"><div class="k">Vbus</div><div class="v">23.8<small>V</small></div></div>
+                <div class="tile"><div class="k">Temp</div><div class="v">41.2<small>°C</small></div></div>
+                <div class="tile"><div class="k">Duty</div><div class="v">0.42</div></div>
+                <div class="tile"><div class="k">θ elec</div><div class="v">2.91<small>rad</small></div></div>
+              </div>
+              <div class="rule"></div>
+              <span class="lab">Fault flags</span>
+              <div class="flags">
+                <div class="flag"><b>nFAULT</b><span class="pill ok">clear</span></div>
+                <div class="flag"><b>Overcurrent</b><span class="pill ok">clear</span></div>
+                <div class="flag"><b>Overvoltage</b><span class="pill ok">clear</span></div>
+                <div class="flag"><b>Overtemp</b><span class="pill ok">clear</span></div>
+                <div class="flag"><b>Encoder</b><span class="pill ok">clear</span></div>
+                <div class="flag"><b>Watchdog</b><span class="pill warn">armed</span></div>
+              </div>
+              <div class="rule"></div>
+              <span class="lab">Limits in force</span>
+              <div class="flags">
+                <div class="flag"><b>i_max</b><span>5.00 A</span></div>
+                <div class="flag"><b>vel_max</b><span>62.8 rad/s</span></div>
+                <div class="flag"><b>temp_max</b><span>85 °C</span></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ------------------- TUNING ------------------- -->
+        <section class="view" data-view="tuning">
+          <div class="pane" style="flex:0 0 238px">
+            <div class="pane-h"><h2>Groups</h2></div>
+            <div class="pane-b">
+              <input class="search" placeholder="filter parameters…">
+              <div class="tree">
+                <button aria-current="false">Motor <span>6</span></button>
+                <button aria-current="false">Encoder <span>5</span></button>
+                <button aria-current="true">Current loop <span>8</span></button>
+                <button aria-current="false">Velocity loop <span>6</span></button>
+                <button aria-current="false">Position loop <span>5</span></button>
+                <button aria-current="false">Motion profile <span>4</span></button>
+                <button aria-current="false">Limits <span>9</span></button>
+                <button aria-current="false">PWM <span>4</span></button>
+                <button aria-current="false">DRV8304 <span>12</span></button>
+                <button aria-current="false">Telemetry <span>3</span></button>
+              </div>
+              <div class="rule"></div>
+              <p style="font-size:12px;color:var(--fg-3);margin:0">
+                Generated from the firmware parameter dictionary read at connect
+                (<code style="font-family:var(--mono);font-size:11px">a3f1c920</code>). Nothing here is
+                hard-coded in the interface.</p>
+            </div>
+          </div>
+
+          <div class="pane col" style="flex:1">
+            <div class="pane-h">
+              <h2>Current loop</h2>
+              <div class="chips">
+                <button class="chip">Read all</button>
+                <button class="chip" aria-pressed="true">Write 3 changed</button>
+                <button class="chip">Save to NVM</button>
+                <button class="chip">Reset defaults</button>
+              </div>
+            </div>
+            <div class="pane-b" style="padding:12px 0 0">
+              <table>
+                <thead><tr>
+                  <th style="width:24px"></th><th>Parameter</th><th class="num">Value</th>
+                  <th class="num">Device</th><th class="num">Default</th><th class="num">Min</th>
+                  <th class="num">Max</th><th style="width:60px">Unit</th>
+                </tr></thead>
+                <tbody>
+                  <tr class="mod"><td><i class="dot-s mod"></i></td><td class="name">pid.iq.kp</td>
+                    <td class="num edit">0.820</td><td class="num dim">0.500</td><td class="num dim">0.500</td>
+                    <td class="num dim">0.000</td><td class="num dim">20.000</td><td class="dim">—</td></tr>
+                  <tr class="mod"><td><i class="dot-s mod"></i></td><td class="name">pid.iq.ki</td>
+                    <td class="num edit">220.00</td><td class="num dim">120.00</td><td class="num dim">120.00</td>
+                    <td class="num dim">0.00</td><td class="num dim">5000.00</td><td class="dim">—</td></tr>
+                  <tr><td><i class="dot-s sync"></i></td><td class="name">pid.iq.out_max_v</td>
+                    <td class="num">11.900</td><td class="num dim">11.900</td><td class="num dim">12.000</td>
+                    <td class="num dim">0.000</td><td class="num dim">24.000</td><td class="dim">V</td></tr>
+                  <tr><td><i class="dot-s sync"></i></td><td class="name">pid.id.kp</td>
+                    <td class="num">0.820</td><td class="num dim">0.820</td><td class="num dim">0.500</td>
+                    <td class="num dim">0.000</td><td class="num dim">20.000</td><td class="dim">—</td></tr>
+                  <tr><td><i class="dot-s sync"></i></td><td class="name">pid.id.ki</td>
+                    <td class="num">220.00</td><td class="num dim">220.00</td><td class="num dim">120.00</td>
+                    <td class="num dim">0.00</td><td class="num dim">5000.00</td><td class="dim">—</td></tr>
+                  <tr class="mod"><td><i class="dot-s mod"></i></td><td class="name">foc.decoupling</td>
+                    <td class="num edit">1</td><td class="num dim">0</td><td class="num dim">0</td>
+                    <td class="num dim">0</td><td class="num dim">1</td><td class="dim">bool</td></tr>
+                  <tr><td><i class="dot-s ro"></i></td><td class="name">foc.loop_freq_hz</td>
+                    <td class="num dim">20000</td><td class="num dim">20000</td><td class="num dim">20000</td>
+                    <td class="num dim">8000</td><td class="num dim">40000</td><td class="dim">Hz</td></tr>
+                  <tr><td><i class="dot-s sync"></i></td><td class="name">foc.i_filt_hz</td>
+                    <td class="num">1500.0</td><td class="num dim">1500.0</td><td class="num dim">2000.0</td>
+                    <td class="num dim">50.0</td><td class="num dim">8000.0</td><td class="dim">Hz</td></tr>
+                </tbody>
+              </table>
+              <p style="padding:10px 12px;margin:0;font-size:12px;color:var(--fg-3)">
+                <i class="dot-s mod"></i> modified in RAM &nbsp;·&nbsp;
+                <i class="dot-s sync"></i> in sync with device &nbsp;·&nbsp;
+                <i class="dot-s ro"></i> read-only &nbsp;·&nbsp; values persist only after
+                <b style="color:var(--fg-2);font-weight:500">Save to NVM</b>.</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- ------------------- RECIPES ------------------- -->
+        <section class="view" data-view="recipes">
+          <div class="pane" style="flex:0 0 268px">
+            <div class="pane-h"><h2>Recipes</h2>
+              <div class="chips"><button class="chip">New</button><button class="chip">Import</button></div>
+            </div>
+            <div class="pane-b">
+              <div class="rlist">
+                <div class="rcard" aria-current="true">
+                  <b>gimbal-2208-14pp.a2nrcp</b><span>fw 2.0.3 · dict a3f1c920 · 14 Sep 09:41</span>
+                </div>
+                <div class="rcard">
+                  <b>bench-lowcurrent-safe.a2nrcp</b><span>fw 2.0.1 · dict a3f1c920 · 12 Sep 17:05</span>
+                </div>
+                <div class="rcard">
+                  <b>spindle-5010-7pp.a2nrcp</b><span>fw 1.9.8 · dict 7c04ee12 · 02 Sep 11:20</span>
+                </div>
+                <div class="rcard">
+                  <b>step-response-tuning.a2nrcp</b><span>fw 2.0.3 · dict a3f1c920 · 14 Sep 10:58</span>
+                </div>
+              </div>
+              <div class="rule"></div>
+              <button class="btn wide" style="margin-bottom:7px">Save device state as recipe…</button>
+              <button class="btn wide">Reveal folder</button>
+            </div>
+          </div>
+
+          <div class="pane col" style="flex:1">
+            <div class="pane-h">
+              <h2>gimbal-2208-14pp.a2nrcp — diff against device</h2>
+              <div class="chips">
+                <button class="chip" aria-pressed="true">Differences only</button>
+                <button class="chip">Apply 4 values</button>
+                <button class="chip">Apply + save NVM</button>
+              </div>
+            </div>
+            <div class="pane-b" style="padding:12px 0 0">
+              <div style="padding:0 12px">
+                <div class="banner"><b>Dictionary match</b>
+                  <span style="color:var(--fg-2)">a3f1c920 — recipe and device describe the same
+                  configuration shape. 4 of 74 parameters differ.</span></div>
+              </div>
+              <table>
+                <thead><tr>
+                  <th style="width:24px"></th><th>Parameter</th><th class="num">File</th>
+                  <th class="num">Device</th><th class="num">Δ</th><th style="width:60px">Unit</th>
+                </tr></thead>
+                <tbody>
+                  <tr class="mod"><td><i class="dot-s mod"></i></td><td class="name">pid.iq.kp</td>
+                    <td class="num edit">0.820</td><td class="num dim">0.500</td>
+                    <td class="num delta up">+0.320</td><td class="dim">—</td></tr>
+                  <tr class="mod"><td><i class="dot-s mod"></i></td><td class="name">pid.iq.ki</td>
+                    <td class="num edit">220.00</td><td class="num dim">120.00</td>
+                    <td class="num delta up">+100.00</td><td class="dim">—</td></tr>
+                  <tr class="mod"><td><i class="dot-s mod"></i></td><td class="name">pid.pos.kp</td>
+                    <td class="num edit">18.500</td><td class="num dim">12.000</td>
+                    <td class="num delta up">+6.500</td><td class="dim">—</td></tr>
+                  <tr class="mod"><td><i class="dot-s mod"></i></td><td class="name">lim.i_max_a</td>
+                    <td class="num edit">5.000</td><td class="num dim">3.000</td>
+                    <td class="num delta up">+2.000</td><td class="dim">A</td></tr>
+                  <tr><td><i class="dot-s sync"></i></td><td class="name">motor.pole_pairs</td>
+                    <td class="num">7</td><td class="num dim">7</td><td class="num delta same">—</td><td class="dim">—</td></tr>
+                  <tr><td><i class="dot-s sync"></i></td><td class="name">enc.offset_rad</td>
+                    <td class="num">2.417</td><td class="num dim">2.417</td><td class="num delta same">—</td><td class="dim">rad</td></tr>
+                </tbody>
+              </table>
+              <p style="padding:10px 12px;margin:0;font-size:12px;color:var(--fg-3)">
+                <b style="color:var(--accent);font-weight:500">lim.i_max_a</b> raises a safety limit.
+                Applying it is logged explicitly and requires the motor to be disarmed.</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- ------------------- SCOPE ------------------- -->
+        <section class="view" data-view="scope">
+          <div class="pane" id="scopeSetup" style="flex:0 0 244px">
+            <div class="pane-h"><h2>Recording</h2>
+              <button class="chip" id="setupCollapse" title="Hide this panel">◀</button>
+            </div>
+            <div class="pane-b">
+              <span class="lab">Record mode</span>
+              <div class="segment" id="recMode">
+                <button data-rec="trigger" aria-pressed="true">Trigger</button>
+                <button data-rec="motion" aria-pressed="false">On motion</button>
+                <button data-rec="timed" aria-pressed="false">Timed</button>
+              </div>
+
+              <div class="rec-block on" data-block="trigger">
+                <span class="lab">Trigger source</span>
+                <div class="field"><input value="iq_ref_a" style="text-align:left"><i class="unit">sig</i></div>
+                <span class="lab">Edge</span>
+                <div class="segment">
+                  <button aria-pressed="true">Rising</button>
+                  <button aria-pressed="false">Falling</button>
+                  <button aria-pressed="false">Both</button>
+                </div>
+                <span class="lab">Level</span>
+                <div class="field"><input value="1.000"><i class="unit">A</i></div>
+                <span class="lab">Pre-trigger</span>
+                <div class="field"><input value="20"><i class="unit">%</i></div>
+              </div>
+
+              <div class="rec-block" data-block="motion">
+                <span class="lab">Start recording on</span>
+                <div class="segment">
+                  <button aria-pressed="true">Go</button>
+                  <button aria-pressed="false">Jog</button>
+                  <button aria-pressed="false">Seq</button>
+                </div>
+                <p style="font-size:12px;color:var(--fg-3);margin:-4px 0 12px">
+                  The recording arms itself and fires the moment a motion command leaves the interface —
+                  including one issued by the AI agent.</p>
+                <span class="lab">Pre-roll</span>
+                <div class="field"><input value="10"><i class="unit">%</i></div>
+                <span class="lab">Stop after</span>
+                <div class="segment">
+                  <button aria-pressed="true">Move ends</button>
+                  <button aria-pressed="false">Buffer full</button>
+                </div>
+              </div>
+
+              <div class="rec-block" data-block="timed">
+                <span class="lab">Duration</span>
+                <div class="field"><input value="5.000"><i class="unit">s</i></div>
+                <p style="font-size:12px;color:var(--fg-3);margin:-4px 0 12px">
+                  Free-running capture of a fixed length. The whole record is plotted at once — pan and
+                  zoom with the overview strip below the plot.</p>
+              </div>
+
+              <div class="rule"></div>
+              <span class="lab">Sample rate</span>
+              <div class="segment" id="rateSeg">
+                <button aria-pressed="true">20 k</button>
+                <button aria-pressed="false">4 k</button>
+                <button aria-pressed="false">2 k</button>
+              </div>
+              <div class="flags" style="margin-bottom:12px">
+                <div class="flag"><b>Samples</b><span id="infoPts">2 048</span></div>
+                <div class="flag"><b>Record length</b><span id="infoLen">102.4 ms</span></div>
+                <div class="flag"><b>Per sample</b><span id="infoDt">50.0 µs</span></div>
+                <div class="flag"><b>Device RAM</b><span id="infoRam">24.0 kB</span></div>
+              </div>
+
+              <button class="btn primary wide" style="margin-bottom:7px">
+                <span class="rec-dot"></span>Arm capture</button>
+              <button class="btn wide" style="margin-bottom:7px">Export csv</button>
+              <button class="btn wide">Save as reference</button>
+            </div>
+          </div>
+
+          <div class="scope-stage">
+            <div class="pane-h">
+              <h2 id="scopeTitle">Current loop step response — trigger iq_ref_a ↗ 1.000 A — 14 Sep 10:58:22</h2>
+              <div class="chips">
+                <button class="chip" id="showSetup" style="display:none">▶ Setup</button>
+                <button class="chip" id="maxBtn">Maximise plot</button>
+                <button class="chip">Overlay reference</button>
+                <button class="chip">Cursors</button>
+              </div>
+            </div>
+
+            <div class="legend" id="legend">
+              <button class="chip" data-all="1">All</button>
+              <button class="chip" data-all="0">None</button>
+              <i class="lgsep"></i>
+              <!-- channel chips injected here -->
+              <span style="flex:1"></span>
+              <span style="font-family:var(--cond);font-weight:600;font-size:10px;letter-spacing:.14em;
+                           text-transform:uppercase;color:var(--fg-3)">Window</span>
+              <div class="chips" id="winPresets">
+                <button class="chip" data-win="full" aria-pressed="true">Full</button>
+                <button class="chip" data-win="1">1 s</button>
+                <button class="chip" data-win="0.2">200 ms</button>
+                <button class="chip" data-win="0.05">50 ms</button>
+                <button class="chip" data-win="0.01">10 ms</button>
+                <button class="chip" data-win="0.005">5 ms</button>
+                <button class="chip" data-win="0.001">1 ms</button>
+              </div>
+            </div>
+
+            <div class="scope-plot">
+              <canvas id="scopeCanvas"></canvas>
+              <div class="scope-hud" id="scopeHud"></div>
+            </div>
+
+            <div class="brush">
+              <canvas id="brushCanvas"></canvas>
+              <span class="brush-lab">Whole record — drag to pan, edges to resize, wheel over the plot to zoom</span>
+            </div>
+
+            <div class="measbar" id="measbar"></div>
+          </div>
+        </section>
+
+        <!-- ------------------- FIRMWARE ------------------- -->
+        <section class="view" data-view="firmware">
+          <div class="pane col" style="flex:1">
+            <div class="pane-h"><h2>Firmware</h2>
+              <div class="chips"><button class="chip">Read slot info</button><button class="chip">Enter bootloader</button></div>
+            </div>
+            <div class="pane-b">
+              <div class="slots">
+                <div class="slot active">
+                  <h3>Slot A <span class="pill ok">running</span></h3>
+                  <div class="kv"><span>Version</span>2.0.3</div>
+                  <div class="kv"><span>Built</span>2026-09-14 08:55</div>
+                  <div class="kv"><span>Size</span>148 312 B / 237 568 B</div>
+                  <div class="kv"><span>CRC32</span>0x9C41E0B7</div>
+                  <div class="kv"><span>Valid</span>yes · confirmed at boot</div>
+                  <div class="kv"><span>Boot count</span>37</div>
+                </div>
+                <div class="slot">
+                  <h3>Slot B <span class="pill idle">staging</span></h3>
+                  <div class="kv"><span>Version</span>2.0.4-rc1</div>
+                  <div class="kv"><span>Built</span>2026-09-14 11:31</div>
+                  <div class="kv"><span>Size</span>149 004 B / 237 568 B</div>
+                  <div class="kv"><span>CRC32</span>0x2F70AA13</div>
+                  <div class="kv"><span>Valid</span>pending verify</div>
+                  <div class="kv"><span>Boot count</span>0</div>
+                </div>
+              </div>
+
+              <span class="lab">Upload to slot B</span>
+              <div class="drop"><b>a2n-bldc-controller-2.bin</b>149 004 bytes · drop a file or browse</div>
+
+              <div style="margin-top:12px">
+                <div class="kv"><span>Writing block 214 / 292</span>73 %</div>
+                <div class="bar"><i style="width:73%"></i></div>
+                <div class="kv"><span>Transport</span>USB CDC · 64 kB/s · est. 1.2 s left</div>
+              </div>
+
+              <div class="btn-row" style="margin-top:14px">
+                <button class="btn primary">Verify &amp; mark candidate</button>
+                <button class="btn">Reboot into slot B</button>
+                <button class="btn">Rollback to slot A</button>
+              </div>
+
+              <div class="rule"></div>
+              <p style="font-size:12.5px;color:var(--fg-3);margin:0;max-width:72ch">
+                After reboot the new firmware must confirm itself within the bootloader's timeout.
+                If it does not, the bootloader restores slot A automatically — a failed upload cannot
+                leave the board unreachable, and no SWD probe is needed. The same sequence runs over CAN.</p>
+            </div>
+          </div>
+        </section>
+
+      </div><!-- /stage -->
+    </div><!-- /body -->
+
+    <!-- ======================= LOG CONSOLE ======================= -->
+    <section class="console" id="console">
+      <div class="console-h">
+        <h2>Log</h2>
+        <div class="chips">
+          <button class="chip" aria-pressed="true">All</button>
+          <button class="chip">Device</button>
+          <button class="chip">GUI</button>
+          <button class="chip">MCP</button>
+          <button class="chip">Errors</button>
+        </div>
+        <div style="flex:1"></div>
+        <button class="chip" id="consoleToggle">Collapse</button>
+      </div>
+      <div class="log" id="log">
+<p><span class="t">10:58:12.004</span><span class="src gui">GUI</span><span class="m">Connected COM7 · A2N-BLDC · fw 2.0.3 · protocol 2.0</span></p>
+<p><span class="t">10:58:12.061</span><span class="src dev">DEV</span><span class="m">param dictionary 74 entries, hash a3f1c920</span></p>
+<p><span class="t">10:58:12.088</span><span class="src gui">GUI</span><span class="m">Recipe gimbal-2208-14pp.a2nrcp applied — 4 values written</span></p>
+<p><span class="t">10:58:14.512</span><span class="src mcp">MCP</span><span class="m">param.set pid.iq.kp = 0.820 (was 0.500)</span></p>
+<p><span class="t">10:58:14.531</span><span class="src mcp">MCP</span><span class="m">param.set pid.iq.ki = 220.00 (was 120.00)</span></p>
+<p><span class="t">10:58:14.602</span><span class="src mcp">MCP</span><span class="m">scope.configure mode=trigger · iq_a, iq_ref_a, vq_v · 2048 pts @ 20 kHz · trig iq_ref_a ↗ 1.000 A · pre 20 %</span></p>
+<p><span class="t">10:58:16.117</span><span class="src mcp">MCP</span><span class="m">motion.arm — allowed, AI control enabled</span></p>
+<p><span class="t">10:58:16.120</span><span class="src dev">DEV</span><span class="m ok">state IDLE → ARMED</span></p>
+<p><span class="t">10:58:22.340</span><span class="src mcp">MCP</span><span class="m">motion.set_target mode=torque iq_ref=2.000 A</span></p>
+<p><span class="t">10:58:22.341</span><span class="src dev">DEV</span><span class="m">scope triggered, 2048 pts captured at 20 kHz</span></p>
+<p><span class="t">10:58:22.489</span><span class="src mcp">MCP</span><span class="m">scope.measure → overshoot 11.8 % · rise 0.42 ms · settling 1.14 ms</span></p>
+<p><span class="t">10:58:23.004</span><span class="src dev">DEV</span><span class="m">state ARMED → RUN, mode position</span></p>
+<p><span class="t">11:01:10.220</span><span class="src gui">GUI</span><span class="m">Command panel detached to floating window</span></p>
+<p><span class="t">11:02:47.882</span><span class="src dev">DEV</span><span class="m err">fault UNDERVOLTAGE vbus=17.21 V &lt; vbus_min_v=18.00 V — torque cut, latched</span></p>
+<p><span class="t">11:02:47.883</span><span class="src dev">DEV</span><span class="m err">state RUN → FAULT</span></p>
+<p><span class="t">11:02:51.204</span><span class="src gui">GUI</span><span class="m">Fault cleared by operator</span></p>
+<p><span class="t">11:03:02.660</span><span class="src mcp">MCP</span><span class="m">motion.run_sequence 4 points × 20 loops — running</span></p>
+      </div>
+    </section>
+
+  </div><!-- /app -->
+  </div><!-- /frame-scroll -->
+
+  <p class="sheet-note">
+    <b>Scope</b> — trois modes d'enregistrement : sur trigger de signal, sur action de mouvement
+    (l'enregistrement s'arme et part dès qu'une commande de déplacement quitte l'interface, y compris
+    celle d'un agent), ou sur durée fixe. Le plot montre tout l'enregistrement ; la bande du bas
+    permet de se déplacer dedans et la molette de zoomer. Chaque trace se filtre à la volée depuis la
+    légende. &nbsp;·&nbsp; <b>Command</b> se détache en fenêtre flottante déplaçable.
+    &nbsp;·&nbsp; La consigne de position se règle à la roue 360° comme au champ numérique.
+    &nbsp;·&nbsp; <b>STOP</b> et <b>AI&nbsp;CONTROL</b> restent visibles sur les six vues : ce sont les
+    deux seules commandes que l'agent ne peut pas actionner lui-même.
+  </p>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var app = document.getElementById("app");
+  function $(s){ return document.querySelector(s); }
+  function tok(n){ return getComputedStyle(app).getPropertyValue(n).trim(); }
+
+  /* ================= canvas helpers ================= */
+  function fit(cv){
+    var r = cv.getBoundingClientRect();
+    if(r.width < 2 || r.height < 2) return null;
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    cv.width = Math.round(r.width * dpr);
+    cv.height = Math.round(r.height * dpr);
+    var g = cv.getContext("2d");
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return { g: g, w: r.width, h: r.height };
+  }
+  function grid(g, x, y, w, h, cols, rows){
+    g.strokeStyle = tok("--line-soft"); g.lineWidth = 1;
+    for(var i = 1; i < cols; i++){
+      var px = Math.round(x + w * i / cols) + .5;
+      g.beginPath(); g.moveTo(px, y); g.lineTo(px, y + h); g.stroke();
+    }
+    for(var j = 1; j < rows; j++){
+      var py = Math.round(y + h * j / rows) + .5;
+      g.beginPath(); g.moveTo(x, py); g.lineTo(x + w, py); g.stroke();
+    }
+  }
+  function trace(g, data, w, h, lo, hi, color, width, fill){
+    var n = data.length, pad = 6, ih = h - pad * 2;
+    var sx = w / (n - 1), k = ih / (hi - lo);
+    function yAt(v){ return h - pad - (v - lo) * k; }
+    if(fill){
+      g.beginPath(); g.moveTo(0, h);
+      for(var i = 0; i < n; i++) g.lineTo(i * sx, yAt(data[i]));
+      g.lineTo(w, h); g.closePath(); g.fillStyle = fill; g.fill();
+    }
+    g.beginPath();
+    for(var j = 0; j < n; j++){
+      var x = j * sx, y = yAt(data[j]);
+      if(j === 0) g.moveTo(x, y); else g.lineTo(x, y);
+    }
+    g.strokeStyle = color; g.lineWidth = width || 1.4;
+    g.lineJoin = "round"; g.lineCap = "round"; g.stroke();
+  }
+  function bounds(arrs, padPct){
+    var lo = Infinity, hi = -Infinity;
+    arrs.forEach(function(a){ for(var i = 0; i < a.length; i++){
+      if(a[i] < lo) lo = a[i]; if(a[i] > hi) hi = a[i]; } });
+    if(!isFinite(lo)){ lo = 0; hi = 1; }
+    var span = (hi - lo) || Math.max(Math.abs(hi), 1) * .1 || 1;
+    var p = span * (padPct || .14);
+    return [lo - p, hi + p];
+  }
+
+  /* ================= view switching ================= */
+  var rail = document.getElementById("rail");
+  var views = {};
+  document.querySelectorAll("[data-view]").forEach(function(v){ views[v.dataset.view] = v; });
+  rail.addEventListener("click", function(e){
+    var b = e.target.closest("button[data-go]"); if(!b) return;
+    rail.querySelectorAll("button").forEach(function(x){ x.setAttribute("aria-current","false"); });
+    b.setAttribute("aria-current","page");
+    Object.keys(views).forEach(function(k){ views[k].removeAttribute("data-active"); });
+    views[b.dataset.go].setAttribute("data-active","");
+    resizeAll();
+  });
+
+  /* ================= generic toggles ================= */
+  var ai = $("#aiToggle");
+  ai.addEventListener("click", function(){
+    ai.setAttribute("aria-pressed", ai.getAttribute("aria-pressed") === "true" ? "false" : "true");
+  });
+  $("#themeBtn").addEventListener("click", function(){
+    app.dataset.theme = app.dataset.theme === "light" ? "dark" : "light";
+    resizeAll();
+  });
+  var cons = $("#console");
+  $("#consoleToggle").addEventListener("click", function(e){
+    cons.classList.toggle("collapsed");
+    e.target.textContent = cons.classList.contains("collapsed") ? "Expand" : "Collapse";
+    resizeAll();
+  });
+  document.querySelectorAll(".segment").forEach(function(seg){
+    seg.addEventListener("click", function(e){
+      var b = e.target.closest("button"); if(!b) return;
+      seg.querySelectorAll("button").forEach(function(x){ x.setAttribute("aria-pressed","false"); });
+      b.setAttribute("aria-pressed","true");
+    });
+  });
+  document.querySelectorAll(".tree").forEach(function(t){
+    t.addEventListener("click", function(e){
+      var b = e.target.closest("button"); if(!b) return;
+      t.querySelectorAll("button").forEach(function(x){ x.setAttribute("aria-current","false"); });
+      b.setAttribute("aria-current","true");
+    });
+  });
+  document.querySelectorAll(".rlist").forEach(function(t){
+    t.addEventListener("click", function(e){
+      var c = e.target.closest(".rcard"); if(!c) return;
+      t.querySelectorAll(".rcard").forEach(function(x){ x.setAttribute("aria-current","false"); });
+      c.setAttribute("aria-current","true");
+    });
+  });
+
+  /* ================= detachable command panel ================= */
+  var cmdPane = $("#cmdPane"), controlView = $("#controlView"), dockHint = $("#dockHint");
+  var floatEl = null;
+
+  function detach(){
+    if(floatEl) return;
+    floatEl = document.createElement("div");
+    floatEl.className = "float";
+    floatEl.innerHTML =
+      '<div class="float-h"><span class="grip"><i></i><i></i></span>' +
+      '<h2>Command</h2><button class="mini" data-dock="1">Dock ⧉</button></div>';
+    cmdPane.dataset.flex = cmdPane.style.flex;
+    cmdPane.style.flex = "1 1 auto";
+    floatEl.appendChild(cmdPane);
+    app.appendChild(floatEl);
+    dockHint.style.display = "";
+    resizeAll();
+  }
+  function dock(){
+    if(!floatEl) return;
+    cmdPane.style.flex = cmdPane.dataset.flex || "0 0 288px";
+    controlView.insertBefore(cmdPane, controlView.firstChild);
+    floatEl.remove(); floatEl = null;
+    dockHint.style.display = "none";
+    resizeAll();
+  }
+  $("#detachBtn").addEventListener("click", detach);
+  dockHint.addEventListener("click", dock);
+  app.addEventListener("click", function(e){
+    if(e.target.closest("[data-dock]")) dock();
+  });
+
+  /* drag the floating panel */
+  app.addEventListener("pointerdown", function(e){
+    var h = e.target.closest(".float-h");
+    if(!h || e.target.closest(".mini")) return;
+    var box = floatEl.getBoundingClientRect(), frame = app.getBoundingClientRect();
+    var ox = e.clientX - box.left, oy = e.clientY - box.top;
+    h.classList.add("dragging"); h.setPointerCapture(e.pointerId);
+    function move(ev){
+      var x = ev.clientX - frame.left - ox, y = ev.clientY - frame.top - oy;
+      x = Math.max(4, Math.min(x, frame.width - box.width - 4));
+      y = Math.max(56, Math.min(y, frame.height - 60));
+      floatEl.style.left = x + "px"; floatEl.style.top = y + "px";
+    }
+    function up(){
+      h.classList.remove("dragging");
+      h.removeEventListener("pointermove", move);
+      h.removeEventListener("pointerup", up);
+    }
+    h.addEventListener("pointermove", move);
+    h.addEventListener("pointerup", up);
+  });
+
+  /* ================= 360° position dial ================= */
+  var dial = $("#dial"), dialSvg = $("#dialSvg"), dialVal = $("#dialVal"),
+      dialNow = $("#dialNow"), posInput = $("#posTarget");
+  var CX = 100, CY = 100, R = 78;
+  var target = 180;
+
+  function pt(r, a){ var t = (a - 90) * Math.PI / 180;
+    return { x: CX + r * Math.cos(t), y: CY + r * Math.sin(t) }; }
+  function arcPath(r, a0, a1){
+    var span = (a1 - a0 + 360) % 360;
+    if(span < 0.2) return "";
+    if(span > 359.8) span = 359.8;
+    var p0 = pt(r, a0), p1 = pt(r, a0 + span);
+    return "M" + p0.x.toFixed(2) + " " + p0.y.toFixed(2) + " A" + r + " " + r +
+           " 0 " + (span > 180 ? 1 : 0) + " 1 " + p1.x.toFixed(2) + " " + p1.y.toFixed(2);
+  }
+
+  (function buildDial(){
+    var s = '<circle class="track" cx="100" cy="100" r="' + R + '"></circle>';
+    for(var a = 0; a < 360; a += 15){
+      var major = a % 45 === 0;
+      var p1 = pt(major ? 62 : 65, a), p2 = pt(70, a);
+      s += '<line class="tick' + (major ? ' major' : '') + '" x1="' + p1.x.toFixed(1) + '" y1="' +
+           p1.y.toFixed(1) + '" x2="' + p2.x.toFixed(1) + '" y2="' + p2.y.toFixed(1) + '"></line>';
+    }
+    [0, 90, 180, 270].forEach(function(a){
+      var p = pt(95, a);
+      s += '<text class="tlab" x="' + p.x.toFixed(1) + '" y="' + p.y.toFixed(1) + '">' + a + '°</text>';
+    });
+    s += '<path class="arc" id="dialArc"></path>';
+    s += '<line class="needle" id="dialNeedle" x1="100" y1="100" x2="100" y2="30"></line>';
+    s += '<circle class="hub" cx="100" cy="100" r="5"></circle>';
+    s += '<circle class="knob" id="dialKnob" r="8" cx="100" cy="22"></circle>';
+    dialSvg.innerHTML = s;
+  })();
+
+  var dialArc = $("#dialArc"), dialKnob = $("#dialKnob"), dialNeedle = $("#dialNeedle");
+
+  function renderDial(){
+    dialArc.setAttribute("d", arcPath(R, 0, target));
+    var k = pt(R, target);
+    dialKnob.setAttribute("cx", k.x.toFixed(2));
+    dialKnob.setAttribute("cy", k.y.toFixed(2));
+    dialVal.textContent = target.toFixed(1) + "°";
+    dial.setAttribute("aria-valuenow", target.toFixed(1));
+    dial.setAttribute("aria-valuetext", target.toFixed(1) + " degrees");
+  }
+  function setTarget(v, fromInput){
+    target = ((v % 360) + 360) % 360;
+    if(!fromInput) posInput.value = target.toFixed(1);
+    renderDial();
+  }
+  setTarget(180);
+
+  posInput.addEventListener("input", function(){
+    var v = parseFloat(posInput.value);
+    if(isFinite(v)) setTarget(v, true);
+  });
+
+  function angleFrom(ev){
+    var r = dial.getBoundingClientRect();
+    var x = (ev.clientX - r.left) / r.width * 200 - CX;
+    var y = (ev.clientY - r.top) / r.height * 200 - CY;
+    return (Math.atan2(x, -y) * 180 / Math.PI + 360) % 360;
+  }
+  dial.addEventListener("pointerdown", function(e){
+    dial.setPointerCapture(e.pointerId);
+    var a = angleFrom(e);
+    setTarget(e.shiftKey ? Math.round(a / 15) * 15 : a);
+    function move(ev){
+      var b = angleFrom(ev);
+      setTarget(ev.shiftKey ? Math.round(b / 15) * 15 : b);
+    }
+    function up(){
+      dial.removeEventListener("pointermove", move);
+      dial.removeEventListener("pointerup", up);
+    }
+    dial.addEventListener("pointermove", move);
+    dial.addEventListener("pointerup", up);
+    e.preventDefault();
+  });
+  dial.addEventListener("keydown", function(e){
+    var s = e.shiftKey ? 15 : 1;
+    if(e.key === "ArrowRight" || e.key === "ArrowUp"){ setTarget(target + s); e.preventDefault(); }
+    else if(e.key === "ArrowLeft" || e.key === "ArrowDown"){ setTarget(target - s); e.preventDefault(); }
+    else if(e.key === "Home"){ setTarget(0); e.preventDefault(); }
+  });
+
+  /* ================= live telemetry model (control view) ================= */
+  var N = 360;
+  function ring(v){ var a = new Array(N); for(var i = 0; i < N; i++) a[i] = v; return a; }
+  var S = { pos: ring(0), posRef: ring(0), vel: ring(0), velRef: ring(0),
+            iq: ring(0), iqRef: ring(0), vbus: ring(23.84), temp: ring(41.2) };
+  var m = { pos: 0, posRef: 0, vel: 0, t: 0 };
+  var VMAX = 31.4, DT = 1 / 60;
+
+  function step(){
+    m.t += DT;
+    var cyc = m.t % 8, seg = cyc % 4, dir = cyc < 4 ? 1 : -1, vr;
+    if(seg < 0.5)      vr = VMAX * (seg / 0.5);
+    else if(seg < 2.6) vr = VMAX;
+    else if(seg < 3.1) vr = VMAX * (1 - (seg - 2.6) / 0.5);
+    else               vr = 0;
+    vr *= dir;
+    var prevVel = m.vel;
+    m.vel += (vr - m.vel) * 0.28;
+    m.posRef += vr * DT; m.pos += m.vel * DT;
+    var accel = (m.vel - prevVel) / DT;
+    var iqRef = accel * 0.0148 + Math.sign(m.vel) * 0.42;
+    var iq = iqRef + (Math.random() - 0.5) * 0.14;
+    push(S.posRef, m.posRef); push(S.pos, m.pos);
+    push(S.velRef, vr);       push(S.vel, m.vel);
+    push(S.iqRef, iqRef);     push(S.iq, iq);
+    push(S.vbus, 23.84 - Math.abs(iq) * 0.09 + (Math.random() - .5) * .02);
+    push(S.temp, 41.2 + Math.sin(m.t * 0.11) * 0.7);
+  }
+  function push(a, v){ a.push(v); a.shift(); }
+  function last(a){ return a[a.length - 1]; }
+  function f1(v){ return v.toFixed(1); }
+  function f2(v){ return v.toFixed(2); }
+  function deg(r){ return (((r * 57.29578) % 360 + 360) % 360).toFixed(1); }
+
+  var strips = [
+    { key:"pos", chans:[["pos","--ch1"],["posRef","--ch2"]],
+      fmt:function(){ return "pos " + deg(last(S.pos)) + "°   ref " + deg(last(S.posRef)) + "°"; } },
+    { key:"vel", chans:[["vel","--ch1"],["velRef","--ch2"]],
+      fmt:function(){ return "vel " + f2(last(S.vel)) + "   ref " + f2(last(S.velRef)) + " rad/s"; } },
+    { key:"iq",  chans:[["iq","--ch3"],["iqRef","--ch2"]],
+      fmt:function(){ return "iq " + f2(last(S.iq)) + "   ref " + f2(last(S.iqRef)) + " A"; } },
+    { key:"bus", chans:[["vbus","--ch4"],["temp","--ch1"]],
+      fmt:function(){ return f2(last(S.vbus)) + " V   " + f1(last(S.temp)) + " °C"; } }
+  ];
+
+  function drawStrips(){
+    strips.forEach(function(s){
+      var cv = document.querySelector('[data-strip="' + s.key + '"]');
+      if(!cv) return;
+      var c = fit(cv); if(!c) return;
+      var g = c.g, w = c.w, h = c.h;
+      g.clearRect(0, 0, w, h);
+      grid(g, 0, 0, w, h, 10, 4);
+      if(s.key === "bus"){
+        var b1 = bounds([S.vbus], .8), b2 = bounds([S.temp], .8);
+        trace(g, S.vbus, w, h, b1[0], b1[1], tok("--ch4"), 1.5);
+        trace(g, S.temp, w, h, b2[0], b2[1], tok("--ch1"), 1.2);
+      } else {
+        var arrs = s.chans.map(function(c2){ return S[c2[0]]; });
+        var b = bounds(arrs, .18);
+        trace(g, arrs[1], w, h, b[0], b[1], tok(s.chans[1][1]), 1.2);
+        trace(g, arrs[0], w, h, b[0], b[1], tok(s.chans[0][1]), 1.6,
+              s.key === "iq" ? "rgba(208,107,201,.09)" : null);
+      }
+      var vv = document.querySelector('[data-val="' + s.key + '"]');
+      if(vv) vv.textContent = s.fmt();
+    });
+    var tiles = {
+      pos: deg(last(S.pos)) + '<small>deg</small>',
+      vel: f2(last(S.vel)) + '<small>rad/s</small>',
+      iq:  f2(last(S.iq)) + '<small>A</small>',
+      id:  (0.04 + (Math.random() - .5) * .02).toFixed(2) + '<small>A</small>'
+    };
+    Object.keys(tiles).forEach(function(k){
+      var el = document.querySelector('[data-live="' + k + '"]');
+      if(el) el.innerHTML = tiles[k];
+    });
+    dialNow.textContent = "now " + deg(last(S.pos)) + "°";
+    var nd = pt(70, ((last(S.pos) * 57.29578) % 360 + 360) % 360);
+    dialNeedle.setAttribute("x2", nd.x.toFixed(2));
+    dialNeedle.setAttribute("y2", nd.y.toFixed(2));
+  }
+
+  /* ================= sparklines ================= */
+  var sparkData = {};
+  (function(){
+    function mk(key, base, amp, drift){
+      var a = [], v = base;
+      for(var i = 0; i < 60; i++){ v += (Math.random() - .5) * amp + Math.sin(i / 9) * drift; a.push(v); }
+      sparkData[key] = a;
+    }
+    mk("vbus", 23.84, .05, .012); mk("vmot", 23.79, .05, .010);
+    mk("temp", 40.4, .09, .055);  mk("load", 30.5, .9, .28);
+  })();
+  function drawSparks(){
+    document.querySelectorAll("[data-spark]").forEach(function(cv){
+      var c = fit(cv); if(!c) return;
+      var d = sparkData[cv.dataset.spark], b = bounds([d], .25);
+      c.g.clearRect(0, 0, c.w, c.h);
+      trace(c.g, d, c.w, c.h, b[0], b[1], tok("--accent"), 1.4, tok("--accent-ghost"));
+      var pad = 6, k = (c.h - pad * 2) / (b[1] - b[0]);
+      var y = c.h - pad - (d[d.length - 1] - b[0]) * k;
+      c.g.beginPath(); c.g.arc(c.w - 2, y, 2.4, 0, 6.29);
+      c.g.fillStyle = tok("--accent"); c.g.fill();
+    });
+  }
+
+  /* ================================================================
+     SCOPE
+     ================================================================ */
+  var CH = [
+    { id:"pos_rad",      unit:"rad",   color:"--ch1" },
+    { id:"pos_ref_rad",  unit:"rad",   color:"--ch2" },
+    { id:"vel_rad_s",    unit:"rad/s", color:"--ch4" },
+    { id:"vel_ref_rad_s",unit:"rad/s", color:"--ch6" },
+    { id:"iq_a",         unit:"A",     color:"--ch3" },
+    { id:"iq_ref_a",     unit:"A",     color:"--ch5" },
+    { id:"id_a",         unit:"A",     color:"--ch7" },
+    { id:"vq_v",         unit:"V",     color:"--ch8" }
+  ];
+
+  function trapAt(t, t0, ta, tc, td, v){
+    var e = t - t0;
+    if(e < 0) return 0;
+    if(e < ta) return v * e / ta;
+    if(e < ta + tc) return v;
+    if(e < ta + tc + td) return v * (1 - (e - ta - tc) / td);
+    return 0;
+  }
+
+  /* generic motion record builder: velocity reference -> full signal set */
+  function buildRecord(n, dt, trigIdx, velRefFn, seed){
+    var ch = {}; CH.forEach(function(c){ ch[c.id] = new Float32Array(n); });
+    var pos = 0, posRef = 0, vel = 0, k = Math.min(1, dt * 45);
+    for(var i = 0; i < n; i++){
+      var t = (i - trigIdx) * dt;
+      var vr = velRefFn(t);
+      var prev = vel;
+      vel += (vr - vel) * k;
+      posRef += vr * dt; pos += vel * dt;
+      var acc = (vel - prev) / dt;
+      var iqRef = acc * 0.0148 + (Math.abs(vr) > 1e-6 ? Math.sign(vr) * 0.42 : 0);
+      var iq = iqRef * 0.97 + (Math.random() - .5) * 0.06;
+      ch.pos_rad[i] = pos;          ch.pos_ref_rad[i] = posRef;
+      ch.vel_rad_s[i] = vel;        ch.vel_ref_rad_s[i] = vr;
+      ch.iq_a[i] = iq;              ch.iq_ref_a[i] = iqRef;
+      ch.id_a[i] = (Math.random() - .5) * 0.05;
+      ch.vq_v[i] = iq * 0.348 + vel * 0.28 + (Math.random() - .5) * 0.08;
+    }
+    return { n:n, dt:dt, trig:trigIdx, ch:ch, seed:seed };
+  }
+
+  /* trigger record: 2048 pts @ 20 kHz, current-loop step response */
+  function buildStepRecord(){
+    var n = 2048, dt = 50e-6, trig = Math.round(n * .2);
+    var ch = {}; CH.forEach(function(c){ ch[c.id] = new Float32Array(n); });
+    var wn = 2 * Math.PI * 900, z = .56, wd = wn * Math.sqrt(1 - z * z);
+    for(var i = 0; i < n; i++){
+      var t = (i - trig) * dt, y = 0;
+      if(i >= trig){
+        y = 2 * (1 - Math.exp(-z * wn * t) *
+            (Math.cos(wd * t) + (z / Math.sqrt(1 - z * z)) * Math.sin(wd * t)));
+      }
+      ch.iq_ref_a[i] = i < trig ? 0 : 2;
+      ch.iq_a[i] = y + (Math.random() - .5) * .045;
+      ch.vq_v[i] = (i < trig ? 0 : 9.84 * Math.exp(-Math.max(t,0) * 2100) + (2 - y) * 1.1 + 1.6) +
+                   (Math.random() - .5) * .12;
+      ch.id_a[i] = (Math.random() - .5) * .06;
+      ch.vel_rad_s[i] = i < trig ? 0 : Math.min(t * 120, 4.2);
+      ch.vel_ref_rad_s[i] = 0;
+      ch.pos_rad[i] = i < trig ? 0 : Math.min(t * t * 60, 4.2 * t);
+      ch.pos_ref_rad[i] = 0;
+    }
+    return { n:n, dt:dt, trig:trig, ch:ch };
+  }
+
+  var REC = {
+    trigger: buildStepRecord(),
+    motion: buildRecord(4096, 250e-6, Math.round(4096 * .1), function(t){
+      return trapAt(t, 0, .15, .5, .15, 4.83);
+    }),
+    timed: buildRecord(10000, 500e-6, 0, function(t){
+      return trapAt(t, 0.3, .15, .5, .15, 4.83) +
+             trapAt(t, 1.6, .15, .5, .15, -2.42) +
+             trapAt(t, 2.9, .15, .5, .15, -2.42);
+    })
+  };
+
+  var TITLES = {
+    trigger: "Current loop step response — trigger iq_ref_a ↗ 1.000 A — 14 Sep 10:58:22",
+    motion:  "Point-to-point move — recording started by Go — 14 Sep 11:14:06",
+    timed:   "Free-running capture 5.000 s — sequence of 3 moves — 14 Sep 11:22:41"
+  };
+  /* a 2 ms transient inside a 102 ms record is unreadable at full span, so each mode
+     opens on the timebase that actually shows what it captured */
+  var DEFAULT_WIN = { trigger: 0.005, motion: null, timed: null };
+  var DEFAULT_VIS = {
+    trigger: ["iq_a", "iq_ref_a", "vq_v"],
+    motion:  ["pos_rad", "pos_ref_rad", "vel_rad_s", "iq_a"],
+    timed:   ["pos_rad", "vel_rad_s", "iq_a"]
+  };
+
+  var sc = {
+    mode: "trigger",
+    vis: {},
+    x0: 0, x1: 1,          /* visible window as a fraction of the record */
+    hover: null
+  };
+  function rec(){ return REC[sc.mode]; }
+  function recLen(){ return rec().n * rec().dt; }
+
+  /* ---- legend ---- */
+  var legend = $("#legend");
+  var legendAnchor = legend.querySelector(".lgsep");
+  CH.forEach(function(c){
+    var b = document.createElement("button");
+    b.className = "lg"; b.dataset.ch = c.id;
+    b.style.color = "var(" + c.color + ")";
+    b.innerHTML = '<i></i>' + c.id + ' <em>' + c.unit + '</em>';
+    legend.insertBefore(b, legendAnchor.nextSibling);
+  });
+  var lgBtns = {};
+  legend.querySelectorAll(".lg").forEach(function(b){ lgBtns[b.dataset.ch] = b; });
+
+  function applyVis(){
+    CH.forEach(function(c){
+      lgBtns[c.id].setAttribute("aria-pressed", sc.vis[c.id] ? "true" : "false");
+    });
+  }
+  function setMode(mode){
+    sc.mode = mode;
+    sc.vis = {};
+    DEFAULT_VIS[mode].forEach(function(id){ sc.vis[id] = true; });
+    sc.x0 = 0; sc.x1 = 1; sc.hover = null;
+    var dw = DEFAULT_WIN[mode], len = recLen();
+    if(dw && dw < len){
+      var frac = dw / len, tstart = rec().trig * rec().dt - dw * 0.2;
+      sc.x0 = Math.max(0, Math.min(1 - frac, tstart / len));
+      sc.x1 = sc.x0 + frac;
+    }
+    $("#scopeTitle").textContent = TITLES[mode];
+    applyVis(); updateInfo(); updatePresets(); drawScope(); drawBrush(); drawMeas();
+  }
+  legend.addEventListener("click", function(e){
+    var all = e.target.closest("[data-all]");
+    if(all){
+      CH.forEach(function(c){ sc.vis[c.id] = all.dataset.all === "1"; });
+      applyVis(); drawScope(); drawBrush(); drawMeas(); return;
+    }
+    var b = e.target.closest(".lg"); if(!b) return;
+    sc.vis[b.dataset.ch] = !sc.vis[b.dataset.ch];
+    applyVis(); drawScope(); drawBrush(); drawMeas();
+  });
+
+  /* ---- record mode + rate ---- */
+  $("#recMode").addEventListener("click", function(e){
+    var b = e.target.closest("[data-rec]"); if(!b) return;
+    document.querySelectorAll(".rec-block").forEach(function(x){
+      x.classList.toggle("on", x.dataset.block === b.dataset.rec);
+    });
+    setMode(b.dataset.rec);
+  });
+
+  function fmtTime(s){
+    if(Math.abs(s) >= 1) return s.toFixed(3) + " s";
+    if(Math.abs(s) >= 1e-3) return (s * 1e3).toFixed(s * 1e3 >= 100 ? 1 : 2) + " ms";
+    return (s * 1e6).toFixed(1) + " µs";
+  }
+  function updateInfo(){
+    var r = rec();
+    $("#infoPts").textContent = r.n.toLocaleString("en-US").replace(/,/g, " ");
+    $("#infoLen").textContent = fmtTime(r.n * r.dt);
+    $("#infoDt").textContent = fmtTime(r.dt);
+    $("#infoRam").textContent = (r.n * 4 * Object.keys(sc.vis).filter(function(k){ return sc.vis[k]; }).length
+                                 / 1024).toFixed(1) + " kB";
+  }
+
+  /* ---- window presets ---- */
+  var presets = $("#winPresets");
+  function updatePresets(){
+    var len = recLen();
+    presets.querySelectorAll("[data-win]").forEach(function(b){
+      var w = b.dataset.win;
+      var on = w === "full" ? (sc.x1 - sc.x0 > .999)
+             : Math.abs((sc.x1 - sc.x0) * len - parseFloat(w)) < len * 1e-4;
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+      b.disabled = w !== "full" && parseFloat(w) > len;
+    });
+  }
+  presets.addEventListener("click", function(e){
+    var b = e.target.closest("[data-win]"); if(!b || b.disabled) return;
+    var len = recLen();
+    if(b.dataset.win === "full"){ sc.x0 = 0; sc.x1 = 1; }
+    else {
+      var frac = Math.min(1, parseFloat(b.dataset.win) / len);
+      var mid = (sc.x0 + sc.x1) / 2;
+      sc.x0 = Math.max(0, Math.min(1 - frac, mid - frac / 2));
+      sc.x1 = sc.x0 + frac;
+    }
+    updatePresets(); drawScope(); drawBrush(); drawMeas();
+  });
+
+  /* ---- setup pane collapse / maximise ---- */
+  var setupPane = $("#scopeSetup"), showSetup = $("#showSetup");
+  function setSetup(on){
+    setupPane.classList.toggle("hidden", !on);
+    showSetup.style.display = on ? "none" : "";
+    resizeAll();
+  }
+  $("#setupCollapse").addEventListener("click", function(){ setSetup(false); });
+  showSetup.addEventListener("click", function(){ setSetup(true); });
+  $("#maxBtn").addEventListener("click", function(e){
+    var on = e.target.getAttribute("aria-pressed") !== "true";
+    e.target.setAttribute("aria-pressed", on ? "true" : "false");
+    e.target.textContent = on ? "Restore layout" : "Maximise plot";
+    setSetup(!on);
+    cons.classList.toggle("collapsed", on);
+    $("#consoleToggle").textContent = cons.classList.contains("collapsed") ? "Expand" : "Collapse";
+    resizeAll();
+  });
+
+  /* ---- scope drawing ---- */
+  var PADL = 52, PADR = 12, PADT = 12, PADB = 24;
+
+  function visibleChans(){ return CH.filter(function(c){ return sc.vis[c.id]; }); }
+  function windowIdx(){
+    var r = rec();
+    var i0 = Math.max(0, Math.floor(sc.x0 * (r.n - 1)));
+    var i1 = Math.min(r.n - 1, Math.ceil(sc.x1 * (r.n - 1)));
+    if(i1 - i0 < 4) i1 = Math.min(r.n - 1, i0 + 4);
+    return [i0, i1];
+  }
+  function groupScales(i0, i1){
+    var g = {};
+    visibleChans().forEach(function(c){
+      var a = rec().ch[c.id], lo = Infinity, hi = -Infinity;
+      for(var i = i0; i <= i1; i++){ if(a[i] < lo) lo = a[i]; if(a[i] > hi) hi = a[i]; }
+      if(!g[c.unit]) g[c.unit] = [lo, hi];
+      else { g[c.unit][0] = Math.min(g[c.unit][0], lo); g[c.unit][1] = Math.max(g[c.unit][1], hi); }
+    });
+    Object.keys(g).forEach(function(u){
+      var lo = g[u][0], hi = g[u][1], span = hi - lo;
+      if(!isFinite(span) || span < 1e-9) span = Math.max(Math.abs(hi), 1) * .2;
+      var p = span * .12;
+      g[u] = [lo - p, hi + p];
+    });
+    return g;
+  }
+  function fmtNum(v){
+    var a = Math.abs(v);
+    if(a >= 100) return v.toFixed(0);
+    if(a >= 10)  return v.toFixed(1);
+    if(a >= 1)   return v.toFixed(2);
+    return v.toFixed(3);
+  }
+
+  /* min/max decimated polyline: what makes a 10 000-point record read correctly */
+  function drawChannel(g, a, i0, i1, x, y, w, h, lo, hi, color, width){
+    var k = h / (hi - lo);
+    function Y(v){ return y + h - (v - lo) * k; }
+    var count = i1 - i0 + 1;
+    g.strokeStyle = color; g.lineWidth = width; g.lineJoin = "round"; g.lineCap = "round";
+    if(count <= w * 2){
+      var sx = w / (count - 1);
+      g.beginPath();
+      for(var i = 0; i < count; i++){
+        var px = x + i * sx, py = Y(a[i0 + i]);
+        if(i === 0) g.moveTo(px, py); else g.lineTo(px, py);
+      }
+      g.stroke();
+      return;
+    }
+    var cols = Math.floor(w);
+    g.beginPath();
+    for(var c = 0; c < cols; c++){
+      var s0 = i0 + Math.floor(count * c / cols);
+      var s1 = i0 + Math.floor(count * (c + 1) / cols);
+      if(s1 <= s0) s1 = s0 + 1;
+      var mn = Infinity, mx = -Infinity;
+      for(var j = s0; j < s1 && j <= i1; j++){
+        if(a[j] < mn) mn = a[j];
+        if(a[j] > mx) mx = a[j];
+      }
+      var px2 = x + c + .5;
+      g.moveTo(px2, Y(mn)); g.lineTo(px2, Y(mx));
+    }
+    g.stroke();
+  }
+
+  function drawScope(){
+    var cv = $("#scopeCanvas"); var c = fit(cv); if(!c) return;
+    var g = c.g, W = c.w, H = c.h;
+    var x = PADL, y = PADT, w = Math.max(10, W - PADL - PADR), h = Math.max(10, H - PADT - PADB);
+    var r = rec(), idx = windowIdx(), i0 = idx[0], i1 = idx[1];
+    var gs = groupScales(i0, i1);
+    var units = Object.keys(gs);
+    var primary = units[0];
+
+    g.clearRect(0, 0, W, H);
+    g.fillStyle = tok("--bg"); g.fillRect(x, y, w, h);
+    grid(g, x, y, w, h, 10, 8);
+    g.strokeStyle = tok("--line"); g.lineWidth = 1;
+    g.strokeRect(x + .5, y + .5, w - 1, h - 1);
+
+    g.font = '400 10px "IBM Plex Mono", monospace';
+    g.fillStyle = tok("--fg-3");
+
+    /* time axis */
+    var t0 = (i0 - r.trig) * r.dt, t1 = (i1 - r.trig) * r.dt;
+    g.textAlign = "center"; g.textBaseline = "top";
+    for(var i = 0; i <= 10; i += 2){
+      var tt = t0 + (t1 - t0) * i / 10;
+      g.fillText(fmtTime(tt), x + w * i / 10, y + h + 6);
+    }
+    g.textAlign = "left";
+    g.fillText("t", x + w + 2, y + h + 6);
+
+    /* primary vertical axis */
+    if(primary){
+      var lo = gs[primary][0], hi = gs[primary][1];
+      g.textAlign = "right"; g.textBaseline = "middle";
+      for(var j = 0; j <= 8; j += 2){
+        var vv = hi - (hi - lo) * j / 8;
+        g.fillText(fmtNum(vv), x - 7, y + h * j / 8);
+      }
+      g.save();
+      g.translate(11, y + h / 2); g.rotate(-Math.PI / 2);
+      g.textAlign = "center"; g.textBaseline = "middle";
+      g.font = '600 10px "Barlow Semi Condensed", sans-serif';
+      g.fillStyle = tok("--fg-3");
+      g.fillText(primary.toUpperCase() +
+        (units.length > 1 ? "   ·   " + units.slice(1).join(" ").toUpperCase() +
+         " AUTOSCALED" : ""), 0, 0);
+      g.restore();
+    }
+
+    /* trigger marker */
+    if(r.trig >= i0 && r.trig <= i1 && sc.mode !== "timed"){
+      var tx = x + w * (r.trig - i0) / (i1 - i0);
+      g.strokeStyle = tok("--accent"); g.lineWidth = 1; g.setLineDash([4, 4]);
+      g.beginPath(); g.moveTo(tx, y); g.lineTo(tx, y + h); g.stroke();
+      g.setLineDash([]);
+      g.fillStyle = tok("--accent");
+      g.font = '600 10px "IBM Plex Mono", monospace';
+      g.textAlign = "left"; g.textBaseline = "top";
+      g.fillText("T", tx + 4, y + 4);
+    }
+
+    /* traces */
+    g.save();
+    g.beginPath(); g.rect(x, y, w, h); g.clip();
+    visibleChans().forEach(function(ch){
+      var b = gs[ch.unit];
+      drawChannel(g, r.ch[ch.id], i0, i1, x, y, w, h, b[0], b[1], tok(ch.color), 1.5);
+    });
+
+    /* hover crosshair */
+    if(sc.hover !== null && sc.hover >= x && sc.hover <= x + w){
+      g.strokeStyle = tok("--fg-3"); g.lineWidth = 1; g.setLineDash([2, 3]);
+      g.beginPath(); g.moveTo(sc.hover + .5, y); g.lineTo(sc.hover + .5, y + h); g.stroke();
+      g.setLineDash([]);
+    }
+    g.restore();
+
+    /* hover readout */
+    var hud = $("#scopeHud");
+    if(sc.hover !== null){
+      var frac = (sc.hover - x) / w;
+      var si = Math.round(i0 + (i1 - i0) * frac);
+      si = Math.max(0, Math.min(r.n - 1, si));
+      var html = "<b>" + fmtTime((si - r.trig) * r.dt) + "</b>  #" + si;
+      visibleChans().forEach(function(ch){
+        html += '<br><span style="color:var(' + ch.color + ')">▬</span> ' +
+                ch.id + " " + fmtNum(r.ch[ch.id][si]) + " " + ch.unit;
+      });
+      hud.innerHTML = html; hud.classList.add("on");
+    } else hud.classList.remove("on");
+  }
+
+  function drawBrush(){
+    var cv = $("#brushCanvas"); var c = fit(cv); if(!c) return;
+    var g = c.g, W = c.w, H = c.h, r = rec();
+    g.clearRect(0, 0, W, H);
+    g.fillStyle = tok("--bg"); g.fillRect(0, 0, W, H);
+
+    var vis = visibleChans();
+    if(vis.length){
+      var gsAll = {};
+      vis.forEach(function(ch){
+        var a = r.ch[ch.id], lo = Infinity, hi = -Infinity;
+        for(var i = 0; i < r.n; i++){ if(a[i] < lo) lo = a[i]; if(a[i] > hi) hi = a[i]; }
+        if(!gsAll[ch.unit]) gsAll[ch.unit] = [lo, hi];
+        else { gsAll[ch.unit][0] = Math.min(gsAll[ch.unit][0], lo);
+               gsAll[ch.unit][1] = Math.max(gsAll[ch.unit][1], hi); }
+      });
+      Object.keys(gsAll).forEach(function(u){
+        var s = gsAll[u], span = (s[1] - s[0]) || 1;
+        gsAll[u] = [s[0] - span * .1, s[1] + span * .1];
+      });
+      g.globalAlpha = .55;
+      vis.forEach(function(ch){
+        var b = gsAll[ch.unit];
+        drawChannel(g, r.ch[ch.id], 0, r.n - 1, 0, 3, W, H - 6, b[0], b[1], tok(ch.color), 1);
+      });
+      g.globalAlpha = 1;
+    }
+    /* window overlay */
+    var wx0 = sc.x0 * W, wx1 = sc.x1 * W;
+    g.fillStyle = app.dataset.theme === "light" ? "rgba(120,130,145,.35)" : "rgba(8,10,13,.62)";
+    g.fillRect(0, 0, wx0, H); g.fillRect(wx1, 0, W - wx1, H);
+    g.strokeStyle = tok("--accent"); g.lineWidth = 1;
+    g.strokeRect(wx0 + .5, .5, Math.max(1, wx1 - wx0 - 1), H - 1);
+    g.fillStyle = tok("--accent");
+    g.fillRect(wx0, 0, 2, H); g.fillRect(wx1 - 2, 0, 2, H);
+  }
+
+  function stats(a, i0, i1){
+    var lo = Infinity, hi = -Infinity, sum = 0, n = 0;
+    for(var i = i0; i <= i1; i++){
+      var v = a[i]; if(v < lo) lo = v; if(v > hi) hi = v; sum += v; n++;
+    }
+    return { min:lo, max:hi, pp:hi - lo, mean:sum / n };
+  }
+  function stepMetrics(){
+    var r = REC.trigger, a = r.ch.iq_a, fin = 2, t = r.trig;
+    var i10 = -1, i90 = -1, peak = -Infinity, ipeak = t, settle = t;
+    for(var i = t; i < r.n; i++){
+      if(i10 < 0 && a[i] >= fin * .1) i10 = i;
+      if(i90 < 0 && a[i] >= fin * .9) i90 = i;
+      if(a[i] > peak){ peak = a[i]; ipeak = i; }
+      if(Math.abs(a[i] - fin) > fin * .02) settle = i;
+    }
+    return {
+      rise: (i90 - i10) * r.dt,
+      over: (peak - fin) / fin * 100,
+      settle: (settle - t) * r.dt,
+      err: Math.abs(a[r.n - 1] - fin) / fin * 100
+    };
+  }
+  var SM = stepMetrics();
+
+  function drawMeas(){
+    var bar = $("#measbar"), idx = windowIdx(), r = rec();
+    var win = (idx[1] - idx[0]) * r.dt;
+    var html = '<div class="mchip"><span>Window</span><b>' + fmtTime(win) + '</b></div>' +
+               '<div class="mchip"><span>Samples shown</span>' +
+               (idx[1] - idx[0] + 1).toLocaleString("en-US").replace(/,/g, " ") + '</div>';
+    if(sc.mode === "trigger"){
+      html += '<div class="mchip hot"><span>Rise 10-90</span><b>' + (SM.rise * 1e3).toFixed(2) + ' ms</b></div>' +
+              '<div class="mchip hot"><span>Overshoot</span><b>' + SM.over.toFixed(1) + ' %</b></div>' +
+              '<div class="mchip hot"><span>Settling 2 %</span><b>' + (SM.settle * 1e3).toFixed(2) + ' ms</b></div>' +
+              '<div class="mchip hot"><span>Steady err</span><b>' + SM.err.toFixed(2) + ' %</b></div>';
+    }
+    var vis = visibleChans();
+    if(vis.length){
+      var c0 = vis[0], s = stats(r.ch[c0.id], idx[0], idx[1]);
+      html += '<div class="mchip" style="border-color:var(' + c0.color + ')"><span>' + c0.id + ' min</span>' +
+              fmtNum(s.min) + '</div>' +
+              '<div class="mchip" style="border-color:var(' + c0.color + ')"><span>max</span>' + fmtNum(s.max) + '</div>' +
+              '<div class="mchip" style="border-color:var(' + c0.color + ')"><span>pk-pk</span>' + fmtNum(s.pp) + '</div>' +
+              '<div class="mchip" style="border-color:var(' + c0.color + ')"><span>mean</span>' + fmtNum(s.mean) +
+              ' ' + c0.unit + '</div>';
+    } else {
+      html += '<div class="mchip"><span>No trace selected</span></div>';
+    }
+    bar.innerHTML = html;
+  }
+
+  /* ---- scope interaction: hover, wheel zoom ---- */
+  var scopeCv = $("#scopeCanvas");
+  scopeCv.addEventListener("pointermove", function(e){
+    var r = scopeCv.getBoundingClientRect();
+    sc.hover = e.clientX - r.left;
+    drawScope();
+  });
+  scopeCv.addEventListener("pointerleave", function(){ sc.hover = null; drawScope(); });
+  scopeCv.addEventListener("wheel", function(e){
+    e.preventDefault();
+    var r = scopeCv.getBoundingClientRect();
+    var w = r.width - PADL - PADR;
+    var frac = Math.max(0, Math.min(1, (e.clientX - r.left - PADL) / w));
+    var anchor = sc.x0 + (sc.x1 - sc.x0) * frac;
+    var f = e.deltaY > 0 ? 1.25 : .8;
+    var span = Math.max(4 / rec().n, Math.min(1, (sc.x1 - sc.x0) * f));
+    sc.x0 = anchor - (anchor - sc.x0) * span / (sc.x1 - sc.x0);
+    sc.x1 = sc.x0 + span;
+    if(sc.x0 < 0){ sc.x0 = 0; sc.x1 = span; }
+    if(sc.x1 > 1){ sc.x1 = 1; sc.x0 = 1 - span; }
+    updatePresets(); drawScope(); drawBrush(); drawMeas();
+  }, { passive: false });
+
+  /* ---- brush interaction: pan + resize ---- */
+  var brushCv = $("#brushCanvas");
+  brushCv.addEventListener("pointerdown", function(e){
+    var r = brushCv.getBoundingClientRect();
+    var W = r.width, px = e.clientX - r.left;
+    var wx0 = sc.x0 * W, wx1 = sc.x1 * W;
+    var mode = Math.abs(px - wx0) < 7 ? "l" : Math.abs(px - wx1) < 7 ? "r"
+             : (px > wx0 && px < wx1) ? "m" : "jump";
+    var grab = px - wx0, span = sc.x1 - sc.x0;
+    if(mode === "jump"){
+      sc.x0 = Math.max(0, Math.min(1 - span, px / W - span / 2));
+      sc.x1 = sc.x0 + span; mode = "m"; grab = px - sc.x0 * W;
+    }
+    brushCv.setPointerCapture(e.pointerId);
+    function move(ev){
+      var q = Math.max(0, Math.min(W, ev.clientX - r.left));
+      if(mode === "m"){
+        sc.x0 = Math.max(0, Math.min(1 - span, (q - grab) / W));
+        sc.x1 = sc.x0 + span;
+      } else if(mode === "l"){
+        sc.x0 = Math.max(0, Math.min(sc.x1 - 4 / rec().n, q / W));
+      } else {
+        sc.x1 = Math.min(1, Math.max(sc.x0 + 4 / rec().n, q / W));
+      }
+      updatePresets(); drawScope(); drawBrush(); drawMeas();
+    }
+    function up(){
+      brushCv.removeEventListener("pointermove", move);
+      brushCv.removeEventListener("pointerup", up);
+    }
+    brushCv.addEventListener("pointermove", move);
+    brushCv.addEventListener("pointerup", up);
+    move(e);
+  });
+
+  /* ================= global resize / loop ================= */
+  var redrawing = false;
+  function resizeAll(){
+    if(redrawing) return;
+    redrawing = true;
+    try{
+      drawStrips(); drawSparks();
+      if(views.scope.hasAttribute("data-active")){ drawScope(); drawBrush(); drawMeas(); }
+    } finally { redrawing = false; }
+  }
+  window.addEventListener("resize", resizeAll);
+
+  /* Every layout change -- view switch, pane collapse, detach, window resize -- reaches the
+     canvases through the observer, so no redraw depends on a frame callback firing. */
+  if(window.ResizeObserver){
+    var ro = new ResizeObserver(function(){ resizeAll(); });
+    [".scope-plot", ".brush", ".plots", ".dash"].forEach(function(sel){
+      var el = document.querySelector(sel); if(el) ro.observe(el);
+    });
+  }
+
+  function frame(){
+    if(views.control.hasAttribute("data-active")){ step(); drawStrips(); }
+    requestAnimationFrame(frame);
+  }
+
+  for(var p = 0; p < N; p++) step();
+  setMode("trigger");
+  resizeAll();
+  if(!reduce) requestAnimationFrame(frame);
+})();
+</script>
