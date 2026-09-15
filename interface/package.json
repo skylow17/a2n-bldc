@@ -10,11 +10,16 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "cli": "tsx src/cli/main.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
+    "tsx": "^4.23.13",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"
+  },
+  "dependencies": {
+    "serialport": "^13.0.0"
   }
 }

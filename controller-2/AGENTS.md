@@ -192,11 +192,27 @@ Une seule référence pour l'avancement. Les jalons `M0`–`M3` regroupent les �
 étapes portent le critère de validation. **Ordre imposé** : on ne passe pas à la suivante
 tant que la précédente n'est pas verte.
 
-**Avancement.** M0 et M1a sont construits et compilés ; leurs critères matériels (gigue à
-l'oscilloscope, `ticks` mesuré côté PC) restent à valider sur carte. M1b est écrit des deux
-côtés et vérifié hors cible — 105 tests TypeScript et 43 vecteurs embarqués — mais son critère
-propre, *l'hôte lit le dictionnaire et le hash correspond*, demande la carte : il se vérifie
-avec la commande console `SELFTEST` puis avec la CLI de M1d.
+**Avancement.**
+
+| Étape | État |
+|---|---|
+| M0 | Construit. Critère matériel (gigue à l'oscilloscope sur J7 br. 5) **à valider sur carte**. |
+| M1a | Construit. `ticks` mesuré côté PC **à valider sur carte**. |
+| M1b | Écrit des deux côtés, 129 tests hors cible. Critère propre **à valider sur carte**. |
+| M1c | Pas commencé. |
+| M1d | Construit : CLI `interface/src/cli/`, validée contre le device simulé. |
+
+M1d a été pris avant M1c parce que c'est lui qui **valide M1b** : la commande
+`npm run cli -- check` enchaîne handshake, lecture du dictionnaire, vérification du hash,
+auto-test du codec, écriture/relecture et refus en lecture seule, puis rend un verdict
+unique. Sans elle, le critère de M1b resterait à interpréter à la main.
+
+> **Défaut corrigé en cours de route.** La première version discriminait les deux canaux
+> sur l'octet terminal — `0x00` pour une trame, `CR`/`LF` pour une ligne. C'était faux :
+> COBS garantit l'absence de `0x00` dans la trame encodée, pas celle de `0x0A` ni `0x0D`.
+> Une trame binaire était donc découpée dès qu'elle en contenait un, soit 98 % du temps
+> pour une trame de 520 octets. Le canal binaire s'ouvre désormais par un octet `0x01`, et
+> la décision se prend sur le premier octet du message. Voir `docs/protocol.md` §1.
 
 La logique de cet ordre est l'inverse de celle du v1 : **l'outil de mesure avant le
 régulateur**. Le v1 n'avait aucun moyen de voir Iq pendant un transitoire, donc aucun moyen

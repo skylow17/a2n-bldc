@@ -7,8 +7,12 @@
  *   | u16 LE |  u8   | u8  | 0..512 octets | u16 LE |
  *   +--------+-------+-----+---------------+--------+
  *
- * Le tout est encode en COBS puis suivi d'un 0x00 delimiteur. Le CRC couvre msg_id jusqu'a la
- * fin du payload, avant encodage.
+ * Le tout est encode en COBS, precede de l'octet de debut FRAME_SOH et suivi du 0x00
+ * delimiteur. Le CRC couvre msg_id jusqu'a la fin du payload, avant encodage.
+ *
+ * L'octet de debut n'est pas decoratif : c'est lui qui distingue une trame binaire d'une ligne
+ * de console, et non le terminateur. COBS garantit l'absence de 0x00 dans la trame encodee,
+ * mais pas celle de 0x0A ni de 0x0D, qui y apparaissent comme n'importe quel autre octet.
  *
  * Les entiers sont little-endian, ce qui est l'ordre natif du Cortex-M4 comme celui du PC :
  * aucune conversion des deux cotes. On serialise malgre tout octet par octet plutot que par
@@ -30,9 +34,12 @@
 #define FRAME_RAW_MAX       (FRAME_HEADER_LEN + FRAME_PAYLOAD_MAX + FRAME_CRC_LEN)
 #define FRAME_RAW_MIN       (FRAME_HEADER_LEN + FRAME_CRC_LEN)
 
-/** Taille du tampon d'emission : trame encodee + delimiteur, plus un octet de marge que
- *  l'encodeur COBS peut ecrire sans le compter (cas du groupe plein en fin de donnees). */
-#define FRAME_ENCODED_MAX   (COBS_MAX_ENCODED(FRAME_RAW_MAX) + 2U)
+/** Octet de debut du canal binaire — docs/protocol.md §1. */
+#define FRAME_SOH           0x01U
+
+/** Taille du tampon d'emission : octet de debut + trame encodee + delimiteur, plus un octet de
+ *  marge que l'encodeur COBS peut ecrire sans le compter (groupe plein en fin de donnees). */
+#define FRAME_ENCODED_MAX   (COBS_MAX_ENCODED(FRAME_RAW_MAX) + 3U)
 
 /* Bits de `flags` — docs/protocol.md §2. */
 #define FRAME_FLAG_RESPONSE  0x01U
@@ -60,8 +67,8 @@ typedef enum
 } FrameStatus_t;
 
 /**
- * Serialise et encode une trame complete, delimiteur 0x00 compris : le resultat part tel quel
- * sur la liaison.
+ * Serialise et encode une trame complete, octet de debut et delimiteur compris : le resultat
+ * part tel quel sur la liaison.
  *
  * @param dst     au moins FRAME_ENCODED_MAX octets
  * @return longueur ecrite, ou 0 si le payload depasse FRAME_PAYLOAD_MAX ou dst est trop petit.
@@ -71,7 +78,8 @@ size_t Frame_Encode(uint16_t msg_id, uint8_t flags, uint8_t seq,
                     uint8_t *dst, size_t dst_cap);
 
 /**
- * Decode une trame recue, delimiteur exclu, et verifie son CRC.
+ * Decode une trame recue, **octet de debut et delimiteur exclus** : l'appelant ne transmet
+ * ici que le corps COBS. C'est le routeur de reception qui retire l'encadrement.
  *
  * @param scratch tampon de travail d'au moins FRAME_RAW_MAX octets ; `out->payload` y pointe
  *                apres l'appel et reste valide tant que l'appelant ne le reutilise pas.

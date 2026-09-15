@@ -33,17 +33,19 @@ size_t Frame_Encode(uint16_t msg_id, uint8_t flags, uint8_t seq,
 
   const size_t raw_len = body + FRAME_CRC_LEN;
 
-  /* +1 pour le delimiteur, +1 pour l'octet que l'encodeur peut ecrire sans le compter. */
-  if (dst_cap < (COBS_MAX_ENCODED(raw_len) + 2U)) {
+  /* +1 octet de debut, +1 delimiteur, +1 pour l'octet que l'encodeur peut ecrire sans le
+   * compter. */
+  if (dst_cap < (COBS_MAX_ENCODED(raw_len) + 3U)) {
     return 0U;
   }
 
-  const size_t n = Cobs_Encode(raw, raw_len, dst, dst_cap - 1U);
+  dst[0] = FRAME_SOH;
+  const size_t n = Cobs_Encode(raw, raw_len, &dst[1], dst_cap - 2U);
   if (n == 0U) {
     return 0U;
   }
-  dst[n] = 0x00U;   /* delimiteur */
-  return n + 1U;
+  dst[1U + n] = 0x00U;   /* delimiteur */
+  return n + 2U;
 }
 
 FrameStatus_t Frame_Decode(const uint8_t *src, size_t len,

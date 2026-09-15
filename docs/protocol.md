@@ -19,14 +19,29 @@ d'abord, puis des deux côtés dans la même passe.
 
 ## 1. Deux canaux sur un même lien
 
-| Canal | Usage | Détection |
+| Canal | Usage | Forme sur le lien |
 |---|---|---|
-| **Binaire** | Paramètres, télémétrie, scope, firmware | Trame délimitée par `0x00`, encodage COBS |
-| **ASCII** | Console de diagnostic manuel au terminal | Ligne terminée par `\r` ou `\n`, ne contient aucun `0x00` |
+| **Binaire** | Paramètres, télémétrie, scope, firmware | `0x01` `<trame COBS>` `0x00` |
+| **ASCII** | Console de diagnostic manuel au terminal | `<texte imprimable>` `\r` et/ou `\n` |
 
-Le firmware discrimine sur l'octet de fin : `0x00` → trame binaire, `\r`/`\n` → ligne ASCII.
+**La discrimination se fait sur le premier octet, pas sur le terminateur.** Une trame binaire
+s'ouvre par un `0x01` (SOH) ; une ligne de console commence toujours par un caractère imprimable.
+Le récepteur lit le premier octet qui suit un terminateur et sait dès lors quel canal il lit, donc
+quel terminateur attendre.
+
+> **Pourquoi pas la fin de trame.** Une première version discriminait sur l'octet terminal :
+> `0x00` → binaire, `\r`/`\n` → ASCII. C'était faux. COBS garantit l'absence de `0x00` dans la
+> trame encodée, mais **pas** celle de `0x0A` ou `0x0D`, qui y apparaissent comme n'importe quel
+> autre octet. Une trame binaire était donc coupée en morceaux et prise pour du texte dès qu'elle
+> en contenait un — soit 6 % du temps pour une trame de 8 octets, et 98 % pour une de 520. Le coût
+> de la correction est d'un octet par trame.
+
 Les deux canaux partagent la même machine à états et les mêmes limites ; la console ASCII n'est
 jamais un chemin privilégié.
+
+En réception, chaque canal se resynchronise sur son propre terminateur : un `0x00` reçu en mode
+ASCII, ou une trame binaire qui dépasse la taille maximale, font abandonner le message en cours
+sans jamais contaminer le suivant.
 
 ---
 
@@ -47,7 +62,8 @@ Avant encodage COBS :
 - `seq` — incrémenté par l'émetteur, recopié dans la réponse
 - `crc16` — CRC-16/CCITT-FALSE sur `msg_id` → fin de `payload`
 
-La trame est ensuite encodée en **COBS** et suivie d'un `0x00` délimiteur. Toute trame dont le CRC
+La trame est ensuite encodée en **COBS**, précédée de l'octet de début `0x01` et suivie du
+`0x00` délimiteur (§1). Toute trame dont le CRC
 est faux est jetée et journalisée ; elle n'est jamais réparée ni devinée.
 
 Encodage des nombres : **little-endian**, flottants IEEE-754 32 bits.

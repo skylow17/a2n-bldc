@@ -105,7 +105,29 @@ npm test          # vecteurs partagés + propriétés du codec
 npm run typecheck
 ```
 
-Si la spécification du protocole change, régénérer les vecteurs à la racine du dépôt :
+### La CLI de bring-up
+
+C'est l'outil à utiliser pour valider une carte fraîchement flashée. `--sim` remplace la
+carte par un device simulé complet : toutes les commandes fonctionnent sans matériel.
+
+```
+cd interface
+npm run cli -- check            # séquence de validation complète, verdict unique
+npm run cli -- check --sim      # la même chose, sans carte
+npm run cli -- ports            # repère la carte parmi les ports série
+npm run cli -- dict             # dictionnaire de paramètres et valeurs courantes
+npm run cli -- get pwm.freq_hz
+npm run cli -- set dbg.echo_f32 1.5
+npm run cli -- console SELFTEST
+npm run cli -- monitor          # tout ce qui passe sur le lien
+```
+
+La carte est reconnue par ses identifiants USB (VID `0483`, PID `5740`) ; `--port COMx`
+force un port précis.
+
+### Régénérer les vecteurs de protocole
+
+Si la spécification du protocole change, à la racine du dépôt :
 
 ```
 python tools/gen_protocol_vectors.py

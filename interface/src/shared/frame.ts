@@ -3,8 +3,12 @@
  *
  *   msg_id(u16 LE) | flags(u8) | seq(u8) | payload(0..512) | crc16(u16 LE)
  *
- * encodé en COBS puis suivi d'un 0x00 délimiteur. Le CRC couvre `msg_id` jusqu'à la fin du
- * payload, avant encodage. Jumeau de `controller-2/Core/Src/comm/frame.c`.
+ * encodé en COBS, précédé de l'octet de début `FRAME_SOH` et suivi du 0x00 délimiteur. Le CRC
+ * couvre `msg_id` jusqu'à la fin du payload, avant encodage.
+ *
+ * L'octet de début est ce qui distingue une trame binaire d'une ligne de console — et non le
+ * terminateur : COBS garantit l'absence de 0x00 dans la trame encodée, mais pas celle de 0x0A
+ * ni de 0x0D. Jumeau de `controller-2/Core/Src/comm/frame.c`.
  */
 
 import { cobsDecode, cobsEncode } from './cobs.js';
@@ -33,7 +37,10 @@ export class FrameDecodeError extends Error {
   }
 }
 
-/** Sérialise et encode une trame complète, délimiteur 0x00 compris. */
+/** Octet de début du canal binaire — `docs/protocol.md` §1. */
+export const FRAME_SOH = 0x01;
+
+/** Sérialise et encode une trame complète, octet de début et délimiteur compris. */
 export function encodeFrame(
   msgId: number,
   flags: number,
@@ -55,13 +62,17 @@ export function encodeFrame(
   view.setUint16(body, crc16(raw.subarray(0, body)), true);
 
   const encoded = cobsEncode(raw);
-  const out = new Uint8Array(encoded.length + 1);
-  out.set(encoded, 0);
-  out[encoded.length] = 0x00; // délimiteur
+  const out = new Uint8Array(encoded.length + 2);
+  out[0] = FRAME_SOH;
+  out.set(encoded, 1);
+  out[encoded.length + 1] = 0x00; // délimiteur
   return out;
 }
 
-/** Décode une trame reçue, délimiteur exclu, et vérifie son CRC. */
+/**
+ * Décode une trame reçue, **octet de début et délimiteur exclus** : on ne passe ici que le
+ * corps COBS. C'est `FrameStream` qui retire l'encadrement.
+ */
 export function decodeFrame(encoded: Uint8Array): Frame {
   const raw = cobsDecode(encoded);
   if (raw === null) throw new FrameDecodeError('cobs');
@@ -83,20 +94,24 @@ export function decodeFrame(encoded: Uint8Array): Frame {
   };
 }
 
-/**
- * Découpe un flux d'octets en trames, sur le délimiteur 0x00.
- *
- * Le flux d'entrée arrive par paquets USB qui ne respectent aucune frontière de trame : il
- * faut donc un état persistant entre deux appels. Les lignes de la console ASCII circulent
- * sur le même lien et sont restituées à part, sans être confondues avec des trames — c'est
- * le pendant exact de `comm/rx_router.c` côté firmware.
- */
 export type StreamItem =
   | { kind: 'frame'; frame: Frame }
   | { kind: 'line'; text: string }
   | { kind: 'error'; reason: FrameError | 'overflow' };
 
+/**
+ * Découpe un flux d'octets en trames binaires et en lignes de console.
+ *
+ * Le flux arrive par paquets USB qui ne respectent aucune frontière de message : il faut donc
+ * un état persistant entre deux appels. Pendant de `comm/rx_router.c` côté firmware, et la
+ * symétrie doit être maintenue — les deux se trompent ensemble, sinon.
+ *
+ * **Le canal se décide sur le premier octet du message, pas sur son terminateur** : `0x01`
+ * ouvre une trame binaire, tout caractère imprimable ouvre une ligne. Se fier au terminateur
+ * ne fonctionne pas, COBS n'excluant que `0x00` de la trame encodée — pas `0x0A` ni `0x0D`.
+ */
 export class FrameStream {
+  private state: 'idle' | 'binary' | 'ascii' = 'idle';
   private acc: number[] = [];
   private overflowed = false;
   private readonly decoder = new TextDecoder();
@@ -108,46 +123,64 @@ export class FrameStream {
     const out: StreamItem[] = [];
 
     for (const byte of chunk) {
-      const isTerminator = byte === 0x00 || byte === 0x0d || byte === 0x0a;
-
-      if (!isTerminator) {
-        if (this.acc.length >= this.maxAccumulated) {
-          // On continue de consommer jusqu'au terminateur plutôt que de couper : le
-          // message suivant ne doit pas hériter d'un reste du précédent. Un seul
-          // signalement par message perdu.
-          if (!this.overflowed) {
-            this.overflowed = true;
-            out.push({ kind: 'error', reason: 'overflow' });
+      switch (this.state) {
+        case 'idle':
+          if (byte === FRAME_SOH) {
+            this.state = 'binary';
+          } else if (byte === 0x00 || byte === 0x0d || byte === 0x0a) {
+            // Terminateur isolé : reste d'un message précédent, ou ligne vide.
+          } else {
+            this.state = 'ascii';
+            this.acc = [byte];
           }
-        } else {
-          this.acc.push(byte);
-        }
-        continue;
-      }
+          break;
 
-      const body = this.acc;
-      const lost = this.overflowed;
-      this.acc = [];
-      this.overflowed = false;
+        case 'binary':
+          if (byte === 0x00) {
+            if (this.overflowed) out.push({ kind: 'error', reason: 'overflow' });
+            else if (this.acc.length > 0) out.push(this.decodeAccumulated());
+            this.reset();
+          } else if (this.acc.length >= this.maxAccumulated) {
+            // On consomme jusqu'au délimiteur plutôt que de couper : la trame suivante
+            // ne doit pas hériter d'un reste de celle-ci.
+            this.overflowed = true;
+          } else {
+            this.acc.push(byte);
+          }
+          break;
 
-      // Un terminateur isolé (ligne vide, ou le \n d'un \r\n) ne déclenche rien.
-      if (lost || body.length === 0) continue;
-
-      if (byte === 0x00) {
-        try {
-          out.push({ kind: 'frame', frame: decodeFrame(Uint8Array.from(body)) });
-        } catch (e) {
-          out.push({ kind: 'error', reason: e instanceof FrameDecodeError ? e.reason : 'len' });
-        }
-      } else {
-        out.push({ kind: 'line', text: this.decoder.decode(Uint8Array.from(body)) });
+        case 'ascii':
+          if (byte === 0x0d || byte === 0x0a) {
+            if (this.overflowed) out.push({ kind: 'error', reason: 'overflow' });
+            else out.push({ kind: 'line', text: this.decoder.decode(Uint8Array.from(this.acc)) });
+            this.reset();
+          } else if (byte === 0x00) {
+            // Un 0x00 n'appartient pas à une ligne de texte : l'émetteur s'est
+            // désynchronisé. On abandonne la ligne et on repart propre.
+            out.push({ kind: 'error', reason: 'len' });
+            this.reset();
+          } else if (this.acc.length >= this.maxAccumulated) {
+            this.overflowed = true;
+          } else {
+            this.acc.push(byte);
+          }
+          break;
       }
     }
 
     return out;
   }
 
+  private decodeAccumulated(): StreamItem {
+    try {
+      return { kind: 'frame', frame: decodeFrame(Uint8Array.from(this.acc)) };
+    } catch (e) {
+      return { kind: 'error', reason: e instanceof FrameDecodeError ? e.reason : 'len' };
+    }
+  }
+
   reset(): void {
+    this.state = 'idle';
     this.acc = [];
     this.overflowed = false;
   }

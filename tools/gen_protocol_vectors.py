@@ -84,10 +84,15 @@ def cobs_decode(src):
     return bytes(out)
 
 
+# Octet de debut du canal binaire (docs/protocol.md §1). C'est lui qui distingue une trame
+# d'une ligne de console, et non le terminateur : COBS n'exclut que 0x00, pas 0x0A ni 0x0D.
+FRAME_SOH = 0x01
+
+
 def frame_encode(msg_id, flags, seq, payload):
     body = struct.pack("<HBB", msg_id, flags, seq) + payload
     raw = body + struct.pack("<H", crc16(body))
-    return cobs_encode(raw) + b"\x00"
+    return bytes([FRAME_SOH]) + cobs_encode(raw) + b"\x00"
 
 
 # ----------------------------------------------------------------- dictionnaire M1b

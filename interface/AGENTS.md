@@ -39,9 +39,12 @@ Interface **en anglais**, **thème sombre** par défaut avec bascule clair.
 
 ```
 src/
+  shared/          LE codec protocole : framing cobs+crc16, dictionnaire, client,
+                   device simulé, types. Ni Electron ni Node.       ← écrit
+  node/            ce qui a besoin de Node : transport série.        ← écrit
+  cli/             outil de bring-up firmware, sur shared/.          ← écrit
   main/            processus principal Electron
     device/        DeviceCore — état, machine à états, souscriptions télémétrie
-    transport/     serial.ts (node-serialport) | simulator.ts — même interface
     recipes/       lecture/écriture .a2nrcp, diff, application
     mcp/           serveur MCP et définitions d'outils
     log/           journal unifié (device | gui | mcp)
@@ -50,12 +53,15 @@ src/
     views/         Dashboard, Control, Tuning, Recipes, Scope, Firmware
     components/    widgets réutilisables (plots, tuiles, champs paramétrés)
     plot/          intégration uPlot, buffers circulaires
-  shared/          LE codec protocole : framing cobs+crc16, dictionnaire, télémétrie,
-                   scope, types, schémas zod, unités. Aucune dépendance Electron.
-  cli/             outil de bring-up firmware, sur shared/, sans Electron
 docs/
   mockup/          maquette HTML de référence visuelle
 ```
+
+**Écart assumé avec le plan initial** : le transport série vit dans `src/node/` et non
+dans `src/main/transport/`. La raison est la règle ci-dessus — la CLI en a besoin et ne
+doit pas dépendre d'Electron. La frontière entre `shared/` et le monde extérieur est
+l'interface `Transport` (`shared/transport.ts`), et rien d'autre : le device simulé et le
+port série sont strictement interchangeables partout, y compris dans les tests.
 
 ---
 

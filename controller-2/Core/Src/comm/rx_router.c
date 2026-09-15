@@ -13,17 +13,26 @@
 
 /* Le tampon doit accepter la plus grande trame encodee. Une ligne de console est bien plus
  * courte, mais elle partage le meme tampon : un seul message est en cours d'accumulation a
- * la fois, puisqu'il n'est possible d'en terminer un qu'en rencontrant un terminateur. */
+ * la fois, puisqu'on ne peut en terminer un qu'en rencontrant son terminateur. */
 #define RX_ACC_MAX  FRAME_ENCODED_MAX
 
-static uint8_t  s_acc[RX_ACC_MAX];
-static uint16_t s_len;
-static bool     s_overflow;
-static uint8_t  s_scratch[FRAME_RAW_MAX];
-static uint32_t s_overflows;
+typedef enum
+{
+  RX_IDLE = 0,   /* entre deux messages : le prochain octet decide du canal */
+  RX_BINARY,     /* trame COBS en cours, terminateur attendu : 0x00 */
+  RX_ASCII,      /* ligne de console en cours, terminateur attendu : CR ou LF */
+} RxState_t;
+
+static RxState_t s_state;
+static uint8_t   s_acc[RX_ACC_MAX];
+static uint16_t  s_len;
+static bool      s_overflow;
+static uint8_t   s_scratch[FRAME_RAW_MAX];
+static uint32_t  s_overflows;
 
 void RxRouter_Init(void)
 {
+  s_state     = RX_IDLE;
   s_len       = 0U;
   s_overflow  = false;
   s_overflows = 0U;
@@ -42,9 +51,9 @@ static void OnBinaryFrame(void)
       break;
 
     case FRAME_ERR_CRC:
-      /* On connait le seq : il est en clair dans la trame decodee, mais celle-ci n'est
-       * justement pas fiable. On repond avec seq = 0 plutot que de citer un octet dont on
-       * vient d'etablir qu'il est suspect. */
+      /* Le seq figure en clair dans la trame decodee, mais celle-ci vient precisement
+       * d'etre declaree non fiable. On repond avec seq = 0 plutot que de citer un octet
+       * dont on sait qu'il est suspect. */
       Proto_SendError(0U, 0U, PROTO_ERR_CRC);
       break;
 
@@ -56,12 +65,19 @@ static void OnBinaryFrame(void)
   }
 }
 
-static void OnAsciiLine(void)
+static void Reset(void)
 {
-  /* La console travaille sur une chaine C ; il reste toujours au moins une place libre,
-   * puisqu'un depassement est detecte avant d'atteindre RX_ACC_MAX. */
-  s_acc[s_len] = 0U;
-  Console_ExecuteLine((const char *)s_acc);
+  s_state    = RX_IDLE;
+  s_len      = 0U;
+  s_overflow = false;
+}
+
+static void NoteOverflow(void)
+{
+  if (!s_overflow) {
+    s_overflow = true;
+    s_overflows++;
+  }
 }
 
 void RxRouter_Process(void)
@@ -72,39 +88,62 @@ void RxRouter_Process(void)
   while ((n = Link_RxRead(chunk, sizeof(chunk))) > 0U) {
     for (uint16_t i = 0U; i < n; i++) {
       const uint8_t c = chunk[i];
-      const bool    is_terminator = (c == 0x00U) || (c == (uint8_t)'\r') || (c == (uint8_t)'\n');
 
-      if (!is_terminator) {
-        if (s_len >= (RX_ACC_MAX - 1U)) {
-          /* On continue de consommer jusqu'au terminateur plutot que de couper : le
-           * message suivant ne doit pas heriter d'un reste du precedent. */
-          if (!s_overflow) {
-            s_overflow = true;
-            s_overflows++;
+      switch (s_state) {
+        case RX_IDLE:
+          /* C'est ici, et seulement ici, que le canal est choisi : sur le premier octet
+           * du message. Se fier au terminateur ne marche pas — COBS exclut 0x00 de la
+           * trame encodee, mais pas 0x0A ni 0x0D. */
+          if (c == FRAME_SOH) {
+            s_state = RX_BINARY;
+          } else if ((c == (uint8_t)'\r') || (c == (uint8_t)'\n') || (c == 0x00U)) {
+            /* Terminateur isole : reste d'un message precedent, ou ligne vide. */
+          } else {
+            s_state    = RX_ASCII;
+            s_acc[0]   = c;
+            s_len      = 1U;
           }
-        } else {
-          s_acc[s_len++] = c;
-        }
-        continue;
-      }
+          break;
 
-      if (s_overflow) {
-        if (c == 0x00U) {
-          Proto_SendError(0U, 0U, PROTO_ERR_LEN);
-        } else {
-          Console_ReplyOverflow();
-        }
-      } else if (s_len > 0U) {
-        if (c == 0x00U) {
-          OnBinaryFrame();
-        } else {
-          OnAsciiLine();
-        }
-      }
-      /* Un terminateur isole (ligne vide, ou le \n d'un \r\n) ne declenche rien. */
+        case RX_BINARY:
+          if (c == 0x00U) {
+            if (s_overflow) {
+              Proto_SendError(0U, 0U, PROTO_ERR_LEN);
+            } else if (s_len > 0U) {
+              OnBinaryFrame();
+            }
+            Reset();
+          } else if (s_len >= RX_ACC_MAX) {
+            /* On continue de consommer jusqu'au delimiteur plutot que de couper : la
+             * trame suivante ne doit pas heriter d'un reste de celle-ci. */
+            NoteOverflow();
+          } else {
+            s_acc[s_len++] = c;
+          }
+          break;
 
-      s_len      = 0U;
-      s_overflow = false;
+        case RX_ASCII:
+        default:
+          if ((c == (uint8_t)'\r') || (c == (uint8_t)'\n')) {
+            if (s_overflow) {
+              Console_ReplyOverflow();
+            } else {
+              s_acc[s_len] = 0U;
+              Console_ExecuteLine((const char *)s_acc);
+            }
+            Reset();
+          } else if (c == 0x00U) {
+            /* Un 0x00 ne peut pas appartenir a une ligne de texte : l'emetteur s'est
+             * desynchronise. On abandonne la ligne et on repart propre. */
+            Console_ReplyOverflow();
+            Reset();
+          } else if (s_len >= (RX_ACC_MAX - 1U)) {
+            NoteOverflow();
+          } else {
+            s_acc[s_len++] = c;
+          }
+          break;
+      }
     }
   }
 }

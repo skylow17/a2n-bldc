@@ -7,9 +7,12 @@
  * le simulateur.
  */
 
+export * from './client.js';
 export * from './cobs.js';
 export * from './crc16.js';
 export * from './frame.js';
 export * from './messages.js';
 export * from './params.js';
 export * from './protocol.js';
+export * from './simulator.js';
+export * from './transport.js';

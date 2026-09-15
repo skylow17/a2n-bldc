@@ -135,14 +135,15 @@ export function decodeParamWrite(payload: Uint8Array): ParamWriteResult[] {
 
 /* ------------------------------------------------------------------ erreurs */
 
-export interface ProtocolError {
+export interface ProtocolErrorPayload {
   code: number;
   name: string;
   detail: string;
 }
 
-/** Payload d'une réponse portant le bit erreur : `u16 code` + chaîne facultative. */
-export function decodeError(payload: Uint8Array): ProtocolError {
+/** Payload d'une réponse portant le bit erreur : `u16 code` + chaîne facultative.
+ *  Distinct de la classe `ProtocolError` de `client.ts`, qui est ce qui est *levé*. */
+export function decodeError(payload: Uint8Array): ProtocolErrorPayload {
   const r = new PayloadReader(payload);
   const code = r.u16();
   const detail = r.remaining > 0 ? new TextDecoder().decode(r.bytes(r.remaining)) : '';

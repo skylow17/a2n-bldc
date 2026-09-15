@@ -70,14 +70,15 @@ static void RunFrame(SelftestResult_t *r)
     r->total++;
 
     const size_t enc = Frame_Encode(0x1234U, 0x05U, 0xABU, payload, n, s_buf_a, sizeof(s_buf_a));
-    if ((enc == 0U) || (s_buf_a[enc - 1U] != 0x00U)) {
+    if ((enc < 3U) || (s_buf_a[0] != FRAME_SOH) || (s_buf_a[enc - 1U] != 0x00U)) {
       r->frame_failed++;
       r->failed++;
       continue;
     }
 
+    /* Frame_Decode ne voit que le corps COBS : l'encadrement est retire par le routeur. */
     Frame_t f;
-    const FrameStatus_t st = Frame_Decode(s_buf_a, enc - 1U, s_buf_b, sizeof(s_buf_b), &f);
+    const FrameStatus_t st = Frame_Decode(&s_buf_a[1], enc - 2U, s_buf_b, sizeof(s_buf_b), &f);
     if ((st != FRAME_OK) || (f.msg_id != 0x1234U) || (f.flags != 0x05U) ||
         (f.seq != 0xABU) || (f.payload_len != n) ||
         ((n > 0U) && (memcmp(f.payload, payload, n) != 0))) {
@@ -89,10 +90,12 @@ static void RunFrame(SelftestResult_t *r)
   /* Un octet corrompu doit etre rejete par le CRC, pas absorbe silencieusement. */
   r->total++;
   const size_t enc = Frame_Encode(0x0012U, 0U, 9U, payload, 8U, s_buf_a, sizeof(s_buf_a));
-  if (enc > 2U) {
-    s_buf_a[1] = (uint8_t)((s_buf_a[1] == 0xFFU) ? 0xFEU : (s_buf_a[1] + 1U));
+  if (enc > 3U) {
+    /* On altere un octet du corps, jamais l'encadrement, et jamais vers 0x00 : ce qu'on
+     * eprouve ici est le CRC, pas la resynchronisation. */
+    s_buf_a[2] = (uint8_t)((s_buf_a[2] == 0xFFU) ? 0xFEU : (s_buf_a[2] + 1U));
     Frame_t f;
-    if (Frame_Decode(s_buf_a, enc - 1U, s_buf_b, sizeof(s_buf_b), &f) == FRAME_OK) {
+    if (Frame_Decode(&s_buf_a[1], enc - 2U, s_buf_b, sizeof(s_buf_b), &f) == FRAME_OK) {
       r->frame_failed++;
       r->failed++;
     }

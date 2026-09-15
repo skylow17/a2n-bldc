@@ -13,7 +13,7 @@ import { describe, expect, it } from 'vitest';
 import vectors from '../../../../docs/protocol-vectors.json' with { type: 'json' };
 import { cobsDecode, cobsEncode } from '../cobs.js';
 import { crc16, crc32 } from '../crc16.js';
-import { decodeFrame, encodeFrame } from '../frame.js';
+import { FRAME_SOH, decodeFrame, encodeFrame } from '../frame.js';
 
 const hex = (s: string): Uint8Array =>
   s.length === 0 ? new Uint8Array(0) : Uint8Array.from(Buffer.from(s, 'hex'));
@@ -64,8 +64,10 @@ describe('trames complètes', () => {
 
   it.each(vectors.frames)('$name — décode', (v) => {
     const encoded = hex(v.encoded_hex);
-    // Le délimiteur final ne fait pas partie de ce que reçoit le décodeur.
-    const f = decodeFrame(encoded.subarray(0, encoded.length - 1));
+    expect(encoded[0], 'octet de début absent').toBe(FRAME_SOH);
+    expect(encoded.at(-1), 'délimiteur absent').toBe(0);
+    // Le décodeur ne voit que le corps COBS : ni l'octet de début, ni le délimiteur.
+    const f = decodeFrame(encoded.subarray(1, encoded.length - 1));
     expect(f.msgId).toBe(v.msg_id);
     expect(f.flags).toBe(v.flags);
     expect(f.seq).toBe(v.seq);

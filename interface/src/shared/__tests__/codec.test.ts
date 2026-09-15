@@ -10,6 +10,7 @@ import {
   FrameStream,
   PayloadReader,
   PayloadWriter,
+  FRAME_SOH,
   decodeFrame,
   encodeFrame,
   type StreamItem,
@@ -63,9 +64,10 @@ describe('trames', () => {
       for (let i = 0; i < n; i++) payload[i] = (i * 7) & 0xff;
 
       const encoded = encodeFrame(0x1234, 0x05, 0xab, payload);
+      expect(encoded[0], 'octet de début absent').toBe(FRAME_SOH);
       expect(encoded[encoded.length - 1], 'délimiteur absent').toBe(0);
 
-      const f = decodeFrame(encoded.subarray(0, encoded.length - 1));
+      const f = decodeFrame(encoded.subarray(1, encoded.length - 1));
       expect(f.msgId).toBe(0x1234);
       expect(f.flags).toBe(0x05);
       expect(f.seq).toBe(0xab);
@@ -80,7 +82,7 @@ describe('trames', () => {
   it('détecte un octet corrompu par le CRC', () => {
     const payload = Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 8]);
     const encoded = encodeFrame(0x0012, 0, 9, payload);
-    const body = encoded.subarray(0, encoded.length - 1);
+    const body = encoded.subarray(1, encoded.length - 1);
 
     let caught = 0;
     for (let i = 0; i < body.length; i++) {
@@ -144,17 +146,57 @@ describe('FrameStream — démultiplexage du flux', () => {
     expect(second[0]).toMatchObject({ kind: 'frame' });
   });
 
-  it('signale un débordement une seule fois et repart proprement', () => {
+  it('signale un débordement une seule fois, au moment où le message est abandonné', () => {
     const stream = new FrameStream(64);
     const flood = new Uint8Array(200).fill(0x41);
 
-    const items = stream.push(flood);
-    expect(items.filter((i) => i.kind === 'error')).toHaveLength(1);
+    // Rien n'est émis pendant l'accumulation : on ne sait pas encore que le message est
+    // perdu plutôt que simplement long. Comme le firmware, on consomme jusqu'au
+    // terminateur et on signale une seule fois.
+    expect(stream.push(flood)).toEqual([]);
+    expect(stream.push(Uint8Array.from([0x0a]))).toEqual([
+      { kind: 'error', reason: 'overflow' },
+    ]);
 
-    // Le terminateur ferme le message perdu ; le suivant doit être intact.
-    stream.push(Uint8Array.from([0x0a]));
-    const after = stream.push(new TextEncoder().encode('PING\n'));
-    expect(after).toEqual([{ kind: 'line', text: 'PING' }]);
+    // Et le message suivant doit être intact : aucun reste du précédent.
+    expect(stream.push(new TextEncoder().encode('PING\n'))).toEqual([
+      { kind: 'line', text: 'PING' },
+    ]);
+  });
+
+  it("abandonne une ligne ASCII qui reçoit un 0x00 — l'émetteur s'est désynchronisé", () => {
+    const stream = new FrameStream();
+    expect(stream.push(Uint8Array.from([0x50, 0x49, 0x4e, 0x00]))).toEqual([
+      { kind: 'error', reason: 'len' },
+    ]);
+
+    // Resynchronisation immédiate : la trame suivante passe.
+    expect(stream.push(encodeFrame(0x0001, 0, 3)).map((i) => i.kind)).toEqual(['frame']);
+  });
+
+  it('ne coupe pas une trame binaire contenant des CR ou des LF', () => {
+    // C'est le défaut que l'octet de début corrige. COBS n'exclut que 0x00 de la trame
+    // encodée, pas 0x0A ni 0x0D : discriminer sur le terminateur découpait les trames dès
+    // qu'elles en contenaient — le cas courant au-delà de quelques dizaines d'octets.
+    const stream = new FrameStream();
+    const payload = new Uint8Array(256);
+    for (let i = 0; i < payload.length; i++) payload[i] = i % 2 === 0 ? 0x0a : 0x0d;
+
+    const frame = encodeFrame(0x0011, 0, 4, payload);
+    const body = frame.subarray(1, frame.length - 1);
+    expect(
+      body.some((b) => b === 0x0a || b === 0x0d),
+      'le vecteur ne teste rien si le corps ne contient ni CR ni LF',
+    ).toBe(true);
+
+    const items = stream.push(frame);
+    expect(items).toHaveLength(1);
+    const first = items[0];
+    if (first?.kind === 'frame') {
+      expect(first.frame.payload).toEqual(payload);
+    } else {
+      expect.fail(`trame découpée : ${JSON.stringify(items.map((i) => i.kind))}`);
+    }
   });
 });
 
