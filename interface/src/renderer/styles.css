@@ -1,0 +1,78 @@
+@import 'tailwindcss';
+
+/*
+ * Palette reprise de la maquette validée (docs/mockup/mockup.html) : thème sombre
+ * d'instrumentation, accent ambre réservé à ce qui demande une action.
+ *
+ * On passe par des variables CSS plutôt que par la configuration Tailwind pour que la
+ * bascule clair/sombre soit un simple attribut sur la racine, sans reconstruire de classes.
+ */
+@theme {
+  --color-bg: #0c0f13;
+  --color-panel: #14181e;
+  --color-panel-2: #1b2028;
+  --color-raise: #222832;
+  --color-line: #2a313b;
+  --color-line-soft: #1f252d;
+  --color-fg: #e6eaf0;
+  --color-fg-2: #96a0af;
+  --color-fg-3: #636d7b;
+  --color-accent: #f0a02c;
+  --color-accent-dim: #8a5e1b;
+  --color-ok: #4caf6d;
+  --color-fault: #e35d5d;
+  --color-info: #4ea8de;
+
+  --font-ui: 'Barlow', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Consolas, monospace;
+
+  --radius-panel: 4px;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  /* L'application occupe la fenêtre : le défilement appartient aux panneaux, jamais au
+     document, sinon la barre haute et la console disparaissent en faisant défiler. */
+  overflow: hidden;
+  user-select: none;
+}
+
+/* Le texte technique doit rester sélectionnable : on lit des valeurs pour les recopier. */
+.selectable,
+input,
+textarea {
+  user-select: text;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-bg);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-raise);
+  border-radius: 5px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-line);
+}
+
+/* Toujours montrer le focus clavier : on pilote un moteur, savoir où l'on est compte. */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}

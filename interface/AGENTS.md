@@ -6,6 +6,15 @@ sont définis une seule fois et ne sont pas répétés ici.
 
 ---
 
+> **Avancement.** `shared/` (codec, client, device simulé), `node/` (transport série),
+> `cli/` (bring-up) et le socle Electron — `main/device/DeviceCore`, `preload/`,
+> `renderer/` avec les vues Dashboard, Tuning et Console — sont écrits et testés contre le
+> device simulé (145 tests). Les vues Control, Scope, Recipes et Firmware sont présentes
+> dans la navigation mais grisées, avec le jalon qui les débloquera : elles n'auraient
+> rien à piloter aujourd'hui. Le serveur MCP n'est pas commencé, mais la barrière qu'il
+> exige — le refus d'une commande d'origine agent tant que « AI control » est off —
+> existe déjà dans le DeviceCore, testée.
+
 ## 1. Objectif et périmètre
 
 C'est un **poste de réglage et d'essai**, pas une IHM d'exploitation. Il sert à :

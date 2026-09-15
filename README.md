@@ -125,6 +125,20 @@ npm run cli -- monitor          # tout ce qui passe sur le lien
 La carte est reconnue par ses identifiants USB (VID `0483`, PID `5740`) ; `--port COMx`
 force un port précis.
 
+### L'application
+
+```
+cd interface
+npm run dev        # développement, rechargement à chaud
+npm run build      # empaquetage dans out/
+```
+
+Elle se connecte au choix à une carte ou au device simulé, par le même sélecteur. Ce qui
+est visible correspond à ce que le firmware sait faire : les vues **Control**, **Scope**,
+**Recipes** et **Firmware** sont grisées avec le jalon qui les rendra disponibles, parce
+qu'aucune commande de mouvement, capture, persistance ni bootloader n'existe encore.
+Proposer des boutons qui échoueraient serait pire que de ne rien proposer.
+
 ### Régénérer les vecteurs de protocole
 
 Si la spécification du protocole change, à la racine du dépôt :
