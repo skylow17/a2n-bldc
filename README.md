@@ -1,0 +1,100 @@
+# A2N BLDC
+
+Contrôleur de moteur BLDC en FOC (position, vitesse, couple) sur STM32G473CEU3, et le poste PC qui
+sert à le régler et à l'instrumenter.
+
+| Dossier | Contenu |
+|---|---|
+| `controller-2/` | Firmware. C, HAL STM32G4, build par `make`. |
+| `interface/` | Poste PC : codec de protocole, CLI de bring-up, puis application Electron. |
+| `docs/protocol.md` | La liaison USB CDC entre les deux. **Seule autorité** : toute évolution y passe d'abord. |
+| `docs/Schematics.pdf` | Schéma du PCB (KiCad, rev A). |
+| `AGENTS.md` | Le contrat de travail : matériel, protocole, règles de sécurité, conventions. À lire en premier. |
+
+Le firmware historique `a2n-bldc-controller` est **gelé** et vit dans un dépôt séparé ; il sert de
+référence matérielle, pas de base de travail. Voir `AGENTS.md` §1.
+
+---
+
+## Mise en route sur un nouveau poste
+
+```
+git clone https://github.com/skylow17/a2n-bldc.git
+cd a2n-bldc
+```
+
+C'est tout ce dont une session a besoin : le contrat, la spécification de protocole et les deux
+projets arrivent ensemble et cohérents entre eux.
+
+### Pour compiler le firmware
+
+Une seule dépendance : **STM32CubeIDE**, qui fournit à lui seul le compilateur `arm-none-eabi-gcc`,
+`make` et `STM32_Programmer_CLI`. Plus le **paquet HAL STM32G4** (`STM32Cube_FW_G4`), installé par
+CubeIDE ou CubeMX. Ni CMake ni Ninja ne sont utilisés.
+
+```
+cd controller-2
+cp toolchain.local.mk.example toolchain.local.mk   # puis y mettre ses chemins
+make
+```
+
+`toolchain.local.mk` n'est pas suivi par git : chaque poste garde ses chemins d'installation sans
+jamais entrer en conflit avec un autre. Si les chemins ne correspondent pas, `make` s'arrête tout
+de suite en le disant, plutôt que de partir en cascade d'erreurs.
+
+`make` doit être dans le `PATH`. Il se trouve sous :
+
+```
+<CubeIDE>/plugins/com.st.stm32cube.ide.mcu.externaltools.make.win32_*/tools/bin
+```
+
+Cibles disponibles :
+
+| Commande | Effet |
+|---|---|
+| `make` | Construit `.elf`, `.hex` et `.bin` dans `build/` |
+| `make flash` | Programme la carte par SWD (ST-LINK ou Tag-Connect sur J4) |
+| `make size` | Occupation flash / RAM |
+| `make compdb` | `compile_commands.json` pour clangd |
+| `make clean` | Efface `build/` |
+
+Un build propre doit donner, aux évolutions en cours près :
+
+```
+RAM:    13480 B / 128 KB    10,3 %
+FLASH:  33108 B / 256 KB    12,6 %
+```
+
+L'image est liée à `0x08000000` (`ld/stm32g473ce_standalone.ld`). `ld/stm32g473ce_slotA.ld` décrit
+le découpage A/B destiné au futur bootloader ; il n'est pas utilisé tant que celui-ci n'existe pas.
+
+### Pour vérifier que la carte répond
+
+Le firmware s'énumère en USB CDC. N'importe quel terminal série fait l'affaire, la vitesse est
+ignorée. Une commande par ligne :
+
+```
+PING          -> OK
+INFO?         -> OK product=A2N-BLDC fw=... sysclk=144000000 pwm_hz=20000 arr=3599 ...
+STATS?        -> OK ticks=... last_ns=... max_ns=... load_pm=... ia=... ib=... ic=...
+LINK?         -> OK tx_dropped=0 rx_dropped=0
+PWM?          -> OK enabled=0
+```
+
+La procédure de recette complète est dans `controller-2/docs/M0-bringup.md`.
+
+### Pour l'interface PC
+
+Le dossier ne contient pour l'instant que la maquette
+(`interface/docs/mockup/mockup.html`), qui s'ouvre directement dans un navigateur, sans rien
+installer. Le code démarre à l'étape M1b — voir `controller-2/AGENTS.md` §5.
+
+---
+
+## Un mot sur la structure
+
+Le firmware et le poste PC partagent un protocole binaire dont les deux implémentations, en C et en
+TypeScript, doivent rester d'accord à l'octet près. C'est la raison d'être du dépôt unique : une
+évolution de la liaison tient dans une seule révision qui touche la spécification et les deux
+codecs à la fois. Deux dépôts séparés rendraient ce changement non atomique, et donc tôt ou tard
+divergent.

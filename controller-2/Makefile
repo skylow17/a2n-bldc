@@ -15,6 +15,12 @@ BUILD    := build
 DEBUG    ?= 1
 OPT      ?= -Og
 
+# Chemins de la toolchain. Les valeurs ci-dessous sont celles du poste de
+# reference ; sur une autre machine, copier toolchain.local.mk.example en
+# toolchain.local.mk et y mettre les siens. Ce fichier n'est pas suivi par git,
+# donc chaque poste garde ses chemins sans jamais provoquer de conflit.
+-include toolchain.local.mk
+
 CUBE     ?= C:/Users/echan/STM32Cube/Repository/STM32Cube_FW_G4_V1.6.1
 IDE      ?= C:/ST/STM32CubeIDE_1.18.0/STM32CubeIDE/plugins
 GCC_DIR  ?= $(IDE)/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.0.202411081344/tools/bin
@@ -131,6 +137,16 @@ OBJECTS += $(addprefix $(BUILD)/obj/,$(notdir $(ASM_SOURCES:.s=.o)))
 vpath %.s $(sort $(dir $(ASM_SOURCES)))
 
 # ---------------------------------------------------------------- règles
+# Diagnostic immediat plutot qu'une cascade de "command not found" : sur un poste
+# neuf, l'erreur la plus probable est un chemin de toolchain qui ne correspond pas.
+ifeq ($(wildcard $(CC)*),)
+  $(info )
+  $(info  Compilateur introuvable : $(CC))
+  $(info  Copier toolchain.local.mk.example en toolchain.local.mk et y corriger IDE/CUBE.)
+  $(info )
+  $(error toolchain absente)
+endif
+
 .PHONY: all clean flash size compdb
 
 all: $(BUILD)/$(TARGET).elf $(BUILD)/$(TARGET).hex $(BUILD)/$(TARGET).bin

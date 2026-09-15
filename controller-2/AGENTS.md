@@ -1,4 +1,4 @@
-# AGENTS.md — a2n-bldc-controller-2
+# AGENTS.md — controller-2 (firmware)
 
 Firmware FOC pour la carte A2N BLDC (STM32G473CEU3).
 **Lire d'abord `../AGENTS.md`** : matériel, protocole partagé, règles de sécurité et conventions y
@@ -7,7 +7,7 @@ sont définis une seule fois et ne sont pas répétés ici.
 > **Statut : chantier actif.** Ce document pose les bases avant la première ligne de code.
 > L'ordre de travail est : squelette temps réel mesuré → observabilité (protocole + CLI de
 > bring-up côté PC) → chaîne capteur → asservissements. L'application Electron de
-> `../a2n-bldc-interface` vient après, sur le codec écrit pendant l'étape observabilité.
+> `../interface` vient après, sur le codec écrit pendant l'étape observabilité.
 
 ---
 
@@ -203,7 +203,7 @@ la première boucle d'asservissement (M3).
 | **M1** — observabilité | 1a | Liaison USB CDC, émission non bloquante, console texte | `INFO?` et `STATS?` répondent ; `ticks` progresse de 20 000 par seconde mesurée **côté PC** |
 | | 1b | Codec binaire (COBS + CRC16) et dictionnaire de paramètres, écrits en C **et** en TypeScript | L'hôte lit le dictionnaire et le hash du handshake correspond |
 | | 1c | Télémétrie souscrite + buffer scope en RAM | Capture de 2048 points à 20 kHz, relue intégralement |
-| | 1d | CLI Node de bring-up, sur `../a2n-bldc-interface/src/shared/` | Une capture tracée depuis le PC |
+| | 1d | CLI Node de bring-up, sur `../interface/src/shared/` | Une capture tracée depuis le PC |
 | **M2** — étage de puissance et capteurs | 2 | DRV8304 : SPI, registres, nFAULT | Écriture puis relecture cohérente d'un registre, fautes remontées |
 | | 3 | PWM à vide, haute impédance, temps mort | Formes correctes à l'oscilloscope, aucun bras en conduction croisée. Comparer le front de `PC13` à celui de `PB0` |
 | | 4 | ADC synchrone PWM, offsets des amplis de courant (`DRV_CAL`) | Offsets stables moteur à l'arrêt, bruit mesuré et documenté |
@@ -220,7 +220,7 @@ la première boucle d'asservissement (M3).
 L'étape 11 est le point de bascule par rapport au v1 : elle est **infaisable sans le scope
 burst**, donc M1 doit être entièrement acquis avant d'y arriver.
 
-L'application Electron de `../a2n-bldc-interface` se construit après M3, sur le codec écrit
+L'application Electron de `../interface` se construit après M3, sur le codec écrit
 en M1b — la CLI de M1d et elle partagent le même `src/shared/`.
 
 ---

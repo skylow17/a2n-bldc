@@ -1,20 +1,53 @@
-# AGENTS.md — Groupe de projets A2N BLDC
+# AGENTS.md — Dépôt A2N BLDC
 
-Ce fichier est le contrat commun aux projets de ce dossier. Tout agent ou contributeur qui
+Ce fichier est le contrat commun aux projets de ce dépôt. Tout agent ou contributeur qui
 intervient ici le lit en premier, puis le `AGENTS.md` du projet dans lequel il travaille.
 
 ---
 
-## 1. Carte du groupe
+## 1. Carte du dépôt
+
+`https://github.com/skylow17/a2n-bldc` — **un seul dépôt** porte le firmware, l'interface PC et le
+contrat qui les lie. Ce n'est pas un choix d'organisation mais une contrainte technique : le
+protocole évolue des deux côtés dans la même passe (§3), et un dépôt unique rend cette passe
+atomique — une seule révision porte la spécification, le codec C et le codec TypeScript.
+
+```
+a2n-bldc/
+  AGENTS.md          <- ce fichier, le contrat commun
+  docs/
+    protocol.md      <- la spécification de liaison, seule autorité
+    Schematics.pdf   <- schéma du PCB
+  controller-2/      <- firmware
+  interface/         <- interface PC
+```
 
 | Dossier | Rôle | Statut |
 |---|---|---|
-| `a2n-bldc-controller` | Firmware historique (v1), STM32G473. **Lecture seule.** | Gelé — référence matérielle uniquement |
-| `a2n-bldc-controller-2` | Nouveau firmware FOC (position / vitesse / couple) | **Chantier actif** |
-| `a2n-bldc-interface` | Interface PC : codec protocole, CLI de bring-up, puis application Electron | Maquette validée ; `shared/` + `cli/` en appui du firmware |
+| `controller-2` | Firmware FOC (position / vitesse / couple), STM32G473CEU3 | **Chantier actif** |
+| `interface` | Interface PC : codec protocole, CLI de bring-up, puis application Electron | Maquette validée ; `shared/` + `cli/` en appui du firmware |
 
-**Règle absolue : `a2n-bldc-controller` ne se modifie pas.** Il sert de source de vérité pour le
-brochage et de post-mortem. On le lit, on le cite, on ne le touche pas.
+### Le firmware v1, hors dépôt
+
+Le firmware historique `a2n-bldc-controller` vit dans son propre dépôt
+(`https://github.com/skylow17/a2n-bldc-controller`, branche `manual_control`), **gelé**. Il n'est
+pas repris ici : il sert de référence matérielle et de post-mortem, pas de base de travail.
+
+**Règle absolue : `a2n-bldc-controller` ne se modifie pas.** Il est hors de ce dépôt précisément
+pour que la règle soit structurelle plutôt que déclarative. On le lit, on le cite, on ne le touche
+pas.
+
+Si une session a besoin de le consulter (brochage, `.ioc`, code USB du v1), le cloner **à côté** de
+ce dépôt :
+
+```
+git clone https://github.com/skylow17/a2n-bldc-controller.git
+cd a2n-bldc-controller && git checkout manual_control
+```
+
+Le `.ioc` du v1 reste la source de vérité du brochage tant que le matériel ne bouge pas. Tout ce
+qu'on en a extrait est recopié au §2 ci-dessous, pour qu'un poste qui n'a pas cloné le v1 reste
+opérationnel.
 
 ### Pourquoi on repart de zéro
 
@@ -24,7 +57,7 @@ Le firmware v1 n'a jamais permis de faire tourner le moteur comme voulu. Les cau
   `//MotorFoc_Process();` commenté ;
 - **aucune structure temps réel** : angle lu en I2C bloquant à 100 kHz dans la superloop (~1,5 kHz,
   avec gigue) et ADC en conversion continue non synchronisée de la PWM, alors que les shunts sont
-  en low-side. Le détail est dans `a2n-bldc-controller-2/AGENTS.md` §2 ;
+  en low-side. Le détail est dans `controller-2/AGENTS.md` §2 ;
 - le seul mode fonctionnel était un open-loop volontairement bridé (modulation ≤ 8 %, ≤ 5 Hz
   électrique) — utile pour vérifier qu'un champ tourne, inutile pour un axe asservi ;
 - **aucune observabilité** : impossible de tracer Iq / Iq_ref pendant une réponse indicielle, donc
@@ -40,7 +73,7 @@ Le nouveau couple firmware + interface est conçu autour de l'observabilité et 
 ## 2. Matériel de référence
 
 Carte inchangée entre v1 et v2. Source de vérité du brochage :
-`a2n-bldc-controller/a2n-bldc-controller.ioc`.
+`a2n-bldc-controller.ioc`, dans le dépôt v1 (§1).
 
 **MCU** : STM32G473CEU3, UFQFPN48, HSE + PLL → **SYSCLK 144 MHz**, USB à 48 MHz (PLLQ /6).
 
@@ -118,7 +151,7 @@ Autres points relevés à la lecture :
 ## 3. Le protocole est le contrat partagé
 
 La liaison entre le firmware v2 et l'interface est spécifiée dans **un seul fichier faisant
-autorité** : `docs/protocol.md`, à la racine de ce groupe.
+autorité** : `docs/protocol.md`, à la racine de ce dépôt.
 
 **Règle : toute évolution du protocole se fait d'abord dans `docs/protocol.md`, puis des deux côtés
 dans la même passe de travail.** Une commande qui existe dans le firmware sans entrée dans la spec
@@ -194,7 +227,7 @@ domaine touché (`foc:`, `proto:`, `ui:`, `mcp:`). Les artefacts de build ne son
 
 ---
 
-## 6. Ce qu'on attend d'un agent dans ce groupe
+## 6. Ce qu'on attend d'un agent dans ce dépôt
 
 **À faire**
 
@@ -203,7 +236,7 @@ domaine touché (`foc:`, `proto:`, `ui:`, `mcp:`). Les artefacts de build ne son
   valider une séquence sans risque matériel.
 - Rendre compte fidèlement d'un essai : ce qui a été mesuré, pas ce qui était attendu. Un réglage
   qui ne converge pas se dit.
-- Suivre la **procédure de bring-up** documentée dans `a2n-bldc-controller-2/AGENTS.md` quand on
+- Suivre la **procédure de bring-up** documentée dans `controller-2/AGENTS.md` quand on
   touche à la chaîne moteur — chaque étape a un critère de validation observable.
 
 **À ne pas faire**

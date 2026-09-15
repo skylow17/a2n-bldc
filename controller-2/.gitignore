@@ -8,3 +8,6 @@ build/
 compile_commands.json
 .cache/
 mx.scratch/
+
+# Chemins de toolchain propres au poste (voir toolchain.local.mk.example).
+toolchain.local.mk

@@ -1,4 +1,4 @@
-# AGENTS.md — a2n-bldc-interface
+# AGENTS.md — interface (poste PC)
 
 Interface PC de pilotage, réglage et instrumentation pour le contrôleur A2N BLDC.
 **Lire d'abord `../AGENTS.md`** : matériel, protocole partagé, règles de sécurité et conventions y
