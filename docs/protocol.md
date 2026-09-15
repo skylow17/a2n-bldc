@@ -1,12 +1,16 @@
 # Protocole A2N BLDC v2 — spécification
 
-**Fichier faisant autorité.** Le firmware (`a2n-bldc-controller-2`) et l'interface
-(`a2n-bldc-interface`) implémentent ce document, et rien d'autre. Toute évolution se fait ici
+**Fichier faisant autorité.** Le firmware (`controller-2/`) et l'interface (`interface/`)
+implémentent ce document, et rien d'autre. Toute évolution se fait ici
 d'abord, puis des deux côtés dans la même passe.
 
-> **Statut : brouillon de cadrage.** Les identifiants et formats ci-dessous sont proposés, pas figés.
-> Ils seront verrouillés au démarrage du firmware v2. Ce document sert dès maintenant de référence
-> commune pour la maquette et la structure de l'interface.
+> **Statut.** Le cadrage général reste un brouillon, mais une partie est désormais **figée et
+> implémentée des deux côtés** : le framing (§2), le handshake (§4), le dictionnaire de
+> paramètres (§5) et les messages `0x0001`–`0x0015`. Ces formats sont verrouillés par des
+> vecteurs de référence (§11) que le firmware et l'interface vérifient tous les deux.
+>
+> Tout le reste — télémétrie, scope, bootloader, CAN — est encore proposé et sera verrouillé
+> au fur et à mesure de son implémentation, jalon par jalon.
 
 - Version de protocole décrite : **2.0**
 - Transport : USB CDC (canal principal), FDCAN3 (sous-ensemble, pour le flashage)
@@ -94,7 +98,7 @@ Codes : `CRC`, `LEN`, `ID`, `ARG`, `RANGE`, `STATE`, `BUSY`, `NOTARMED`, `LOCKED
 
 ## 4. Handshake
 
-`HELLO` → `DEVICE_INFO` :
+`HELLO` a un payload **vide**. La réponse `DEVICE_INFO` porte 58 octets, dans cet ordre :
 
 ```
 u16  protocol_version      2.0 → 0x0200
@@ -128,8 +132,51 @@ f32  min, max, default
 char group[24]     "Current loop"
 ```
 
+Une entrée occupe donc exactement **80 octets** sur le lien. Les champs texte sont complétés par
+des zéros ; une chaîne qui remplit tout le champ n'est **pas** terminée, et doit être lue comme
+un champ borné, jamais comme une chaîne C.
+
 Nommage : `groupe.sous_groupe.nom_unite`, minuscules et underscores. Unités SI, unité dans le nom de
 la grandeur quand elle est ambiguë.
+
+### Hash de forme
+
+`param_dict_hash` est le **CRC-32/ISO-HDLC** (polynôme réfléchi `0xEDB88320`, init et xorout
+`0xFFFFFFFF` — celui de zlib) de la concaténation des entrées sérialisées ci-dessus, dans l'ordre
+de la table.
+
+Le calcul porte sur les octets qui circulent, et non sur une représentation interne. Deux
+conséquences utiles : l'hôte peut le recalculer à l'identique sur ce qu'il a reçu, ce qui vérifie
+du même coup que le dictionnaire a été transféré intégralement et dans le bon ordre ; et deux
+firmwares de même hash acceptent la même recette. Un changement de nom, d'unité, de drapeau, de
+borne ou d'ordre change le hash. Une différence que le `f32` ne peut pas représenter, non — c'est
+cohérent, puisque les deux firmwares exposent alors réellement la même forme.
+
+### Formats des messages de paramètres
+
+```
+PARAM_DICT_GET      u16 start_index, u16 count
+PARAM_DICT_ENTRY    u16 start_index, u16 total, u16 count, entry[count]   (80 octets/entrée)
+PARAM_READ          u16 count, u16 id[count]
+  réponse           u16 count, { u16 id, u8 status, f32 value }[count]
+PARAM_WRITE         u16 count, { u16 id, f32 value }[count]
+  réponse           u16 count, { u16 id, u8 status }[count]
+PARAM_RESET_DEFAULTS   payload vide, réponse vide
+```
+
+`count` est plafonné par la taille de payload : **6 entrées** par page de dictionnaire, 72 pour
+une lecture, 85 pour une écriture. Le firmware réduit `count` plutôt que de refuser.
+
+`status`, par paramètre : `0` OK, `1` identifiant inconnu, `2` lecture seule, `3` hors bornes,
+`4` interdit dans l'état courant.
+
+**Une écriture groupée n'est pas une transaction.** Chaque valeur est appliquée indépendamment et
+reçoit son propre statut ; une valeur refusée n'annule pas les autres. L'application atomique
+d'une recette, quand elle existera, sera un message distinct qui le dira.
+
+Toutes les valeurs circulent en **`f32`, dans l'unité déclarée**, quel que soit le type réel du
+paramètre : l'interface n'a ainsi qu'un seul chemin de code. Le firmware arrondit au plus proche
+avant de ranger dans un type entier.
 
 ### Groupes prévus
 
@@ -193,7 +240,7 @@ serveur MCP (`mcp`) dans une console unique, filtrable par niveau et par source.
 
 Découpage flash (aligné sur les deux banques de 256 ko, pour permettre l'écriture d'un slot
 pendant l'exécution depuis l'autre), séquence de mise à jour et rollback : voir
-`../a2n-bldc-controller-2/AGENTS.md` §4.
+`../controller-2/AGENTS.md` §4.
 
 Le bootloader implémente le même framing binaire (§2) et les messages `0x0070`–`0x0075`, sur **USB
 CDC et CAN**. Il n'expose ni paramètres, ni télémétrie, ni commande moteur. Au démarrage : PWM en
@@ -203,7 +250,7 @@ haute impédance et DRV8304 désactivé avant toute autre initialisation.
 
 ## 9. Console ASCII
 
-Conservée pour le diagnostic sans outil, dans l'esprit de `a2n-bldc-controller/docs/COMMANDS.md`.
+Conservée pour le diagnostic sans outil, dans l'esprit du `docs/COMMANDS.md` du firmware v1.
 Une ligne = une commande, réponse `OK ...` ou `ERR <code>`. Elle couvre l'essentiel :
 `PING`, `INFO?`, `STATE?`, `ARM`, `DISARM`, `STOP`, `FAULTCLR`, `SENS.ALL?`, `PARAM? <name>`,
 `PARAM <name> <value>`, `MODE <mode>`, `TARGET <value>`.
@@ -217,3 +264,39 @@ Différence avec le v1 : les valeurs sont en **unités SI lisibles**, plus en Q1
 Hors périmètre de l'interface PC pour le contrôle. Prévu pour le flashage et le pilotage
 inter-nœuds. Les trames binaires sont fragmentées sur des trames CAN classiques ; le découpage des
 identifiants sera spécifié au moment de l'implémentation.
+
+---
+
+## 11. Vecteurs de référence
+
+`docs/protocol-vectors.json` fige les octets attendus : CRC-16, CRC-32, COBS, trames complètes, et
+la sérialisation du dictionnaire avec son hash.
+
+Il est produit par `tools/gen_protocol_vectors.py`, une **troisième** implémentation en Python,
+ancrée sur des références publiées — les vecteurs de l'article COBS de Cheshire & Baker, et les
+vecteurs d'arbitrage `crc16("123456789") == 0x29B1` et `crc32("123456789") == 0xCBF43926`.
+
+Ce détour a une raison précise. Si le firmware produisait les vecteurs que vérifie l'interface, on
+ne testerait que leur ressemblance : une erreur commune de lecture de cette spécification passerait
+inaperçue des deux côtés. Avec un tiers indépendant, il faut que trois lectures coïncident.
+
+Les trois sommets du triangle :
+
+| Qui | Comment |
+|---|---|
+| Python | `python tools/gen_protocol_vectors.py` — régénère et vérifie ses propres invariants |
+| Interface | `cd interface && npm test` |
+| Firmware | commande console `SELFTEST`, **sur la cible** — c'est le seul endroit où le codec est éprouvé avec le vrai compilateur et la vraie endianness |
+
+Le générateur écrit aussi `controller-2/Core/Inc/comm/selftest_vectors.h`, la même table en C. Les
+deux fichiers sont commités ; le script ne tourne que lorsque la spécification change.
+
+Réponse attendue de `SELFTEST` sur une carte saine :
+
+```
+OK total=43 failed=0 crc16=0 cobs_enc=0 cobs_dec=0 frame=0 dict_hash=A7C793EB dict_ok=1
+```
+
+`total` suit le nombre de vecteurs et changera quand on en ajoutera ; ce qui compte est
+`failed=0` et `dict_ok=1`. Un `dict_ok=0` avec un `failed` par ailleurs nul signifie que la table
+de paramètres a changé sans que les vecteurs soient régénérés — pas que le codec est cassé.

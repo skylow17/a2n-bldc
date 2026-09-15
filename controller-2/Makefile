@@ -48,6 +48,14 @@ C_SOURCES := \
   Core/Src/ctrl.c \
   Core/Src/link_usb.c \
   Core/Src/console.c \
+  Core/Src/comm/crc16.c \
+  Core/Src/comm/cobs.c \
+  Core/Src/comm/frame.c \
+  Core/Src/comm/param.c \
+  Core/Src/comm/param_table.c \
+  Core/Src/comm/proto.c \
+  Core/Src/comm/rx_router.c \
+  Core/Src/comm/selftest.c \
   Core/Src/stm32g4xx_it.c \
   Core/Src/stm32g4xx_hal_msp.c \
   Core/Src/system_stm32g4xx.c \

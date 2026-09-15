@@ -20,7 +20,10 @@
 extern "C" {
 #endif
 
-#define LINK_RX_SIZE  512U
+/* Une trame binaire encodee peut approcher 525 octets (docs/protocol.md §2). Le tampon
+ * doit en contenir une entiere plus ce qui arrive pendant son traitement, sinon un tour
+ * de superloop un peu long suffirait a perdre des octets au milieu d'une trame. */
+#define LINK_RX_SIZE  1024U
 #define LINK_TX_SIZE  2048U
 
 void Link_Init(void);

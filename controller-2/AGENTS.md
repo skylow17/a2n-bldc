@@ -192,6 +192,12 @@ Une seule référence pour l'avancement. Les jalons `M0`–`M3` regroupent les �
 étapes portent le critère de validation. **Ordre imposé** : on ne passe pas à la suivante
 tant que la précédente n'est pas verte.
 
+**Avancement.** M0 et M1a sont construits et compilés ; leurs critères matériels (gigue à
+l'oscilloscope, `ticks` mesuré côté PC) restent à valider sur carte. M1b est écrit des deux
+côtés et vérifié hors cible — 105 tests TypeScript et 43 vecteurs embarqués — mais son critère
+propre, *l'hôte lit le dictionnaire et le hash correspond*, demande la carte : il se vérifie
+avec la commande console `SELFTEST` puis avec la CLI de M1d.
+
 La logique de cet ordre est l'inverse de celle du v1 : **l'outil de mesure avant le
 régulateur**. Le v1 n'avait aucun moyen de voir Iq pendant un transitoire, donc aucun moyen
 de régler autrement qu'à l'aveugle. Ici l'observabilité (M1) est acquise avant qu'on écrive

@@ -18,6 +18,9 @@
 #include "dbg_pin.h"
 #include "pwm.h"
 #include "adc_sync.h"
+#include "comm/param.h"
+#include "comm/proto.h"
+#include "comm/rx_router.h"
 #include "console.h"
 #include "link_usb.h"
 #include "usb_device.h"
@@ -73,6 +76,9 @@ int main(void)
    * la boucle de contrôle tourne déjà et les sorties sont déjà sûres. */
   Link_Init();
   Console_Init();
+  Param_Init();     /* calcule le hash du dictionnaire avant tout handshake */
+  Proto_Init();
+  RxRouter_Init();
   HAL_Delay(500); // Delay to allow USB host to recognize the device in debug mode
   MX_USB_Device_Init();
 
@@ -86,7 +92,7 @@ int main(void)
      * régulation vit dans l'ISR, et seulement là. Aucun appel ci-dessous n'attend quoi
      * que ce soit — ni l'USB, ni l'hôte, ni un périphérique.
      */
-    Console_Process();   /* consomme les lignes reçues, sans jamais bloquer */
+    RxRouter_Process();  /* aiguille trames binaires et lignes de console   */
     Link_Pump();         /* écoule le tampon d'émission vers l'USB           */
   }
 }

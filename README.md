@@ -6,7 +6,7 @@ sert à le régler et à l'instrumenter.
 | Dossier | Contenu |
 |---|---|
 | `controller-2/` | Firmware. C, HAL STM32G4, build par `make`. |
-| `interface/` | Poste PC : codec de protocole, CLI de bring-up, puis application Electron. |
+| `interface/` | Poste PC : codec de protocole, CLI de bring-up, puis application Electron. TypeScript, tests avec `npm test`. |
 | `docs/protocol.md` | La liaison USB CDC entre les deux. **Seule autorité** : toute évolution y passe d'abord. |
 | `docs/Schematics.pdf` | Schéma du PCB (KiCad, rev A). |
 | `AGENTS.md` | Le contrat de travail : matériel, protocole, règles de sécurité, conventions. À lire en premier. |
@@ -79,15 +79,40 @@ INFO?         -> OK product=A2N-BLDC fw=... sysclk=144000000 pwm_hz=20000 arr=35
 STATS?        -> OK ticks=... last_ns=... max_ns=... load_pm=... ia=... ib=... ic=...
 LINK?         -> OK tx_dropped=0 rx_dropped=0
 PWM?          -> OK enabled=0
+PROTO?        -> OK rx_frames=0 rx_errors=0 tx_dropped=0 overflows=0 params=11 dict_hash=A7C793EB
+SELFTEST      -> OK total=43 failed=0 ... dict_ok=1
 ```
+
+`SELFTEST` fait exécuter au firmware les vecteurs de référence du protocole, sur la cible. C'est
+la première chose à lancer si quoi que ce soit de la liaison binaire se comporte bizarrement :
+elle sépare un problème de codec d'un problème de câble ou d'hôte.
 
 La procédure de recette complète est dans `controller-2/docs/M0-bringup.md`.
 
 ### Pour l'interface PC
 
-Le dossier ne contient pour l'instant que la maquette
-(`interface/docs/mockup/mockup.html`), qui s'ouvre directement dans un navigateur, sans rien
-installer. Le code démarre à l'étape M1b — voir `controller-2/AGENTS.md` §5.
+La maquette (`interface/docs/mockup/mockup.html`) s'ouvre directement dans un navigateur, sans
+rien installer.
+
+Le code commence par `src/shared/`, le codec du protocole — volontairement sans dépendance à
+Electron, pour que la CLI de bring-up, le futur serveur MCP et les tests partagent exactement
+le même chemin d'exécution que l'application.
+
+```
+cd interface
+npm install
+npm test          # vecteurs partagés + propriétés du codec
+npm run typecheck
+```
+
+Si la spécification du protocole change, régénérer les vecteurs à la racine du dépôt :
+
+```
+python tools/gen_protocol_vectors.py
+```
+
+Cela réécrit `docs/protocol-vectors.json` **et** la table C que le firmware embarque. Les deux
+sont commités : le script ne tourne que lorsque le protocole bouge.
 
 ---
 
