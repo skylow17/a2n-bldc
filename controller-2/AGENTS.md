@@ -192,15 +192,9 @@ Une seule référence pour l'avancement. Les jalons `M0`–`M3` regroupent les �
 étapes portent le critère de validation. **Ordre imposé** : on ne passe pas à la suivante
 tant que la précédente n'est pas verte.
 
-**Avancement.**
-
-| Étape | État |
-|---|---|
-| M0 | Construit. Critère matériel (gigue à l'oscilloscope sur J7 br. 5) **à valider sur carte**. |
-| M1a | Construit. `ticks` mesuré côté PC **à valider sur carte**. |
-| M1b | Écrit des deux côtés, 129 tests hors cible. Critère propre **à valider sur carte**. |
-| M1c | Pas commencé. |
-| M1d | Construit : CLI `interface/src/cli/`, validée contre le device simulé. |
+**Avancement : voir [`../STATUS.md`](../STATUS.md).** Il fait autorité, et ce tableau ne le
+recopie pas — un état dupliqué diverge. `python tools/status.py` relève les chiffres qui
+changent (tests, tailles) plutôt que de les figer dans un fichier.
 
 M1d a été pris avant M1c parce que c'est lui qui **valide M1b** : la commande
 `npm run cli -- check` enchaîne handshake, lecture du dictionnaire, vérification du hash,

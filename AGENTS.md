@@ -5,6 +5,9 @@ intervient ici le lit en premier, puis le `AGENTS.md` du projet dans lequel il t
 
 ---
 
+> **Où en est le projet : [`STATUS.md`](STATUS.md).** Seul fichier faisant autorité sur
+> l'avancement. `python tools/status.py` mesure ce qui change trop vite pour être écrit.
+
 ## 1. Carte du dépôt
 
 `https://github.com/skylow17/a2n-bldc` — **un seul dépôt** porte le firmware, l'interface PC et le

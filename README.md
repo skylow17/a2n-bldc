@@ -10,6 +10,7 @@ sert à le régler et à l'instrumenter.
 | `docs/protocol.md` | La liaison USB CDC entre les deux. **Seule autorité** : toute évolution y passe d'abord. |
 | `docs/Schematics.pdf` | Schéma du PCB (KiCad, rev A). |
 | `AGENTS.md` | Le contrat de travail : matériel, protocole, règles de sécurité, conventions. À lire en premier. |
+| `STATUS.md` | Où en est le projet, jalon par jalon, et ce qui reste à valider sur matériel. |
 
 Le firmware historique `a2n-bldc-controller` est **gelé** et vit dans un dépôt séparé ; il sert de
 référence matérielle, pas de base de travail. Voir `AGENTS.md` §1.
@@ -58,11 +59,11 @@ Cibles disponibles :
 | `make compdb` | `compile_commands.json` pour clangd |
 | `make clean` | Efface `build/` |
 
-Un build propre doit donner, aux évolutions en cours près :
+Un build propre ne produit **aucun avertissement**. Pour relever l'occupation mémoire du
+moment plutôt que de se fier à un chiffre recopié :
 
 ```
-RAM:    13480 B / 128 KB    10,3 %
-FLASH:  33108 B / 256 KB    12,6 %
+python tools/status.py fw
 ```
 
 L'image est liée à `0x08000000` (`ld/stm32g473ce_standalone.ld`). `ld/stm32g473ce_slotA.ld` décrit
