@@ -1,0 +1,18 @@
+# Fins de ligne normalisees a LF dans le depot, quel que soit le poste.
+# Le firmware se compile sous Windows et le GUI tourne aussi sous Linux : sans
+# cette regle, un aller-retour entre deux machines reecrit des fichiers entiers.
+* text=auto eol=lf
+
+# Binaires : jamais de conversion.
+*.pdf   binary
+*.png   binary
+*.jpg   binary
+*.ico   binary
+*.bin   binary
+*.hex   binary
+*.elf   binary
+
+# Le .ioc de CubeMX et les scripts de link se lisent en diff comme du texte.
+*.ioc   text eol=lf
+*.ld    text eol=lf
+*.s     text eol=lf

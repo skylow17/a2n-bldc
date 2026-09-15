@@ -1,0 +1,15 @@
+# Regles communes aux deux projets. Chaque sous-projet garde son propre .gitignore
+# pour ce qui lui est specifique (build/ du firmware, node_modules/ du GUI).
+
+# Systeme
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Editeurs — on garde .vscode/ volontairement suivi : la configuration de debug
+# et les chemins de la toolchain doivent etre identiques sur tous les postes.
+*.swp
+*~
+
+# Sorties d'outils
+*.log
