@@ -108,8 +108,8 @@ export function Toggle({
   );
 }
 
-/** Pastille d'état. La couleur redouble toujours un mot : on ne code pas une information
- *  uniquement par la couleur. */
+/* Pastille d'etat. La couleur redouble toujours un mot : une information n'est jamais
+ * portee par la seule couleur. */
 export function Dot({ tone }: { tone: 'ok' | 'warn' | 'fault' | 'idle' }): ReactNode {
   const colors = {
     ok: 'bg-ok',

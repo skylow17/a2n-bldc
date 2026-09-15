@@ -222,8 +222,15 @@ On abandonne le Q16 / Q15 nu du v1 dans toute interface externe. Le point fixe r
 **Nommage des paramètres** — `groupe.sous_groupe.nom_unite`, minuscules et underscores :
 `pid.iq.kp`, `lim.i_max_a`, `motor.pole_pairs`, `enc.offset_rad`.
 
-**Git** — un dépôt par projet. Messages de commit en anglais, à l'impératif, préfixés par le
-domaine touché (`foc:`, `proto:`, `ui:`, `mcp:`). Les artefacts de build ne sont jamais versionnés.
+**Git** — un dépôt unique pour le firmware et l'interface (§1). Messages de commit en anglais,
+à l'impératif, préfixés par le domaine touché (`foc:`, `proto:`, `ui:`, `mcp:`, `build:`, `docs:`).
+Les artefacts de build ne sont jamais versionnés.
+
+**Rappel sur les langues, parce que la dérive est facile** : tout ce qu'un utilisateur *lit* est en
+anglais — libellés de l'interface, sorties de la CLI, messages d'erreur remontés dans le journal,
+chaînes de la console du firmware. Le français reste pour les commentaires de code, les documents
+de conception et nos échanges. Écrire l'interface dans la langue de la discussion est l'erreur
+type ; elle s'est déjà produite et a dû être reprise.
 
 ---
 

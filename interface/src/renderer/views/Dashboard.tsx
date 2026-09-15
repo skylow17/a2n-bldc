@@ -4,6 +4,8 @@
  * Le tableau des capacités n'est pas décoratif : il vient du bitfield du handshake, que le
  * firmware ne lève que pour ce qui est réellement implémenté. C'est ce qui permet à l'UI de
  * griser ce qui n'existe pas encore au lieu de proposer un bouton qui échouera.
+ *
+ * Libellés en anglais (AGENTS.md §5) ; commentaires en français.
  */
 
 import type { ReactNode } from 'react';
@@ -13,12 +15,12 @@ import { PROTO_CAP } from '../../shared/protocol.js';
 import { Dot, Empty, Field, Panel, fmt } from '../components/ui.js';
 
 const CAPABILITIES: Array<{ bit: number; label: string; since: string }> = [
-  { bit: PROTO_CAP.TELEMETRY, label: 'Télémétrie souscrite', since: 'M1c' },
-  { bit: PROTO_CAP.SCOPE, label: 'Capture scope', since: 'M1c' },
-  { bit: PROTO_CAP.NVM, label: 'Persistance NVM', since: 'M2' },
-  { bit: PROTO_CAP.CAN, label: 'Bus CAN', since: 'plus tard' },
-  { bit: PROTO_CAP.BOOTLOADER, label: 'Bootloader A/B', since: 'plus tard' },
-  { bit: PROTO_CAP.ENCODER_INC, label: 'Encodeur incrémental', since: 'M2' },
+  { bit: PROTO_CAP.TELEMETRY, label: 'Subscribed telemetry', since: 'M1c' },
+  { bit: PROTO_CAP.SCOPE, label: 'Scope capture', since: 'M1c' },
+  { bit: PROTO_CAP.NVM, label: 'NVM persistence', since: 'M2' },
+  { bit: PROTO_CAP.CAN, label: 'CAN bus', since: 'later' },
+  { bit: PROTO_CAP.BOOTLOADER, label: 'A/B bootloader', since: 'later' },
+  { bit: PROTO_CAP.ENCODER_INC, label: 'Incremental encoder', since: 'M2' },
 ];
 
 function hex(n: number): string {
@@ -31,8 +33,8 @@ export function Dashboard({ state }: { state: DeviceSnapshot }): ReactNode {
   if (info === null) {
     return (
       <Empty
-        title="Aucun device connecté"
-        hint="Choisir un port dans la barre haute, ou « Simulator » pour travailler sans carte."
+        title="No device connected"
+        hint="Pick a port in the top bar, or “Simulator” to work without hardware."
       />
     );
   }
@@ -42,40 +44,40 @@ export function Dashboard({ state }: { state: DeviceSnapshot }): ReactNode {
 
   return (
     <div className="grid h-full min-h-0 grid-cols-1 gap-3 overflow-auto p-3 lg:grid-cols-2 xl:grid-cols-3">
-      <Panel title="Identité">
-        <Field label="Produit">{info.product}</Field>
+      <Panel title="Identity">
+        <Field label="Product">{info.product}</Field>
         <Field label="Firmware">{info.fwVersion}</Field>
-        <Field label="Protocole">
+        <Field label="Protocol">
           {info.protocolMajor}.{info.protocolMinor}
         </Field>
         <Field label="UID">{info.uid.map((u) => u.toString(16).padStart(8, '0')).join('-')}</Field>
-        <Field label="Lien">{state.portDescription ?? '—'}</Field>
+        <Field label="Link">{state.portDescription ?? '—'}</Field>
       </Panel>
 
-      <Panel title="Dictionnaire de paramètres">
-        <Field label="Entrées">{info.paramCount}</Field>
-        <Field label="Hash de forme">{hex(info.paramDictHash)}</Field>
-        <Field label="Intégrité du transfert">
+      <Panel title="Parameter dictionary">
+        <Field label="Entries">{info.paramCount}</Field>
+        <Field label="Shape hash">{hex(info.paramDictHash)}</Field>
+        <Field label="Transfer integrity">
           {state.dictIntegrity === null ? (
             '—'
           ) : state.dictIntegrity ? (
             <span className="text-ok">
-              <Dot tone="ok" /> hash recalculé identique
+              <Dot tone="ok" /> recomputed hash matches
             </span>
           ) : (
             <span className="text-fault">
-              <Dot tone="fault" /> hash divergent
+              <Dot tone="fault" /> hash mismatch
             </span>
           )}
         </Field>
         {[...byGroup].map(([group, n]) => (
-          <Field key={group} label={`Groupe « ${group} »`}>
+          <Field key={group} label={`Group “${group}”`}>
             {n}
           </Field>
         ))}
       </Panel>
 
-      <Panel title="Capacités annoncées">
+      <Panel title="Announced capabilities">
         <div className="p-1">
           {CAPABILITIES.map((c) => {
             const on = (info.capabilities & c.bit) !== 0;
@@ -87,20 +89,18 @@ export function Dashboard({ state }: { state: DeviceSnapshot }): ReactNode {
                 <span className={`text-[12px] ${on ? 'text-fg' : 'text-fg-3'}`}>
                   <Dot tone={on ? 'ok' : 'idle'} /> {c.label}
                 </span>
-                <span className="font-mono text-[11px] text-fg-3">
-                  {on ? 'disponible' : c.since}
-                </span>
+                <span className="font-mono text-[11px] text-fg-3">{on ? 'available' : c.since}</span>
               </div>
             );
           })}
         </div>
         <p className="border-t border-line-soft px-3 py-2 text-[11px] leading-relaxed text-fg-3">
-          Le firmware ne lève un bit que lorsque la fonction existe vraiment. Une capacité
-          absente n'est pas une panne : c'est un jalon qui n'est pas encore atteint.
+          The firmware only raises a bit once the feature actually exists. A missing capability
+          is not a failure — it is a milestone not yet reached.
         </p>
       </Panel>
 
-      <Panel title="Constantes temps réel" className="lg:col-span-2 xl:col-span-1">
+      <Panel title="Real-time constants" className="lg:col-span-2 xl:col-span-1">
         {state.params
           .filter((p) => p.group === 'Board' || p.group === 'PWM')
           .map((p) => (
@@ -109,7 +109,7 @@ export function Dashboard({ state }: { state: DeviceSnapshot }): ReactNode {
             </Field>
           ))}
         <p className="border-t border-line-soft px-3 py-2 text-[11px] leading-relaxed text-fg-3">
-          Lues sur la carte, pas saisies ici : elles reflètent ce qui a réellement été compilé.
+          Read from the board, not typed here: they reflect what was actually compiled.
         </p>
       </Panel>
     </div>

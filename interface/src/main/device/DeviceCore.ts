@@ -135,13 +135,13 @@ export class DeviceCore {
       this.client.onLine((text) => this.log('info', 'device', text));
       this.client.onLinkError((e) => this.onLinkLost(e));
 
-      this.log('info', 'gui', `connexion à ${this.transport.description}`);
+      this.log('info', 'gui', `connecting to ${this.transport.description}`);
 
       this.info = await this.client.hello();
       this.log(
         'info',
         'device',
-        `${this.info.product} ${this.info.fwVersion}, protocole ${this.info.protocolMajor}.${this.info.protocolMinor}`,
+        `${this.info.product} ${this.info.fwVersion}, protocol ${this.info.protocolMajor}.${this.info.protocolMinor}`,
       );
 
       this.dict = await this.client.readDictionary();
@@ -154,11 +154,11 @@ export class DeviceCore {
         this.log(
           'error',
           'gui',
-          `hash de dictionnaire incohérent : annoncé ${hex(this.info.paramDictHash)}, ` +
-            `recalculé ${hex(recomputed)}`,
+          `dictionary hash mismatch: announced ${hex(this.info.paramDictHash)}, ` +
+            `recomputed ${hex(recomputed)}`,
         );
       } else {
-        this.log('info', 'gui', `dictionnaire : ${this.dict.size} paramètres, hash ${hex(recomputed)}`);
+        this.log('info', 'gui', `dictionary: ${this.dict.size} parameters, hash ${hex(recomputed)}`);
       }
 
       await this.refreshValues();
@@ -167,7 +167,7 @@ export class DeviceCore {
     } catch (e) {
       this.lastError = describe(e);
       this.connection = 'error';
-      this.log('error', 'gui', `connexion impossible : ${this.lastError}`);
+      this.log('error', 'gui', `connection failed: ${this.lastError}`);
       await this.disconnect(true);
       this.connection = 'error';
       this.emitChange();
@@ -179,7 +179,7 @@ export class DeviceCore {
     if (this.connection === 'disconnected') return;
     this.lastError = e.message;
     this.connection = 'error';
-    this.log('error', 'device', `lien perdu : ${e.message}`);
+    this.log('error', 'device', `link lost: ${e.message}`);
     this.emitChange();
   }
 
@@ -195,7 +195,7 @@ export class DeviceCore {
     this.dictIntegrity = null;
     this.connection = 'disconnected';
     if (!quiet) {
-      this.log('info', 'gui', 'déconnecté');
+      this.log('info', 'gui', 'disconnected');
       this.emitChange();
     }
   }
@@ -204,7 +204,7 @@ export class DeviceCore {
 
   private require(): { client: DeviceClient; dict: ParamDictionary } {
     if (this.client === null || this.dict === null) {
-      throw new Error('aucun device connecté');
+      throw new Error('no device connected');
     }
     return { client: this.client, dict: this.dict };
   }
@@ -232,18 +232,18 @@ export class DeviceCore {
   async writeParam(idOrName: number | string, value: number, source: LogSource = 'gui'): Promise<number> {
     const { client, dict } = this.require();
     const p = dict.get(idOrName);
-    if (p === undefined) throw new Error(`paramètre inconnu : ${idOrName}`);
+    if (p === undefined) throw new Error(`unknown parameter: ${idOrName}`);
 
     if (source === 'mcp' && !this.aiControl) {
-      throw new Error('pilotage par agent désactivé : activer « AI control » dans l’interface');
+      throw new Error('AI control is off: enable it in the interface before driving from an agent');
     }
 
     const clamped = clampToParam(p, value);
     const [res] = await client.writeParams([{ id: p.id, value: clamped }]);
     if (res === undefined || res.status !== ParamStatus.OK) {
-      const reason = PARAM_STATUS_NAME[res?.status ?? 1] ?? 'inconnu';
-      this.log('warn', source, `${p.name} refusé : ${reason}`);
-      throw new Error(`écriture refusée : ${reason}`);
+      const reason = PARAM_STATUS_NAME[res?.status ?? 1] ?? 'unknown';
+      this.log('warn', source, `${p.name} rejected: ${reason}`);
+      throw new Error(`write rejected: ${reason}`);
     }
 
     const [after] = await client.readParams([p.id]);
@@ -258,7 +258,7 @@ export class DeviceCore {
   async resetDefaults(source: LogSource = 'gui'): Promise<void> {
     const { client } = this.require();
     await client.resetDefaults();
-    this.log('info', source, 'paramètres remis aux valeurs par défaut');
+    this.log('info', source, 'parameters reset to defaults');
     await this.refreshValues();
   }
 
@@ -281,7 +281,7 @@ export class DeviceCore {
   setAiControl(enabled: boolean): void {
     if (this.aiControl === enabled) return;
     this.aiControl = enabled;
-    this.log('warn', 'gui', `pilotage par agent ${enabled ? 'ACTIVÉ' : 'désactivé'}`);
+    this.log('warn', 'gui', `AI control ${enabled ? 'ENABLED' : 'disabled'}`);
     this.emitChange();
   }
 
@@ -295,7 +295,7 @@ function hex(n: number): string {
 }
 
 function describe(e: unknown): string {
-  if (e instanceof ProtocolError) return `refus du firmware : ${e.message}`;
+  if (e instanceof ProtocolError) return `firmware rejected: ${e.message}`;
   if (e instanceof TimeoutError) return e.message;
   if (e instanceof Error) return e.message;
   return String(e);

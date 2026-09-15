@@ -94,17 +94,17 @@ async function openTransport(o: GlobalOptions): Promise<Transport> {
     if (candidates.length === 0) {
       const all = await listSerialPorts();
       throw new Error(
-        `aucune carte A2N détectée (VID 0483 / PID 5740).\n` +
+        `no A2N board found (VID 0483 / PID 5740).\n` +
           (all.length === 0
-            ? '  Aucun port série sur la machine.'
-            : `  Ports présents : ${all.map((p) => p.path).join(', ')}\n` +
-              '  Préciser le port avec --port COMx, ou utiliser --sim.'),
+            ? '  No serial port on this machine.'
+            : `  Ports present: ${all.map((p) => p.path).join(', ')}\n` +
+              '  Pass --port COMx, or use --sim.'),
       );
     }
     if (candidates.length > 1) {
       throw new Error(
-        `plusieurs cartes détectées (${candidates.map((p) => p.path).join(', ')}) : ` +
-          'préciser --port',
+        `several boards found (${candidates.map((p) => p.path).join(', ')}): ` +
+          'pass --port',
       );
     }
     path = candidates[0]!.path;
@@ -138,14 +138,14 @@ function printInfo(info: DeviceInfo): void {
       [
         ['product', info.product],
         ['firmware', info.fwVersion],
-        ['protocole', `${info.protocolMajor}.${info.protocolMinor}`],
+        ['protocol', `${info.protocolMajor}.${info.protocolMinor}`],
         ['uid', info.uid.map((u) => u.toString(16).padStart(8, '0')).join('-')],
-        ['paramètres', String(info.paramCount)],
-        ['signaux télémétrie', String(info.telemSignalCount)],
+        ['parameters', String(info.paramCount)],
+        ['telemetry signals', String(info.telemSignalCount)],
         ['dict_hash', info.paramDictHash.toString(16).toUpperCase().padStart(8, '0')],
-        ['capacités', caps.length > 0 ? caps.join(', ') : dim('aucune')],
+        ['capabilities', caps.length > 0 ? caps.join(', ') : dim('none')],
       ],
-      ['champ', 'valeur'],
+      ['field', 'value'],
     ),
   );
 }
@@ -153,7 +153,7 @@ function printInfo(info: DeviceInfo): void {
 async function cmdPorts(): Promise<number> {
   const ports = await listSerialPorts();
   if (ports.length === 0) {
-    console.log(dim('aucun port série'));
+    console.log(dim('no serial port'));
     return 0;
   }
   const board = new Set((await findBoardPorts()).map((p) => p.path));
@@ -161,11 +161,11 @@ async function cmdPorts(): Promise<number> {
     table(
       ports.map((p) => [
         p.path,
-        board.has(p.path) ? ok('carte A2N') : '',
+        board.has(p.path) ? ok('A2N board') : '',
         p.manufacturer ?? '',
         p.vendorId !== undefined ? `${p.vendorId}:${p.productId ?? '????'}` : '',
       ]),
-      ['port', '', 'fabricant', 'vid:pid'],
+      ['port', '', 'manufacturer', 'vid:pid'],
     ),
   );
   return 0;
@@ -206,7 +206,7 @@ async function cmdDict(o: GlobalOptions, filter?: string): Promise<number> {
         });
       if (rows.length === 0) continue;
       console.log(head(group));
-      console.log(table(rows, ['nom', 'valeur', 'unité', 'bornes', 'défaut', 'drapeaux']));
+      console.log(table(rows, ['name', 'value', 'unit', 'range', 'default', 'flags']));
       console.log();
     }
 
@@ -215,11 +215,11 @@ async function cmdDict(o: GlobalOptions, filter?: string): Promise<number> {
     const recomputed = paramDictHash(dict.entries);
     const hex = (n: number): string => n.toString(16).toUpperCase().padStart(8, '0');
     if (recomputed === info.paramDictHash) {
-      console.log(`${ok('✓')} hash ${hex(recomputed)} — ${dict.size} entrées, transfert intègre`);
+      console.log(`${ok('✓')} hash ${hex(recomputed)} — ${dict.size} entries, transfer intact`);
       return 0;
     }
     console.log(
-      `${bad('✗')} hash annoncé ${hex(info.paramDictHash)}, recalculé ${hex(recomputed)}`,
+      `${bad('✗')} hash announced ${hex(info.paramDictHash)}, recomputed ${hex(recomputed)}`,
     );
     return 1;
   });
@@ -227,7 +227,7 @@ async function cmdDict(o: GlobalOptions, filter?: string): Promise<number> {
 
 async function cmdGet(o: GlobalOptions, names: string[]): Promise<number> {
   if (names.length === 0) {
-    console.error(bad('get attend au moins un nom de paramètre'));
+    console.error(bad('get expects at least one parameter name'));
     return 2;
   }
   return withClient(o, async (c) => {
@@ -236,7 +236,7 @@ async function cmdGet(o: GlobalOptions, names: string[]): Promise<number> {
 
     const unknown = names.filter((n) => dict.get(n) === undefined);
     if (unknown.length > 0) {
-      console.error(bad(`paramètre inconnu : ${unknown.join(', ')}`));
+      console.error(bad(`unknown parameter: ${unknown.join(', ')}`));
       return 2;
     }
 
@@ -252,7 +252,7 @@ async function cmdGet(o: GlobalOptions, names: string[]): Promise<number> {
             p.unit,
           ];
         }),
-        ['nom', 'valeur', 'unité'],
+        ['name', 'value', 'unit'],
       ),
     );
     return results.every((r) => r.status === ParamStatus.OK) ? 0 : 1;
@@ -262,7 +262,7 @@ async function cmdGet(o: GlobalOptions, names: string[]): Promise<number> {
 async function cmdSet(o: GlobalOptions, name: string, raw: string): Promise<number> {
   const value = Number(raw);
   if (!Number.isFinite(value)) {
-    console.error(bad(`valeur non numérique : ${raw}`));
+    console.error(bad(`not a number: ${raw}`));
     return 2;
   }
   return withClient(o, async (c) => {
@@ -270,18 +270,18 @@ async function cmdSet(o: GlobalOptions, name: string, raw: string): Promise<numb
     const dict = await c.readDictionary();
     const p = dict.get(name);
     if (p === undefined) {
-      console.error(bad(`paramètre inconnu : ${name}`));
+      console.error(bad(`unknown parameter: ${name}`));
       return 2;
     }
 
     const clamped = clampToParam(p, value);
     if (clamped !== value) {
-      console.log(warn(`valeur ramenée dans [${num(p.min)}, ${num(p.max)}] : ${num(clamped)}`));
+      console.log(warn(`clamped to [${num(p.min)}, ${num(p.max)}]: ${num(clamped)}`));
     }
 
     const [res] = await c.writeParams([{ id: p.id, value: clamped }]);
     if (res === undefined || res.status !== ParamStatus.OK) {
-      console.error(bad(`refusé : ${PARAM_STATUS_NAME[res?.status ?? 1] ?? '?'}`));
+      console.error(bad(`rejected: ${PARAM_STATUS_NAME[res?.status ?? 1] ?? '?'}`));
       return 1;
     }
 
@@ -303,7 +303,7 @@ async function cmdConsole(o: GlobalOptions, line: string): Promise<number> {
 
 async function cmdMonitor(o: GlobalOptions): Promise<number> {
   return withClient(o, async (c) => {
-    console.log(dim('écoute du lien — Ctrl+C pour arrêter'));
+    console.log(dim('listening on the link — Ctrl+C to stop'));
     c.onLine((t) => console.log(`${dim(new Date().toISOString().slice(11, 23))} ${t}`));
     c.onPush((f) =>
       console.log(
@@ -336,35 +336,35 @@ async function cmdCheck(o: GlobalOptions): Promise<number> {
     const info = await c.hello();
     step('handshake', true, `${info.product} ${info.fwVersion}`);
     step(
-      'version de protocole',
+      'protocol version',
       info.protocolMajor === 2 && info.protocolMinor === 0,
       `${info.protocolMajor}.${info.protocolMinor}`,
     );
 
     const dict = await c.readDictionary();
     step(
-      'dictionnaire complet',
+      'dictionary complete',
       dict.size === info.paramCount,
-      `${dict.size}/${info.paramCount} entrées`,
+      `${dict.size}/${info.paramCount} entries`,
     );
 
     const recomputed = paramDictHash(dict.entries);
     step(
-      'hash du dictionnaire',
+      'dictionary hash',
       recomputed === info.paramDictHash,
       recomputed.toString(16).toUpperCase().padStart(8, '0'),
     );
 
     // Console ASCII sur le même lien : le démultiplexage doit tenir dans les deux sens.
     const pong = await c.console('PING');
-    step('console ASCII', pong === 'OK', pong);
+    step('ASCII console', pong === 'OK', pong);
 
     // On exige `total > 0` : un auto-test qui n'a exécuté aucun vecteur ne vaut pas un
     // succès, et `failed=0` seul ne distingue pas les deux cas.
     const selftest = await c.console('SELFTEST');
     const ran = Number(/total=(\d+)/.exec(selftest)?.[1] ?? 0);
     step(
-      'auto-test du codec',
+      'codec self-test',
       ran > 0 && /failed=0\b/.test(selftest) && /dict_ok=1\b/.test(selftest),
       selftest,
     );
@@ -373,28 +373,28 @@ async function cmdCheck(o: GlobalOptions): Promise<number> {
     try {
       const v = await c.readByName(dict, ['board.sysclk_hz', 'pwm.freq_hz', 'pwm.arr']);
       step(
-        'constantes de la carte',
+        'board constants',
         v.get('board.sysclk_hz') === 144_000_000 &&
           v.get('pwm.freq_hz') === 20_000 &&
           v.get('pwm.arr') === 3599,
         `sysclk=${num(v.get('board.sysclk_hz') ?? 0)} pwm=${num(v.get('pwm.freq_hz') ?? 0)} arr=${num(v.get('pwm.arr') ?? 0)}`,
       );
     } catch (e) {
-      step('constantes de la carte', false, e instanceof Error ? e.message : String(e));
+      step('board constants', false, e instanceof Error ? e.message : String(e));
     }
 
     // Écriture puis relecture : c'est le seul moyen de prouver que le chemin complet
     // fonctionne, accusé de réception compris.
     const target = dict.get('dbg.echo_f32');
     if (target === undefined) {
-      step('écriture/relecture', false, 'dbg.echo_f32 absent du dictionnaire');
+      step('write/read-back', false, 'dbg.echo_f32 missing from the dictionary');
     } else {
       const [w] = await c.writeParams([{ id: target.id, value: 12.5 }]);
       const [r] = await c.readParams([target.id]);
       step(
-        'écriture puis relecture',
+        'write then read back',
         w?.status === ParamStatus.OK && r?.value === 12.5,
-        `écrit 12.5, relu ${num(r?.value ?? Number.NaN)}`,
+        `wrote 12.5, read ${num(r?.value ?? Number.NaN)}`,
       );
       await c.resetDefaults();
     }
@@ -404,7 +404,7 @@ async function cmdCheck(o: GlobalOptions): Promise<number> {
     if (ro !== undefined) {
       const [w] = await c.writeParams([{ id: ro.id, value: 1 }]);
       step(
-        'refus d’écriture en lecture seule',
+        'read-only write refused',
         w?.status === ParamStatus.ERR_READ_ONLY,
         `${ro.name} → ${PARAM_STATUS_NAME[w?.status ?? 0] ?? '?'}`,
       );
@@ -412,10 +412,10 @@ async function cmdCheck(o: GlobalOptions): Promise<number> {
 
     console.log();
     if (failures.length === 0) {
-      console.log(ok('M1b validé sur ce device.'));
+      console.log(ok('M1b validated on this device.'));
       return 0;
     }
-    console.log(bad(`${failures.length} contrôle(s) en échec : ${failures.join(', ')}`));
+    console.log(bad(`${failures.length} check(s) failed: ${failures.join(', ')}`));
     return 1;
   });
 }
@@ -423,26 +423,26 @@ async function cmdCheck(o: GlobalOptions): Promise<number> {
 /* ------------------------------------------------------------------ entrée */
 
 const USAGE = `
-${head('a2n — CLI de bring-up A2N BLDC')}
+${head('a2n — A2N BLDC bring-up CLI')}
 
   node src/cli/main.ts <commande> [options]
 
-${head('Commandes')}
-  ports                    liste les ports série et repère la carte
-  info                     handshake et identité du device
-  check                    séquence de validation complète de M1b
-  dict [motif]             dictionnaire de paramètres et valeurs courantes
-  get <nom> [nom...]       lit un ou plusieurs paramètres
-  set <nom> <valeur>       écrit un paramètre, puis le relit
-  console <commande>       envoie une ligne à la console ASCII
-  monitor                  affiche tout ce qui arrive sur le lien
+${head('Commands')}
+  ports                    list serial ports and spot the board
+  info                     handshake and device identity
+  check                    full M1b validation sequence
+  dict [pattern]           parameter dictionary and current values
+  get <name> [name...]     read one or more parameters
+  set <name> <value>       write a parameter, then read it back
+  console <command>        send a line to the ASCII console
+  monitor                  print everything arriving on the link
 
 ${head('Options')}
-  --port <COMx>            port série ; sinon la carte est détectée par ses identifiants USB
-  --sim                    device simulé, sans matériel
-  --timeout <ms>           délai d'attente d'une réponse (défaut 1000)
+  --port <COMx>            serial port; otherwise the board is found by its USB ids
+  --sim                    simulated device, no hardware needed
+  --timeout <ms>           response timeout (default 1000)
 
-${head('Exemples')}
+${head('Examples')}
   node src/cli/main.ts check --sim
   node src/cli/main.ts dict pwm
   node src/cli/main.ts set dbg.echo_f32 1.5
@@ -485,20 +485,20 @@ async function main(): Promise<number> {
       return cmdGet(o, rest);
     case 'set':
       if (rest.length < 2) {
-        console.error(bad('set attend un nom et une valeur'));
+        console.error(bad('set expects a name and a value'));
         return 2;
       }
       return cmdSet(o, rest[0]!, rest[1]!);
     case 'console':
       if (rest.length === 0) {
-        console.error(bad('console attend une commande'));
+        console.error(bad('console expects a command'));
         return 2;
       }
       return cmdConsole(o, rest.join(' '));
     case 'monitor':
       return cmdMonitor(o);
     default:
-      console.error(bad(`commande inconnue : ${command}`));
+      console.error(bad(`unknown command: ${command}`));
       console.log(USAGE);
       return 2;
   }

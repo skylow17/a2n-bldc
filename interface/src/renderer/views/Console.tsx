@@ -70,7 +70,7 @@ export function Console({
         }}
       >
         {entries.length === 0 ? (
-          <Empty title="Journal vide" hint="Les échanges avec le device apparaissent ici." />
+          <Empty title="Log is empty" hint="Exchanges with the device appear here." />
         ) : (
           entries.map((e) => (
             <div key={e.id} className="selectable flex gap-2 leading-relaxed">
@@ -94,17 +94,17 @@ export function Console({
         <div className="flex-1" />
         {!follow && (
           <Button onClick={() => setFollow(true)} tone="accent">
-            Suivre la fin
+            Follow tail
           </Button>
         )}
-        <Button onClick={onClear}>Effacer</Button>
+        <Button onClick={onClear}>Clear</Button>
       </div>
 
       <div className="flex shrink-0 items-center gap-2">
         <span className="font-mono text-[12px] text-fg-3">&gt;</span>
         <input
           className="flex-1 rounded-[3px] border border-line bg-raise px-2 py-1 font-mono text-[12px] text-fg outline-none focus:border-fg-3 disabled:opacity-40"
-          placeholder={connected ? 'commande…' : 'aucun device connecté'}
+          placeholder={connected ? 'command…' : 'no device connected'}
           value={line}
           disabled={!connected || busy}
           onChange={(e) => setLine(e.target.value)}

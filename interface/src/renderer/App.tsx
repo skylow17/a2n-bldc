@@ -21,7 +21,7 @@ type ViewId = 'dashboard' | 'control' | 'tuning' | 'recipes' | 'scope' | 'firmwa
 interface ViewDef {
   id: ViewId;
   label: string;
-  /** Jalon qui rendra la vue disponible ; `null` si elle l'est déjà. */
+  /** Jalon qui rendra la vue disponible ; `null` si elle l'est deja. */
   pending: string | null;
   why?: string;
 }
@@ -33,25 +33,25 @@ const VIEWS: ViewDef[] = [
     id: 'control',
     label: 'Control',
     pending: 'M3',
-    why: "Le firmware n'a pas encore de boucle d'asservissement : aucune commande de mouvement n'existe à ce jalon.",
+    why: 'The firmware has no control loop yet: no motion command exists at this milestone.',
   },
   {
     id: 'scope',
     label: 'Scope',
     pending: 'M1c',
-    why: 'La capture et la télémétrie souscrite arrivent au jalon suivant.',
+    why: 'Capture and subscribed telemetry arrive in the next milestone.',
   },
   {
     id: 'recipes',
     label: 'Recipes',
     pending: 'M2',
-    why: "La persistance NVM n'existe pas encore : une recette appliquée ne survivrait pas à un reset.",
+    why: 'NVM persistence does not exist yet: an applied recipe would not survive a reset.',
   },
   {
     id: 'firmware',
     label: 'Firmware',
-    pending: 'plus tard',
-    why: "Le bootloader A/B n'est pas écrit ; la carte se programme par SWD.",
+    pending: 'later',
+    why: 'The A/B bootloader is not written; the board is programmed over SWD.',
   },
 ];
 
@@ -93,7 +93,7 @@ function ConnectionBar({ state }: { state: DeviceSnapshot }): ReactNode {
 
       {connected ? (
         <Button onClick={() => void run(() => api().disconnect())} disabled={busy}>
-          Déconnecter
+          Disconnect
         </Button>
       ) : (
         <Button
@@ -107,7 +107,7 @@ function ConnectionBar({ state }: { state: DeviceSnapshot }): ReactNode {
             )
           }
         >
-          {busy ? 'Connexion…' : 'Connecter'}
+          {busy ? 'Connecting…' : 'Connect'}
         </Button>
       )}
 
@@ -164,7 +164,7 @@ export function App(): ReactNode {
           label="AI CONTROL"
           checked={state.aiControl}
           onChange={(v) => void api().setAiControl(v)}
-          title="Autorise un agent à piloter le banc. Les limites du firmware restent seules garantes de la sécurité."
+          title="Allows an agent to drive the bench. Firmware limits remain the only safety guarantee."
         />
 
         {/* STOP : toujours présent, jamais désactivé tant qu'un device est connecté. */}
@@ -172,7 +172,7 @@ export function App(): ReactNode {
           tone="danger"
           className="px-4 py-1.5 font-bold tracking-wider"
           disabled={state.connection !== 'connected' || stop.busy}
-          title="Coupe le couple immédiatement"
+          title="Cuts torque immediately"
           onClick={() =>
             void stop.run(async () => {
               await api().console('STOP');
@@ -216,8 +216,8 @@ export function App(): ReactNode {
 
           <div className="flex-1" />
           <p className="px-2 py-1 text-[10px] leading-relaxed text-fg-3">
-            Une vue grisée attend le jalon indiqué. Rien n'est masqué : ce qui manque est ce
-            que le firmware ne sait pas encore faire.
+            A greyed view is waiting for the milestone shown. Nothing is hidden: what is
+            missing is what the firmware cannot do yet.
           </p>
         </nav>
 
@@ -227,7 +227,7 @@ export function App(): ReactNode {
             {view === 'dashboard' && <Dashboard state={state} />}
             {view === 'tuning' && <Tuning state={state} />}
             {current.pending !== null && (
-              <Empty title={`${current.label} — jalon ${current.pending}`} hint={current.why} />
+              <Empty title={`${current.label} — milestone ${current.pending}`} hint={current.why} />
             )}
           </div>
 
@@ -244,7 +244,7 @@ export function App(): ReactNode {
               >
                 {consoleOpen ? '▾' : '▸'} Console
               </button>
-              <span className="font-mono text-[11px] text-fg-3">{entries.length} lignes</span>
+              <span className="font-mono text-[11px] text-fg-3">{entries.length} lines</span>
             </div>
             {consoleOpen && (
               <div className="h-[calc(18rem-2rem)]">

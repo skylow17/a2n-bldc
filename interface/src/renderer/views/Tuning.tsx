@@ -51,7 +51,7 @@ function Row({ p }: { p: Param }): ReactNode {
         <div className="selectable truncate font-mono text-[12px] text-fg">{p.name}</div>
         {(error !== null || outOfRange) && (
           <div className="truncate text-[11px] text-fault">
-            {error ?? `hors bornes [${fmt(p.min)}, ${fmt(p.max)}]`}
+            {error ?? `out of range [${fmt(p.min)}, ${fmt(p.max)}]`}
           </div>
         )}
       </div>
@@ -84,7 +84,7 @@ function Row({ p }: { p: Param }): ReactNode {
 
       <div className="font-mono text-[11px] text-fg-3">
         {fmt(p.min)} … {fmt(p.max)}
-        <span className="ml-2 opacity-70">déf {fmt(p.def)}</span>
+        <span className="ml-2 opacity-70">def {fmt(p.def)}</span>
       </div>
 
       <div className="flex flex-wrap gap-1">
@@ -120,8 +120,8 @@ export function Tuning({ state }: { state: DeviceSnapshot }): ReactNode {
   if (state.params.length === 0) {
     return (
       <Empty
-        title="Aucun dictionnaire chargé"
-        hint="Les paramètres sont publiés par le firmware au moment de la connexion."
+        title="No dictionary loaded"
+        hint="Parameters are published by the firmware when the link opens."
       />
     );
   }
@@ -131,16 +131,16 @@ export function Tuning({ state }: { state: DeviceSnapshot }): ReactNode {
       <div className="flex shrink-0 items-center gap-2">
         <input
           className="w-72 rounded-[3px] border border-line bg-raise px-2 py-1 font-mono text-[12px] text-fg outline-none focus:border-fg-3"
-          placeholder="filtrer par nom…"
+          placeholder="filter by name…"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
         />
         <div className="flex-1" />
         <Button onClick={() => void run(() => api().refresh())} disabled={busy}>
-          Relire tout
+          Read all
         </Button>
         <Button onClick={() => void run(() => api().resetDefaults())} disabled={busy}>
-          Valeurs par défaut
+          Reset defaults
         </Button>
       </div>
 
@@ -148,10 +148,10 @@ export function Tuning({ state }: { state: DeviceSnapshot }): ReactNode {
         {[...groups].map(([group, params]) => (
           <Panel key={group} title={group}>
             <div className="grid grid-cols-[minmax(0,1fr)_7rem_4rem_10rem_5rem] gap-2 border-b border-line-soft px-3 py-1 text-[10px] uppercase tracking-wider text-fg-3">
-              <span>nom</span>
-              <span className="text-right">valeur</span>
-              <span>unité</span>
-              <span>bornes</span>
+              <span>name</span>
+              <span className="text-right">value</span>
+              <span>unit</span>
+              <span>range</span>
               <span>type</span>
             </div>
             {params.map((p) => (
@@ -159,13 +159,12 @@ export function Tuning({ state }: { state: DeviceSnapshot }): ReactNode {
             ))}
           </Panel>
         ))}
-        {groups.size === 0 && <Empty title={`Aucun paramètre ne correspond à « ${filter} »`} />}
+        {groups.size === 0 && <Empty title={`No parameter matches “${filter}”`} />}
       </div>
 
       <p className="shrink-0 text-[11px] text-fg-3">
-        Chaque écriture est relue aussitôt : le firmware arrondit vers le type réel du
-        paramètre, la valeur affichée est donc celle qu'il a retenue, pas celle qui a été
-        saisie.
+        Every write is read back immediately: the firmware rounds to the parameter's actual
+        type, so the value shown is the one it kept — not the one that was typed.
       </p>
     </div>
   );

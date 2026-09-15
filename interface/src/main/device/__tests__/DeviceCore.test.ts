@@ -87,13 +87,13 @@ describe('écriture de paramètres', () => {
 
   it('remonte un refus en lecture seule comme une erreur', async () => {
     const { core } = await connected();
-    await expect(core.writeParam('pwm.arr', 1234)).rejects.toThrow(/refus/i);
+    await expect(core.writeParam('pwm.arr', 1234)).rejects.toThrow(/rejected/i);
     expect(core.snapshot().params.find((p) => p.name === 'pwm.arr')?.value).toBe(3599);
   });
 
   it('rejette un paramètre inconnu', async () => {
     const { core } = await connected();
-    await expect(core.writeParam('pid.iq.kp', 1)).rejects.toThrow(/inconnu/);
+    await expect(core.writeParam('pid.iq.kp', 1)).rejects.toThrow(/unknown parameter/);
   });
 
   it('remet les valeurs par défaut', async () => {
@@ -111,7 +111,7 @@ describe('pilotage par agent', () => {
 
     // La barrière vit dans le DeviceCore et non dans le renderer : elle tient même si
     // quelqu'un contourne l'interface.
-    await expect(core.writeParam('dbg.echo_f32', 1, 'mcp')).rejects.toThrow(/agent/i);
+    await expect(core.writeParam('dbg.echo_f32', 1, 'mcp')).rejects.toThrow(/AI control/i);
   });
 
   it('laisse passer une fois le contrôle activé, et le journalise', async () => {
@@ -123,7 +123,7 @@ describe('pilotage par agent', () => {
     // La source doit rester visible dans le journal : une action d'agent ne doit pas être
     // indiscernable d'une action humaine.
     expect(logs.some((l) => l.source === 'mcp' && l.text.includes('dbg.echo_f32'))).toBe(true);
-    expect(logs.some((l) => l.level === 'warn' && l.text.includes('ACTIVÉ'))).toBe(true);
+    expect(logs.some((l) => l.level === 'warn' && l.text.includes('ENABLED'))).toBe(true);
   });
 
   it('n’entrave jamais une action humaine', async () => {
