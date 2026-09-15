@@ -271,6 +271,14 @@ Une ligne = une commande, réponse `OK ...` ou `ERR <code>`. Elle couvre l'essen
 `PING`, `INFO?`, `STATE?`, `ARM`, `DISARM`, `STOP`, `FAULTCLR`, `SENS.ALL?`, `PARAM? <name>`,
 `PARAM <name> <value>`, `MODE <mode>`, `TARGET <value>`.
 
+Implémentées à ce jour : `PING`, `INFO?`, `STATS?`, `STATS.RESET`, `LINK?`, `PROTO?`,
+`SELFTEST`, `PWM?`, `STOP`. Les autres arrivent avec la machine à états (M3).
+
+**`STOP` existe dès maintenant**, et coupe `MOE` — les six sorties passent en haute impédance.
+C'est aujourd'hui déjà l'état au repos, donc la commande ne change rien en pratique ; elle est là
+quand même, parce qu'une commande d'arrêt doit préexister au danger plutôt qu'arriver avec lui, et
+parce que l'interface s'appuie dessus.
+
 Différence avec le v1 : les valeurs sont en **unités SI lisibles**, plus en Q16 / Q15.
 
 ---

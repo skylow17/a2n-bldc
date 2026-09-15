@@ -139,6 +139,16 @@ describe('console', () => {
     expect(logs.some((l) => l.source === 'device' && l.text === 'OK')).toBe(true);
   });
 
+  it('répond à STOP et coupe la sortie de puissance', async () => {
+    // Le bouton STOP de l'interface s'appuie sur cette commande. Elle a été spécifiée dès
+    // le départ mais n'existait pas dans le firmware : le bouton répondait ERR CMD, donc
+    // ne faisait rien tout en paraissant agir. Ce test est là pour que ça ne se reproduise
+    // pas — une commande d'arrêt qui échoue en silence est pire que pas de bouton.
+    const { core } = await connected();
+    expect(await core.sendConsole('STOP')).toBe('OK');
+    expect(await core.sendConsole('PWM?')).toBe('OK enabled=0');
+  });
+
   it('rapporte un auto-test réel, vecteurs à l’appui', async () => {
     const { core } = await connected();
     const reply = await core.sendConsole('SELFTEST');

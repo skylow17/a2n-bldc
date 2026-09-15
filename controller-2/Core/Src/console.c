@@ -127,6 +127,13 @@ void Console_ExecuteLine(const char *line)
                   Param_Count(), (unsigned long)Param_DictHash());
   } else if (Match(line, "SELFTEST", NULL)) {
     CmdSelftest();
+  } else if (Match(line, "STOP", NULL)) {
+    /* Coupe MOE : les six sorties passent en haute impedance, l'etage de puissance
+     * ne peut plus conduire. C'est aujourd'hui deja l'etat au repos — la commande
+     * existe quand meme, et des maintenant : une commande d'arret doit preexister au
+     * danger, pas arriver avec lui. L'interface s'appuie dessus. */
+    Pwm_Disable();
+    Reply("OK");
   } else if (Match(line, "PWM?", NULL)) {
     Link_TxPrintf("OK enabled=%u\r\n", Pwm_IsEnabled() ? 1U : 0U);
   } else {

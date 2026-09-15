@@ -73,6 +73,7 @@ export class SimulatedDevice implements Transport {
   private open = true;
   private rxFrames = 0;
   private rxErrors = 0;
+  private pwmEnabled = false;
 
   readonly description = 'simulator';
 
@@ -382,8 +383,14 @@ export class SimulatedDevice implements Transport {
       case 'SELFTEST':
         this.replyLine(this.selftest());
         break;
+      case 'STOP':
+        // Le simulateur n'a pas d'etage de puissance ; il repond comme la carte pour
+        // que le chemin complet du bouton STOP soit reellement exerce.
+        this.pwmEnabled = false;
+        this.replyLine('OK');
+        break;
       case 'PWM?':
-        this.replyLine('OK enabled=0');
+        this.replyLine(`OK enabled=${this.pwmEnabled ? 1 : 0}`);
         break;
       case 'LINK?':
         this.replyLine('OK tx_dropped=0 rx_dropped=0');
