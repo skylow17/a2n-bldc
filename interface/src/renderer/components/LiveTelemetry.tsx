@@ -18,7 +18,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import type { DeviceSnapshot } from '../../main/device/DeviceCore.js';
 import type { SignalDesc } from '../../shared/protocol.js';
-import { TimeSeriesChart, seriesColor } from './Chart.js';
+import { TimeSeriesChart, groupByUnit, seriesColor } from './Chart.js';
 import { Button, Dot, Empty, Panel } from './ui.js';
 import { api, useAction, useTelemetry } from '../useDevice.js';
 
@@ -62,16 +62,10 @@ export function LiveTelemetry({ state }: { state: DeviceSnapshot }): ReactNode {
 
   /* Regroupement par unité — une échelle verticale par graphe. L'indice porté ici est
    * celui de la série dans le tampon, pas celui du dictionnaire. */
-  const groups = useMemo(() => {
-    const byUnit = new Map<string, number[]>();
-    buffer.signalNames.forEach((_name, i) => {
-      const unit = buffer.units[i] ?? '';
-      const bucket = byUnit.get(unit);
-      if (bucket === undefined) byUnit.set(unit, [i]);
-      else bucket.push(i);
-    });
-    return [...byUnit.entries()];
-  }, [buffer.signalNames, buffer.units]);
+  const groups = useMemo(
+    () => groupByUnit(buffer.signalNames, buffer.units),
+    [buffer.signalNames, buffer.units],
+  );
 
   /* La couleur suit le signal, pas son rang dans un graphe : elle est tirée de la position
    * au dictionnaire. Décocher un signal ne doit pas repeindre les autres. */

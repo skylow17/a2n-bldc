@@ -26,7 +26,7 @@ Dernière revue : 2026-09-16.
 | **M1a** | Liaison USB CDC non bloquante, console texte | Validé sur une carte, **non reproductible depuis le dépôt** | Reconstruire, puis rejouer la recette |
 | **M1b** | Codec binaire COBS + CRC16, dictionnaire de paramètres | Validé sur une carte, **non reproductible depuis le dépôt** | Reconstruire, puis rejouer la recette |
 | **M1c** | Télémétrie souscrite + buffer scope | Code réécrit le 2026-09-16, **jamais compilé pour la cible** | Compiler avec la toolchain ARM ; rejouer `telem` et `scope` sur carte |
-| **M1d** | CLI de bring-up | Validé sur simulateur | Export/plot de capture ; `telem` et `scope` dépendent de M1c côté carte |
+| **M1d** | CLI de bring-up | Validé sur simulateur | Export de capture (le tracé existe dans l'interface) ; `telem` et `scope` dépendent de M1c côté carte |
 | **M2** | Étage de puissance et capteurs (étapes 2 à 9) | Pas commencé | — |
 | **M3** | Asservissements (étapes 10 à 13) | Pas commencé | — |
 
@@ -121,8 +121,9 @@ Relevées en écrivant M1c, à trancher dans `docs/protocol.md` avant d'y touche
 | `node/` — transport série | Écrit, ouvert sur une vraie carte |
 | `cli/` — bring-up | Écrit, validé sur simulateur |
 | `main/` — DeviceCore, IPC | Écrit, testé |
-| `renderer/` — Dashboard, Tuning, Console | Écrit |
-| `renderer/` — Control, Scope, Recipes, Firmware | Vues présentes mais grisées, avec le jalon qui les débloquera |
+| `renderer/` — Dashboard, Tuning, Console | Écrit ; le Dashboard trace la télémétrie souscrite |
+| `renderer/` — Scope | Écrit : configuration, déclenchement, pré-trigger, tracé. Validé sur simulateur |
+| `renderer/` — Control, Recipes, Firmware | Vues présentes mais grisées, avec le jalon qui les débloquera |
 | `main/recipes/` — `.a2nrcp` | Pas commencé (attend la persistance NVM, M2) |
 | `main/mcp/` — serveur MCP | Écrit, testé sur simulateur ; **validation sur liaison série réelle à faire** |
 
@@ -148,6 +149,16 @@ sans option, contre une carte avec `--port`. C'est la recette qui reste à passe
 **Écart assumé avec `interface/AGENTS.md` §5** : les familles y sont écrites `device.*`, `param.*` ;
 les outils s'appellent `device_connect`, `param_set`. Les clients MCP courants n'acceptent que
 `[a-zA-Z0-9_-]` dans un nom d'outil. Les familles sont inchangées, seul le séparateur diffère.
+
+### Verrouillage des vues par capacité annoncée
+
+Une vue n'est plus grisée par un jalon écrit en dur mais par le **bit de capacité que le device
+annonce au handshake**. Le firmware ne lève un bit que pour ce qui est réellement implémenté :
+l'interface dit donc la vérité sur le firmware branché, et pas sur celui qu'on croyait avoir
+compilé. La vue Scope se débloque d'elle-même dès que la carte annonce `SCOPE`.
+
+Control, Recipes et Firmware restent gardées par un jalon : les capacités correspondantes
+n'existent dans aucun firmware, il n'y a rien à interroger.
 
 ### Écarts connus avec la spécification
 

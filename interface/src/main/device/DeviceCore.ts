@@ -443,6 +443,7 @@ export class DeviceCore {
     frames = 20,
     rateHz = 100,
     signalNames?: readonly string[],
+    source: LogSource = 'gui',
   ): Promise<{ signals: SignalDesc[]; frames: TelemFrame[]; rateHz: number }> {
     const { client } = this.require();
     const selected = await this.resolveSignals(signalNames);
@@ -484,7 +485,7 @@ export class DeviceCore {
     if (received.length < frames) {
       throw new TimeoutError(`telemetry sample (${received.length}/${frames})`, 5000);
     }
-    this.log('info', 'mcp', `sampled ${received.length} telemetry frames at ${applied.rateHz} Hz`);
+    this.log('info', source, `sampled ${received.length} telemetry frames at ${applied.rateHz} Hz`);
     return { signals: selected, frames: received, rateHz: applied.rateHz };
   }
 
@@ -501,7 +502,10 @@ export class DeviceCore {
    * M3 — mais la forme doit être là avant, sinon l'UI se construit autour d'un scope
    * bridé.
    */
-  async captureScope(req: ScopeRequest = {}): Promise<{ signals: SignalDesc[]; capture: ScopeCapture }> {
+  async captureScope(
+    req: ScopeRequest = {},
+    source: LogSource = 'gui',
+  ): Promise<{ signals: SignalDesc[]; capture: ScopeCapture }> {
     const { client } = this.require();
     const available = await client.readSignals();
     const names = req.signalNames;
@@ -544,9 +548,12 @@ export class DeviceCore {
       threshold: req.threshold ?? 0,
       signalIds: selected.map((s) => s.id),
     });
+    // La source est celle de l'appelant, jamais une constante : une capture lancee depuis
+    // l'interface s'affichait comme une action d'agent. Le journal sert precisement a
+    // distinguer qui a fait quoi — le figer a `mcp` le vidait de son sens.
     this.log(
       'info',
-      'mcp',
+      source,
       `captured ${capture.samples.length} scope points on ${selected.map((s) => s.name).join(', ')}`,
     );
     return { signals: selected, capture };

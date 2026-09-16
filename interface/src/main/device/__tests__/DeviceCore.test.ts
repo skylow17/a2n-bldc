@@ -325,3 +325,26 @@ describe('télémétrie continue', () => {
     await expect(core.startTelemetry(['nope'], 200)).rejects.toThrow('unknown signal');
   });
 });
+
+describe('attribution dans le journal', () => {
+  it('attribue une capture à son appelant, pas à une constante', async () => {
+    // Le journal sert à distinguer qui a fait quoi. `captureScope` et `sampleTelemetry`
+    // journalisaient en dur comme `mcp` : une capture lancée depuis l'interface
+    // s'affichait comme une action d'agent, ce qui vide la traçabilité de son sens.
+    const { core, logs } = await connected();
+
+    await core.captureScope({ depth: 64 });
+    const fromGui = logs.find((l) => l.text.startsWith('captured '));
+    expect(fromGui?.source).toBe('gui');
+
+    await core.captureScope({ depth: 64 }, 'mcp');
+    const fromMcp = logs.filter((l) => l.text.startsWith('captured ')).at(-1);
+    expect(fromMcp?.source).toBe('mcp');
+  });
+
+  it("attribue un échantillon de télémétrie de la même façon", async () => {
+    const { core, logs } = await connected();
+    await core.sampleTelemetry(3, 500, ['loop.load_pct']);
+    expect(logs.find((l) => l.text.startsWith('sampled '))?.source).toBe('gui');
+  });
+});

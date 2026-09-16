@@ -12,8 +12,10 @@ import type { DeviceSnapshot } from '../main/device/DeviceCore.js';
 import type { SerialPortInfo } from '../node/serial.js';
 import { Button, Dot, Empty, Toggle } from './components/ui.js';
 import { api, useAction, useDeviceLog, useDeviceState } from './useDevice.js';
+import { PROTO_CAP } from '../shared/protocol.js';
 import { Console } from './views/Console.js';
 import { Dashboard } from './views/Dashboard.js';
+import { Scope } from './views/Scope.js';
 import { Tuning } from './views/Tuning.js';
 
 type ViewId = 'dashboard' | 'control' | 'tuning' | 'recipes' | 'scope' | 'firmware';
@@ -24,6 +26,15 @@ interface ViewDef {
   /** Jalon qui rendra la vue disponible ; `null` si elle l'est deja. */
   pending: string | null;
   why?: string;
+  /**
+   * Bit de capacite exige du device connecte.
+   *
+   * Preferable a un jalon ecrit en dur : le firmware ne leve un bit que pour ce qui est
+   * reellement implemente, donc l'interface dit la verite sur **le** firmware branche, et
+   * pas sur celui qu'on croyait avoir compile. Une vue ainsi gardee se debloque toute
+   * seule le jour ou la carte annonce la capacite.
+   */
+  requires?: number;
 }
 
 const VIEWS: ViewDef[] = [
@@ -38,8 +49,9 @@ const VIEWS: ViewDef[] = [
   {
     id: 'scope',
     label: 'Scope',
-    pending: 'M1c',
-    why: 'Capture and subscribed telemetry arrive in the next milestone.',
+    pending: null,
+    requires: PROTO_CAP.SCOPE,
+    why: 'This firmware does not announce the scope capability.',
   },
   {
     id: 'recipes',
@@ -147,7 +159,20 @@ export function App(): ReactNode {
   const [consoleOpen, setConsoleOpen] = useState(true);
   const stop = useAction();
 
+  /**
+   * Une vue est indisponible soit parce que le jalon n'y est pas, soit parce que le device
+   * connecte n'annonce pas la capacite. Hors connexion on ne bloque pas : la vue affiche
+   * elle-meme qu'aucun device n'est branche, ce qui est plus utile qu'un onglet grise.
+   */
+  const unavailable = (v: ViewDef): string | null => {
+    if (v.pending !== null) return v.pending;
+    if (v.requires === undefined) return null;
+    if (state.info === null) return null;
+    return (state.info.capabilities & v.requires) !== 0 ? null : 'n/a';
+  };
+
   const current = VIEWS.find((v) => v.id === view) ?? VIEWS[0]!;
+  const currentBlocked = unavailable(current);
 
   return (
     <div className="flex h-full flex-col bg-bg text-fg">
@@ -188,7 +213,8 @@ export function App(): ReactNode {
         {/* Rail de navigation */}
         <nav className="flex w-40 shrink-0 flex-col gap-0.5 border-r border-line bg-panel p-2">
           {VIEWS.map((v) => {
-            const disabled = v.pending !== null;
+            const blocked = unavailable(v);
+            const disabled = blocked !== null;
             return (
               <button
                 key={v.id}
@@ -205,9 +231,9 @@ export function App(): ReactNode {
                 }`}
               >
                 {v.label}
-                {v.pending !== null && (
+                {blocked !== null && (
                   <span className="rounded-[2px] bg-panel-2 px-1 font-mono text-[10px] text-fg-3">
-                    {v.pending}
+                    {blocked}
                   </span>
                 )}
               </button>
@@ -226,8 +252,16 @@ export function App(): ReactNode {
           <div className="min-h-0 flex-1 overflow-hidden">
             {view === 'dashboard' && <Dashboard state={state} />}
             {view === 'tuning' && <Tuning state={state} />}
-            {current.pending !== null && (
-              <Empty title={`${current.label} — milestone ${current.pending}`} hint={current.why} />
+            {view === 'scope' && currentBlocked === null && <Scope state={state} />}
+            {currentBlocked !== null && (
+              <Empty
+                title={
+                  currentBlocked === 'n/a'
+                    ? `${current.label} — not announced by this firmware`
+                    : `${current.label} — milestone ${currentBlocked}`
+                }
+                hint={current.why}
+              />
             )}
           </div>
 

@@ -69,7 +69,31 @@ export interface TimeSeriesChartProps {
    * hauteur pour redire trois fois la même chose. On ne l'écrit que sous le dernier.
    */
   showXLabel?: boolean;
+  /** Texte de cette étiquette. Une capture scope compte en ms, un flux en s. */
+  xLabel?: string;
+  /**
+   * Repère vertical, en unités de l'axe X.
+   *
+   * Sert à marquer l'instant de déclenchement d'une capture. Sans lui, un pré-trigger ne
+   * se lit pas : rien ne dit où finit l'avant et où commence l'après.
+   */
+  markerX?: number | null;
   height?: number;
+}
+
+/** Regroupe des signaux par unité — une échelle verticale par groupe. */
+export function groupByUnit(
+  names: readonly string[],
+  units: readonly string[],
+): Array<[string, number[]]> {
+  const byUnit = new Map<string, number[]>();
+  names.forEach((_n, i) => {
+    const unit = units[i] ?? '';
+    const bucket = byUnit.get(unit);
+    if (bucket === undefined) byUnit.set(unit, [i]);
+    else bucket.push(i);
+  });
+  return [...byUnit.entries()];
 }
 
 /* Jetons du thème, lus une fois. uPlot dessine sur un canvas : il lui faut des couleurs
@@ -86,10 +110,16 @@ export function TimeSeriesChart({
   colors,
   unit,
   showXLabel = true,
+  xLabel = 'time (s)',
+  markerX = null,
   height = 200,
 }: TimeSeriesChartProps): ReactNode {
   const host = useRef<HTMLDivElement | null>(null);
   const plot = useRef<uPlot | null>(null);
+  // Le repère est lu à chaque tracé : il passe par une référence pour que le greffon n'ait
+  // pas à être recréé — et donc le graphe non plus — quand il bouge.
+  const marker = useRef<number | null>(markerX);
+  marker.current = markerX;
 
   // L'identité du graphe tient aux courbes qu'il porte, pas à leurs valeurs : tant que la
   // liste ne change pas, le même uPlot est réutilisé et seules les données bougent.
@@ -125,10 +155,29 @@ export function TimeSeriesChart({
         },
         axes: [
           showXLabel
-            ? { ...axis, label: 'time (s)', labelFont: '11px ui-monospace, monospace', labelSize: 20, labelGap: 0 }
+            ? { ...axis, label: xLabel, labelFont: '11px ui-monospace, monospace', labelSize: 20, labelGap: 0 }
             : { ...axis },
           { ...axis, label: unit, labelFont: '11px ui-monospace, monospace', labelSize: 20, labelGap: 0, size: 56 },
         ],
+        hooks: {
+          draw: [
+            (self: uPlot) => {
+              const x = marker.current;
+              if (x === null) return;
+              const px = self.valToPos(x, 'x', true);
+              const c = self.ctx;
+              c.save();
+              c.strokeStyle = ink2;
+              c.lineWidth = 1;
+              c.setLineDash([4, 3]);
+              c.beginPath();
+              c.moveTo(px, self.bbox.top);
+              c.lineTo(px, self.bbox.top + self.bbox.height);
+              c.stroke();
+              c.restore();
+            },
+          ],
+        },
         series: [
           { label: 's' },
           ...labels.map((label, i) => ({
@@ -156,13 +205,13 @@ export function TimeSeriesChart({
       u.destroy();
       plot.current = null;
     };
-  }, [key, unit, height, colors, labels, showXLabel]);
+  }, [key, unit, height, colors, labels, showXLabel, xLabel]);
 
   useEffect(() => {
     const u = plot.current;
     if (u === null) return;
     u.setData([t as number[], ...(series as number[][])] as uPlot.AlignedData);
-  }, [t, series]);
+  }, [t, series, markerX]);
 
   return <div ref={host} className="a2n-chart w-full" />;
 }
