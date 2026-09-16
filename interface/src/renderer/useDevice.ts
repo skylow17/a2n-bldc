@@ -9,21 +9,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { DeviceSnapshot, LogEntry } from '../main/device/DeviceCore.js';
-import type { SerialPortInfo } from '../node/serial.js';
 
-interface DeviceApi {
-  snapshot(): Promise<DeviceSnapshot>;
-  listPorts(): Promise<SerialPortInfo[]>;
-  connect(target: { kind: 'serial' | 'simulator'; path?: string }): Promise<void>;
-  disconnect(): Promise<void>;
-  refresh(): Promise<void>;
-  writeParam(idOrName: number | string, value: number): Promise<number>;
-  resetDefaults(): Promise<void>;
-  console(line: string): Promise<string>;
-  setAiControl(enabled: boolean): Promise<void>;
-  onState(listener: (s: DeviceSnapshot) => void): () => void;
-  onLog(listener: (e: LogEntry) => void): () => void;
-}
+// Le type vient du preload, qui est la definition du pont. Il etait recopie ici a la main,
+// donc destine a diverger : une methode ajoutee au preload restait invisible du renderer,
+// ou pire, une signature changee d'un cote seulement compilait quand meme. L'import est
+// efface a la compilation — le renderer ne charge rien d'Electron.
+import type { DeviceApi } from '../preload/index.js';
 
 declare global {
   interface Window {

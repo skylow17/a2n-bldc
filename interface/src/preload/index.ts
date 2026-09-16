@@ -7,7 +7,14 @@
 
 import { contextBridge, ipcRenderer } from 'electron';
 
-import type { ConnectTarget, DeviceSnapshot, LogEntry } from '../main/device/DeviceCore.js';
+import type { ScopeCapture } from '../shared/client.js';
+import type { SignalDesc } from '../shared/protocol.js';
+import type {
+  ConnectTarget,
+  DeviceSnapshot,
+  LogEntry,
+  ScopeRequest,
+} from '../main/device/DeviceCore.js';
 import type { SerialPortInfo } from '../node/serial.js';
 
 type Result<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -29,6 +36,9 @@ const api = {
     call<number>('device:writeParam', idOrName, value),
   resetDefaults: () => call<void>('device:resetDefaults'),
   console: (line: string) => call<string>('device:console', line),
+  readSignals: () => call<SignalDesc[]>('device:readSignals'),
+  captureScope: (req: ScopeRequest) =>
+    call<{ signals: SignalDesc[]; capture: ScopeCapture }>('device:captureScope', req),
   setAiControl: (enabled: boolean) => call<void>('device:setAiControl', enabled),
 
   onState: (listener: (s: DeviceSnapshot) => void): (() => void) => {

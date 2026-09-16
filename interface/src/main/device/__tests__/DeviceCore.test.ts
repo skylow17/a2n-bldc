@@ -8,6 +8,7 @@
 
 import { describe, expect, it } from 'vitest';
 
+import { ScopeTrigger } from '../../../shared/protocol.js';
 import { DeviceCore, type LogEntry } from '../DeviceCore.js';
 
 async function connected(): Promise<{ core: DeviceCore; logs: LogEntry[] }> {
@@ -157,5 +158,78 @@ describe('console', () => {
     expect(reply).toMatch(/dict_ok=1/);
     // Un auto-test qui n'a exécuté aucun vecteur ne vaut pas un succès.
     expect(Number(/total=(\d+)/.exec(reply)?.[1] ?? 0)).toBeGreaterThan(0);
+  });
+});
+
+describe('scope', () => {
+  it('capture les quatre premiers signaux par défaut, en immédiat', async () => {
+    const { core } = await connected();
+    const { signals, capture } = await core.captureScope({ depth: 256 });
+
+    expect(signals).toHaveLength(4);
+    expect(capture.samples).toHaveLength(256);
+    expect(capture.samples[0]).toHaveLength(4);
+  });
+
+  it('désigne les signaux par nom, jamais par identifiant', async () => {
+    // L'appelant travaille avec le dictionnaire publié par le firmware ; la numérotation
+    // reste une affaire interne au protocole.
+    const { core } = await connected();
+    const { signals } = await core.captureScope({
+      depth: 64,
+      signalNames: ['loop.load_pct', 'current.raw_ia_count'],
+    });
+
+    expect(signals.map((s) => s.name)).toEqual(['loop.load_pct', 'current.raw_ia_count']);
+  });
+
+  it('rejette un nom de signal inconnu', async () => {
+    const { core } = await connected();
+    await expect(core.captureScope({ signalNames: ['nope'] })).rejects.toThrow('unknown signal');
+  });
+
+  it('refuse plus de quatre signaux', async () => {
+    const { core } = await connected();
+    const names = (await core.readSignals()).slice(0, 5).map((s) => s.name);
+    await expect(core.captureScope({ signalNames: names })).rejects.toThrow('1 to 4');
+  });
+
+  it('accepte une configuration de déclenchement complète', async () => {
+    const { core } = await connected();
+    const { capture } = await core.captureScope({
+      depth: 128,
+      decimation: 4,
+      pretriggerSamples: 32,
+      triggerMode: ScopeTrigger.RISING,
+      triggerSignalName: 'current.raw_ia_count',
+      threshold: 2048,
+      signalNames: ['current.raw_ia_count', 'loop.load_pct'],
+    });
+
+    // La configuration rendue est celle que le firmware a normalisée, pas celle demandée.
+    expect(capture.config.decimation).toBe(4);
+    expect(capture.config.pretriggerSamples).toBe(32);
+    expect(capture.config.triggerMode).toBe(ScopeTrigger.RISING);
+    expect(capture.status.samplePeriodNs).toBe(50_000 * 4);
+  });
+
+  it('exige que le signal de déclenchement soit capturé', async () => {
+    // Sans cela, le point de déclenchement n'apparaîtrait sur aucune courbe tracée — et le
+    // firmware refuserait la configuration de toute façon, avec un message moins clair.
+    const { core } = await connected();
+    await expect(
+      core.captureScope({
+        triggerMode: ScopeTrigger.RISING,
+        triggerSignalName: 'loop.load_pct',
+        signalNames: ['current.raw_ia_count'],
+      }),
+    ).rejects.toThrow('must be one of the captured signals');
+  });
+
+  it('refuse un pretrigger qui ne tient pas dans la profondeur', async () => {
+    const { core } = await connected();
+    await expect(
+      core.captureScope({ depth: 16, pretriggerSamples: 16 }),
+    ).rejects.toThrow('pretrigger must be below depth');
   });
 });

@@ -455,11 +455,14 @@ export function createA2nMcpServer(core: DeviceCore): { server: McpServer; dispo
     },
     async (args) =>
       invoke(core, 'scope_capture', args, async () => {
-        const { signals, capture } = await core.captureScope(
-          args.depth,
-          args.decimation,
-          args.signals,
-        );
+        // Pas d'options de déclenchement ici, et c'est délibéré : aucun outil MCP ne peut
+        // provoquer un transitoire tant que le mouvement n'est pas exposé (M3). Un seuil
+        // servirait à attendre un front que l'agent n'a aucun moyen de produire.
+        const { signals, capture } = await core.captureScope({
+          depth: args.depth,
+          decimation: args.decimation,
+          ...(args.signals !== undefined && { signalNames: args.signals }),
+        });
         const columns = signals.map((_, i) => column(capture.samples, i));
         return {
           state: SCOPE_STATE_NAME[capture.status.state] ?? String(capture.status.state),

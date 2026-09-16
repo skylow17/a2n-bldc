@@ -11,7 +11,12 @@
 import { DeviceClient, ProtocolError, TimeoutError, type ScopeCapture } from '../../shared/client.js';
 import { ParamStatus, PARAM_STATUS_NAME, type TelemFrame } from '../../shared/messages.js';
 import { ParamDictionary, clampToParam, paramDictHash } from '../../shared/params.js';
-import { ScopeTrigger, type DeviceInfo, type SignalDesc } from '../../shared/protocol.js';
+import {
+  ScopeTrigger,
+  type DeviceInfo,
+  type ScopeTriggerValue,
+  type SignalDesc,
+} from '../../shared/protocol.js';
 import { SimulatedDevice } from '../../shared/simulator.js';
 import { Emitter, type Transport } from '../../shared/transport.js';
 import { SerialTransport, listSerialPorts, type SerialPortInfo } from '../../node/serial.js';
@@ -56,6 +61,27 @@ export interface DeviceSnapshot {
 export interface ConnectTarget {
   kind: 'serial' | 'simulator';
   path?: string;
+}
+
+/**
+ * Demande de capture scope — docs/protocol.md §6.
+ *
+ * Les signaux sont désignés par nom, jamais par identifiant : l'appelant travaille avec le
+ * dictionnaire que le firmware publie, pas avec une numérotation qu'il faudrait connaître.
+ */
+export interface ScopeRequest {
+  /** 1 à 2048 points. Par défaut, la profondeur maximale. */
+  depth?: number;
+  /** 1 à 256. Un point conservé tous les N passages de la boucle 20 kHz. */
+  decimation?: number;
+  /** Points conservés avant le déclenchement, strictement inférieur à `depth`. */
+  pretriggerSamples?: number;
+  triggerMode?: ScopeTriggerValue;
+  /** Doit faire partie de `signalNames` hors mode immédiat. */
+  triggerSignalName?: string;
+  threshold?: number;
+  /** 1 à 4 noms. Par défaut, les quatre premiers signaux publiés. */
+  signalNames?: readonly string[];
 }
 
 export class DeviceCore {
@@ -340,16 +366,26 @@ export class DeviceCore {
     return { signals: selected, frames: received, rateHz: applied.rateHz };
   }
 
-  async captureScope(
-    depth = 2048,
-    decimation = 1,
-    signalNames?: readonly string[],
-  ): Promise<{ signals: SignalDesc[]; capture: ScopeCapture }> {
+  /**
+   * Capture demandée par l'UI, la CLI ou un agent.
+   *
+   * Les signaux se désignent **par nom** et non par identifiant : c'est le dictionnaire du
+   * firmware qui fait foi, et un appelant n'a pas à connaître la numérotation. La
+   * résolution nom → id se fait ici, une fois.
+   *
+   * Tout est optionnel et le défaut est une capture immédiate pleine profondeur, ce qui
+   * correspond à « montre-moi ce qui se passe ». Le déclenchement sur seuil n'a de sens
+   * qu'à partir du moment où quelque chose peut provoquer un transitoire — c'est-à-dire à
+   * M3 — mais la forme doit être là avant, sinon l'UI se construit autour d'un scope
+   * bridé.
+   */
+  async captureScope(req: ScopeRequest = {}): Promise<{ signals: SignalDesc[]; capture: ScopeCapture }> {
     const { client } = this.require();
     const available = await client.readSignals();
-    const selected = signalNames === undefined || signalNames.length === 0
+    const names = req.signalNames;
+    const selected = names === undefined || names.length === 0
       ? available.slice(0, 4)
-      : signalNames.map((name) => {
+      : names.map((name) => {
           const signal = available.find((candidate) => candidate.name === name);
           if (signal === undefined) throw new Error(`unknown signal: ${name}`);
           return signal;
@@ -358,13 +394,32 @@ export class DeviceCore {
         new Set(selected.map((s) => s.id)).size !== selected.length) {
       throw new Error('scope accepts 1 to 4 unique signals');
     }
+
+    const triggerMode = req.triggerMode ?? ScopeTrigger.IMMEDIATE;
+    // Hors mode immédiat, le signal de déclenchement doit faire partie de la capture :
+    // sinon le point de déclenchement n'apparaîtrait sur aucune des courbes tracées, et le
+    // firmware refuserait la configuration de toute façon.
+    const triggerName = req.triggerSignalName;
+    const trigger = triggerName === undefined
+      ? selected[0]!
+      : selected.find((s) => s.name === triggerName);
+    if (trigger === undefined) {
+      throw new Error(`trigger signal must be one of the captured signals: ${triggerName}`);
+    }
+
+    const depth = req.depth ?? 2048;
+    const pretriggerSamples = req.pretriggerSamples ?? 0;
+    if (pretriggerSamples >= depth) {
+      throw new Error(`pretrigger must be below depth (${pretriggerSamples} >= ${depth})`);
+    }
+
     const capture = await client.captureScope({
       depth,
-      decimation,
-      pretriggerSamples: 0,
-      triggerMode: ScopeTrigger.IMMEDIATE,
-      triggerSignalId: selected[0]!.id,
-      threshold: 0,
+      decimation: req.decimation ?? 1,
+      pretriggerSamples,
+      triggerMode,
+      triggerSignalId: trigger.id,
+      threshold: req.threshold ?? 0,
       signalIds: selected.map((s) => s.id),
     });
     this.log(

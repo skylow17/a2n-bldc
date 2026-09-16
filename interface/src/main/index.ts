@@ -11,7 +11,12 @@ import { join } from 'node:path';
 import { BrowserWindow, app, ipcMain, shell } from 'electron';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
-import { DeviceCore, type ConnectTarget, type LogSource } from './device/DeviceCore.js';
+import {
+  DeviceCore,
+  type ConnectTarget,
+  type LogSource,
+  type ScopeRequest,
+} from './device/DeviceCore.js';
 import { startA2nMcpServer } from './mcp/server.js';
 
 const core = new DeviceCore();
@@ -85,6 +90,12 @@ handle('device:writeParam', (idOrName: number | string, value: number, source?: 
 );
 handle('device:resetDefaults', () => core.resetDefaults());
 handle('device:console', (line: string) => core.sendConsole(line));
+
+// Signaux et scope : le renderer y avait droit depuis le debut, mais aucun canal ne les
+// portait — seuls la CLI et le serveur MCP pouvaient les atteindre. Un outil MCP capable
+// de faire ce que l'UI ne peut pas est un trou dans l'UI, pas une fonctionnalite du MCP.
+handle('device:readSignals', () => core.readSignals());
+handle('device:captureScope', (req: ScopeRequest) => core.captureScope(req));
 handle('device:setAiControl', (enabled: boolean) => {
   core.setAiControl(enabled);
 });
