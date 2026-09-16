@@ -8,7 +8,9 @@
 
 import { join } from 'node:path';
 
-import { BrowserWindow, app, ipcMain, shell } from 'electron';
+import { writeFile } from 'node:fs/promises';
+
+import { BrowserWindow, app, dialog, ipcMain, shell } from 'electron';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
 import type { TelemFrame } from '../shared/messages.js';
@@ -125,6 +127,25 @@ handle('device:startTelemetry', (signalNames: string[] | undefined, rateHz: numb
   core.startTelemetry(signalNames, rateHz),
 );
 handle('device:stopTelemetry', () => core.stopTelemetry());
+
+/**
+ * Enregistre un texte sur disque, apres confirmation de l'utilisateur.
+ *
+ * Le renderer n'a acces ni a Node ni au systeme de fichiers : il fournit un contenu et un
+ * nom suggere, l'utilisateur choisit l'emplacement. Rien ne s'ecrit sans cette boite de
+ * dialogue, donc rien ne s'ecrit sans qu'il l'ait vu.
+ */
+handle('device:saveText', async (suggestedName: string, contents: string) => {
+  const win = mainWindow;
+  const result =
+    win === null
+      ? await dialog.showSaveDialog({ defaultPath: suggestedName })
+      : await dialog.showSaveDialog(win, { defaultPath: suggestedName });
+  if (result.canceled || result.filePath === undefined) return null;
+  await writeFile(result.filePath, contents, 'utf8');
+  core.log('info', 'gui', `saved ${result.filePath}`);
+  return result.filePath;
+});
 handle('device:setAiControl', (enabled: boolean) => {
   core.setAiControl(enabled);
 });

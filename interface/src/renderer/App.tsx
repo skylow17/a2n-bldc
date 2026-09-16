@@ -12,6 +12,7 @@ import type { DeviceSnapshot } from '../main/device/DeviceCore.js';
 import type { SerialPortInfo } from '../node/serial.js';
 import { Button, Dot, Empty, Toggle } from './components/ui.js';
 import { api, useAction, useDeviceLog, useDeviceState } from './useDevice.js';
+import { useTheme } from './useTheme.js';
 import { PROTO_CAP } from '../shared/protocol.js';
 import { Console } from './views/Console.js';
 import { Dashboard } from './views/Dashboard.js';
@@ -158,6 +159,7 @@ export function App(): ReactNode {
   const [view, setView] = useState<ViewId>('dashboard');
   const [consoleOpen, setConsoleOpen] = useState(true);
   const stop = useAction();
+  const { theme, toggle: toggleTheme } = useTheme();
 
   /**
    * Une vue est indisponible soit parce que le jalon n'y est pas, soit parce que le device
@@ -184,6 +186,15 @@ export function App(): ReactNode {
         <ConnectionBar state={state} />
         <div className="flex-1" />
         <StatusBadge state={state} />
+
+        {/* La bascule de theme ne touche qu'a un attribut de la racine. Placee avant les
+            deux commandes critiques pour ne pas s'intercaler entre elles et la main. */}
+        <Button
+          onClick={toggleTheme}
+          title={theme === 'dark' ? 'Switch to the light theme' : 'Switch to the dark theme'}
+        >
+          {theme === 'dark' ? 'Light' : 'Dark'}
+        </Button>
 
         <Toggle
           label="AI CONTROL"

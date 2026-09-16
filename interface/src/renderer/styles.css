@@ -1,6 +1,18 @@
 @import 'tailwindcss';
 
 /*
+ * Polices embarquees plutot que chargees d'un CDN : l'application pilote un banc, souvent
+ * sur un poste sans acces reseau, et une police absente changerait la metrique de toute
+ * l'interface. Seules les graisses reellement utilisees sont importees.
+ */
+@import '@fontsource/barlow/400.css';
+@import '@fontsource/barlow/500.css';
+@import '@fontsource/barlow/600.css';
+@import '@fontsource/barlow/700.css';
+@import '@fontsource/ibm-plex-mono/400.css';
+@import '@fontsource/ibm-plex-mono/500.css';
+
+/*
  * Palette reprise de la maquette validée (docs/mockup/mockup.html) : thème sombre
  * d'instrumentation, accent ambre réservé à ce qui demande une action.
  *
@@ -23,10 +35,127 @@
   --color-fault: #e35d5d;
   --color-info: #4ea8de;
 
+  /*
+   * Couleurs de courbe, ordre fixe, jamais recyclees — voir components/Chart.tsx.
+   *
+   * Elles vivent ici et non dans le TypeScript pour suivre le theme : le graphe les lit sur
+   * la racine au moment ou il se construit. Les deux jeux sont **choisis**, pas derives
+   * l'un de l'autre par inversion, et chacun est valide comme ensemble contre la surface de
+   * son mode : bande de clarte, plancher de chroma, separation en vision des couleurs
+   * deficiente, contraste.
+   *
+   * Aucune ne reprend une couleur d'etat de l'interface : l'ambre demande une action, le
+   * vert et le rouge disent OK et faute. Une courbe rouge ne doit pas se lire comme un
+   * defaut.
+   */
+  --color-series-1: #3987e5;
+  --color-series-2: #d95926;
+  --color-series-3: #199e70;
+  --color-series-4: #c98500;
+  --color-series-5: #d55181;
+  --color-series-6: #008300;
+  --color-series-7: #9085e9;
+  --color-series-8: #e66767;
+
   --font-ui: 'Barlow', 'Segoe UI', system-ui, sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Consolas, monospace;
 
   --radius-panel: 4px;
+
+  /*
+   * Teintes des boutons d'action.
+   *
+   * Passees en variables parce qu'un fond translucide ne se transpose pas d'un theme a
+   * l'autre : `fault` a 15 % sur fond sombre donne un rouge franc ; la meme recette sur
+   * fond clair donne un rose delave. Pour un bouton d'arret, delave n'est pas une nuance
+   * esthetique, c'est un defaut de securite.
+   */
+  --tone-accent-bg: color-mix(in srgb, var(--color-accent) 15%, transparent);
+  --tone-accent-bg-hover: color-mix(in srgb, var(--color-accent) 25%, transparent);
+  --tone-accent-fg: var(--color-accent);
+  --tone-danger-bg: color-mix(in srgb, var(--color-fault) 15%, transparent);
+  --tone-danger-bg-hover: color-mix(in srgb, var(--color-fault) 25%, transparent);
+  --tone-danger-border: color-mix(in srgb, var(--color-fault) 60%, transparent);
+  --tone-danger-fg: var(--color-fault);
+}
+
+/* Les trois tons de bouton, definis une fois et redefinis par theme. */
+.tone-default {
+  border-color: var(--color-line);
+  background: var(--color-raise);
+  color: var(--color-fg);
+}
+.tone-default:hover:not(:disabled) {
+  border-color: var(--color-fg-3);
+}
+.tone-accent {
+  border-color: var(--color-accent-dim);
+  background: var(--tone-accent-bg);
+  color: var(--tone-accent-fg);
+}
+.tone-accent:hover:not(:disabled) {
+  background: var(--tone-accent-bg-hover);
+}
+.tone-danger {
+  border-color: var(--tone-danger-border);
+  background: var(--tone-danger-bg);
+  color: var(--tone-danger-fg);
+}
+.tone-danger:hover:not(:disabled) {
+  background: var(--tone-danger-bg-hover);
+}
+
+/*
+ * Theme clair.
+ *
+ * La specification demande « sombre par defaut avec bascule clair ». Le clair n'est pas une
+ * inversion du sombre : chaque valeur est choisie pour sa propre surface. Une inversion
+ * mecanique donne des gris sales et des accents delaves, et surtout elle casse les rapports
+ * de contraste qu'on avait verifies.
+ *
+ * Seules les variables changent : aucune classe n'est reconstruite, et rien dans les
+ * composants ne connait le theme.
+ */
+:root[data-theme='light'] {
+  --color-bg: #f4f6f9;
+  --color-panel: #ffffff;
+  --color-panel-2: #eef1f5;
+  --color-raise: #e5e9ef;
+  --color-line: #cbd2dc;
+  --color-line-soft: #e2e7ee;
+  --color-fg: #131820;
+  --color-fg-2: #4a5666;
+  --color-fg-3: #76828f;
+  --color-accent: #9a6000;
+  --color-accent-dim: #d9ab60;
+  --color-ok: #1c7a42;
+  --color-fault: #bd2b2b;
+  --color-info: #1668a8;
+
+  /* Jeu clair de la palette de courbes. Trois de ces teintes passent sous 3:1 sur fond
+   * clair : chaque courbe porte son nom a cote de sa pastille, dans le selecteur comme dans
+   * la legende, ce qui est la compensation prevue. L'identite n'est jamais portee par la
+   * seule couleur. */
+  --color-series-1: #2a78d6;
+  --color-series-2: #eb6834;
+  --color-series-3: #1baf7a;
+  --color-series-4: #eda100;
+  --color-series-5: #e87ba4;
+  --color-series-6: #008300;
+  --color-series-7: #4a3aa7;
+  --color-series-8: #e34948;
+
+  /* Sur fond clair, l'arret est un aplat. Un lisere rouge sur du blanc se lit comme un
+   * bouton inactif — exactement l'inverse de ce qu'on attend d'un STOP. */
+  --tone-danger-bg: var(--color-fault);
+  --tone-danger-bg-hover: #a81f1f;
+  --tone-danger-border: var(--color-fault);
+  --tone-danger-fg: #ffffff;
+  --tone-accent-bg: color-mix(in srgb, var(--color-accent) 12%, #ffffff);
+  --tone-accent-bg-hover: color-mix(in srgb, var(--color-accent) 22%, #ffffff);
+  --tone-accent-fg: var(--color-accent);
+
+  color-scheme: light;
 }
 
 html,

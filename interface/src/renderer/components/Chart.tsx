@@ -34,21 +34,16 @@ import 'uplot/dist/uPlot.min.css';
  * Aucune n'est reprise des couleurs d'état de l'interface — l'ambre demande une action, le
  * vert et le rouge disent OK et faute. Une courbe rouge ne doit pas se lire comme un défaut.
  */
-export const SERIES_COLORS = [
-  '#3987e5',
-  '#d95926',
-  '#199e70',
-  '#c98500',
-  '#d55181',
-  '#008300',
-  '#9085e9',
-  '#e66767',
-] as const;
+/** Nombre de créneaux de la palette. Au-delà, on ne fabrique pas de teinte. */
+export const SERIES_SLOT_COUNT = 8;
 
 export function seriesColor(index: number): string {
   // Au-delà de huit courbes, aucune teinte supplémentaire n'est fabriquée : l'appelant
   // regroupe ou facette. Le gris dit « cette courbe n'a plus d'identité propre ».
-  return SERIES_COLORS[index] ?? '#636d7b';
+  if (index < 0 || index >= SERIES_SLOT_COUNT) return token('--color-fg-3', '#636d7b');
+  // Lue sur la racine, donc suivant le thème : le jeu clair et le jeu sombre sont deux
+  // palettes choisies, pas l'une l'inversion de l'autre.
+  return token(`--color-series-${index + 1}`, '#3987e5');
 }
 
 export interface TimeSeriesChartProps {

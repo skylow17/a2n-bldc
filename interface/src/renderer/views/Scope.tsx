@@ -26,6 +26,7 @@ import type { ScopeCapture } from '../../shared/client.js';
 import { ScopeTrigger, type ScopeTriggerValue, type SignalDesc } from '../../shared/protocol.js';
 import { TimeSeriesChart, groupByUnit, seriesColor } from '../components/Chart.js';
 import { Button, Empty, Panel } from '../components/ui.js';
+import { captureFileName, captureToCsv } from '../scopeExport.js';
 import { scopeTimeBase } from '../scopeTime.js';
 import { api, useAction } from '../useDevice.js';
 
@@ -141,10 +142,26 @@ export function Scope({ state }: { state: DeviceSnapshot }): ReactNode {
       ...base,
       series: signals.map((_s, col) => c.samples.map((p) => p[col] ?? NaN)),
       names: signals.map((s) => s.name),
+      units: signals.map((s) => s.unit),
       groups: groupByUnit(signals.map((s) => s.name), signals.map((s) => s.unit)),
       status: c.status,
     };
   }, [result]);
+
+  const exportCsv = (): void => {
+    if (plotted === null) return;
+    void run(async () => {
+      await api().saveText(
+        captureFileName(plotted.t.length),
+        captureToCsv({
+          t: plotted.t,
+          series: plotted.series,
+          names: plotted.names,
+          units: plotted.units,
+        }),
+      );
+    });
+  };
 
   const colorOf = (name: string): string => seriesColor(dict.findIndex((s) => s.name === name));
 
@@ -323,10 +340,15 @@ export function Scope({ state }: { state: DeviceSnapshot }): ReactNode {
         <Panel
           title="Capture result"
           right={
-            <span className="font-mono text-[11px] text-fg-3">
-              {plotted.status.captured} pts · {plotted.periodMs.toFixed(3)} ms/pt ·{' '}
-              {plotted.durationMs.toFixed(2)} ms
-            </span>
+            <div className="flex items-center gap-3">
+              <span className="font-mono text-[11px] text-fg-3">
+                {plotted.status.captured} pts · {plotted.periodMs.toFixed(3)} ms/pt ·{' '}
+                {plotted.durationMs.toFixed(2)} ms
+              </span>
+              <Button onClick={exportCsv} disabled={busy} title="Save this capture as CSV">
+                Export CSV
+              </Button>
+            </div>
           }
         >
           <div className="flex flex-col p-2">

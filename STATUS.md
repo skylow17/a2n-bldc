@@ -171,9 +171,25 @@ Relevés lors d'une revue, assumés pour l'instant, à traiter :
 
 | Écart | Spécification | Décision |
 |---|---|---|
-| Pas de bascule thème clair | « thème sombre par défaut **avec bascule clair** » | À faire ; les variables CSS sont déjà en place |
 | `zod` partiel | « valider toute donnée entrante » | Le codec valide structurellement, et les entrées des outils MCP passent par un schéma `zod`. Les futurs fichiers `.a2nrcp` devront l'être aussi |
-| Polices non embarquées | la maquette utilise Barlow + IBM Plex Mono | Repli sur les polices système ; l'app ne ressemble pas tout à fait à la maquette validée |
+
+Réglés le 2026-09-16 :
+
+- **Bascule thème clair.** Un attribut sur la racine, rien d'autre : toutes les couleurs sont des
+  variables CSS. Le clair n'est pas une inversion du sombre — chaque valeur est choisie pour sa
+  propre surface, y compris les huit couleurs de courbe, validées comme ensemble dans les deux
+  modes. Le choix est retenu d'une session à l'autre.
+- **Polices embarquées.** Barlow et IBM Plex Mono arrivent par `@fontsource`, empaquetées dans
+  l'application : un poste de banc n'a pas toujours de réseau, et une police absente changerait la
+  métrique de toute l'interface.
+- **Export de capture.** La vue Scope écrit un CSV — colonne de temps relative au déclenchement,
+  une colonne par signal, unité dans l'en-tête. Pas de ligne de commentaire : un en-tête décoratif
+  oblige chaque outil qui relit le fichier à savoir le sauter.
+
+Un défaut trouvé en regardant le thème clair : le bouton **STOP** y était délavé. La recette
+`fault` à 15 % d'opacité donne un rouge franc sur fond sombre et un rose pâle sur fond clair. Les
+trois tons de bouton sont passés en variables CSS, et le clair reçoit un aplat. Pour une commande
+d'arrêt, délavé n'est pas une nuance esthétique.
 
 ---
 

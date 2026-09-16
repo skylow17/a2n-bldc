@@ -50,10 +50,12 @@ export function Button({
   title?: string;
   className?: string;
 }): ReactNode {
+  // Les trois tons vivent dans styles.css : un fond translucide ne se transpose pas d'un
+  // theme a l'autre, et le bouton STOP sur fond clair l'a montre.
   const tones: Record<ButtonTone, string> = {
-    default: 'border-line bg-raise text-fg hover:border-fg-3',
-    accent: 'border-accent-dim bg-accent/15 text-accent hover:bg-accent/25',
-    danger: 'border-fault/60 bg-fault/15 text-fault hover:bg-fault/25',
+    default: 'tone-default',
+    accent: 'tone-accent',
+    danger: 'tone-danger',
   };
   return (
     <button
@@ -83,10 +85,7 @@ export function Toggle({
   disabled?: boolean;
   title?: string;
 }): ReactNode {
-  const on =
-    tone === 'danger'
-      ? 'border-fault bg-fault/20 text-fault'
-      : 'border-accent-dim bg-accent/20 text-accent';
+  const on = tone === 'danger' ? 'tone-danger' : 'tone-accent';
   return (
     <button
       type="button"
@@ -96,7 +95,7 @@ export function Toggle({
       disabled={disabled}
       onClick={() => onChange(!checked)}
       className={`flex items-center gap-2 rounded-[3px] border px-2.5 py-1 text-[12px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-        checked ? on : 'border-line bg-raise text-fg-2 hover:border-fg-3'
+        checked ? on : 'tone-default text-fg-2'
       }`}
     >
       <span

@@ -44,6 +44,9 @@ const api = {
   startTelemetry: (signalNames?: string[], rateHz?: number) =>
     call<TelemetryState>('device:startTelemetry', signalNames, rateHz),
   stopTelemetry: () => call<void>('device:stopTelemetry'),
+  /** Rend le chemin retenu, ou `null` si l'utilisateur a annule. */
+  saveText: (suggestedName: string, contents: string) =>
+    call<string | null>('device:saveText', suggestedName, contents),
   setAiControl: (enabled: boolean) => call<void>('device:setAiControl', enabled),
 
   onState: (listener: (s: DeviceSnapshot) => void): (() => void) => {
