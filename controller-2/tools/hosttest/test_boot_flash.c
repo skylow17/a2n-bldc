@@ -69,8 +69,8 @@ static void TestGeometry(void)
         "le slot B commence en banque 2");
   check((BOOT_META_ADDR + BOOT_META_SIZE) == (FLASH_BASE_ADDR + FLASH_TOTAL_SIZE),
         "les metadonnees ferment exactement les 512 ko");
-  check((BOOT_SLOT_CAPACITY % FLASH_PAGE_SIZE) == 0U, "un slot est un nombre entier de pages");
-  check(BOOT_META_PAGE_B == (BOOT_META_PAGE_A + FLASH_PAGE_SIZE),
+  check((BOOT_SLOT_CAPACITY % BOOT_FLASH_PAGE_SIZE) == 0U, "un slot est un nombre entier de pages");
+  check(BOOT_META_PAGE_B == (BOOT_META_PAGE_A + BOOT_FLASH_PAGE_SIZE),
         "les deux enregistrements sont sur deux pages distinctes");
   check((BOOT_META_RECORD_LEN % 8U) == 0U,
         "l'enregistrement est un multiple de 8 : le G4 ne programme qu'en double-mots");
@@ -83,8 +83,18 @@ static void TestVectors(void)
   printf("\nplausibilite des vecteurs\n");
 
   const uint32_t a = BOOT_SLOT_A_ADDR;
-  check(BootFlash_VectorsPlausible(0x20020000UL, ResetPc(a), a),
-        "pile en haut de SRAM, entree dans le slot, bit Thumb pose");
+  check(BootFlash_VectorsPlausible(0x2001FF00UL, ResetPc(a), a),
+        "pile en haut de SRAM utile, entree dans le slot, bit Thumb pose");
+
+  /* La valeur reelle produite par les quatre linkers du depot. Si ce test tombe, c'est que
+   * la geometrie de la SRAM a bouge d'un cote sans l'autre. */
+  check(BOOT_SHARED_BASE == 0x2001FF00UL, "la zone partagee commence bien ou les linkers l'ont mise");
+
+  /* Une image liee sans amputer les 256 derniers octets demarre sa pile a 0x20020000 et la
+   * fait descendre dans la poignee de main — donc dans le mot qui decide de son propre
+   * rollback. Elle compile, elle a un CRC juste, et elle se saborde en silence. */
+  check(!BootFlash_VectorsPlausible(0x20020000UL, ResetPc(a), a),
+        "refuse une pile qui descendrait dans la zone partagee");
   check(BootFlash_VectorsPlausible(0x2001FF00UL, a + 1U, a),
         "une entree au tout debut du slot est acceptee");
 
@@ -96,21 +106,23 @@ static void TestVectors(void)
 
   check(!BootFlash_VectorsPlausible(0x08008000UL, ResetPc(a), a),
         "refuse un pointeur de pile en flash");
+  check(!BootFlash_VectorsPlausible(0x1FFFFFF8UL, ResetPc(a), a),
+        "refuse un pointeur de pile juste sous la SRAM");
   check(!BootFlash_VectorsPlausible(0x20020008UL, ResetPc(a), a),
         "refuse un pointeur de pile au-dela de la SRAM");
-  check(!BootFlash_VectorsPlausible(0x20020004UL, ResetPc(a), a),
+  check(!BootFlash_VectorsPlausible(0x2001FEFCUL, ResetPc(a), a),
         "refuse une pile mal alignee");
 
   /* Un vecteur de reset pair provoque une UsageFault des la premiere instruction, et c'est
    * la panne la plus opaque qu'un bootloader puisse produire. */
-  check(!BootFlash_VectorsPlausible(0x20020000UL, a + 0x200U, a),
+  check(!BootFlash_VectorsPlausible(0x2001FF00UL, a + 0x200U, a),
         "refuse un vecteur de reset sans bit Thumb");
 
   /* Une image batie pour le slot A et ecrite dans le slot B : le CRC serait juste, et elle
    * sauterait dans le vide. C'est exactement l'erreur que ce controle attrape. */
-  check(!BootFlash_VectorsPlausible(0x20020000UL, ResetPc(BOOT_SLOT_A_ADDR), BOOT_SLOT_B_ADDR),
+  check(!BootFlash_VectorsPlausible(0x2001FF00UL, ResetPc(BOOT_SLOT_A_ADDR), BOOT_SLOT_B_ADDR),
         "refuse une image batie pour l'autre slot");
-  check(!BootFlash_VectorsPlausible(0x20020000UL, a + BOOT_SLOT_CAPACITY + 1U, a),
+  check(!BootFlash_VectorsPlausible(0x2001FF00UL, a + BOOT_SLOT_CAPACITY + 1U, a),
         "refuse une entree juste apres la fin du slot");
 }
 

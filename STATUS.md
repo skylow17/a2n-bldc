@@ -22,12 +22,12 @@ Dernière revue : 2026-09-16.
 
 | Jalon | Étape | État | Ce qui reste |
 |---|---|---|---|
-| **M0** | Squelette temps réel : PWM centré 20 kHz, TIM1 TRGO → ADC injecté, ISR | Validé sur une carte, **non reproductible depuis le dépôt** | Reconstruire, puis rejouer la recette |
-| **M1a** | Liaison USB CDC non bloquante, console texte | Validé sur une carte, **non reproductible depuis le dépôt** | Reconstruire, puis rejouer la recette |
-| **M1b** | Codec binaire COBS + CRC16, dictionnaire de paramètres | Validé sur une carte, **non reproductible depuis le dépôt** | Reconstruire, puis rejouer la recette |
-| **M1c** | Télémétrie souscrite + buffer scope | Code réécrit le 2026-09-16, testé hors cible, **jamais compilé pour la cible** | Installer la toolchain ARM, compiler ; rejouer `telem` et `scope` sur carte |
+| **M0** | Squelette temps réel : PWM centré 20 kHz, TIM1 TRGO → ADC injecté, ISR | Validé sur une carte, **et reproductible depuis le 2026-09-16** | Rejouer la recette sur carte |
+| **M1a** | Liaison USB CDC non bloquante, console texte | Validé sur une carte, **et reproductible depuis le 2026-09-16** | Rejouer la recette sur carte |
+| **M1b** | Codec binaire COBS + CRC16, dictionnaire de paramètres | Validé sur une carte, **et reproductible depuis le 2026-09-16** | Rejouer la recette sur carte |
+| **M1c** | Télémétrie souscrite + buffer scope | Réécrit et **compilé** le 2026-09-16, testé hors cible ; jamais exécuté sur carte | Rejouer `telem` et `scope` sur carte |
 | **M1d** | CLI de bring-up | Validé sur simulateur | Export de capture (le tracé existe dans l'interface) ; `telem` et `scope` dépendent de M1c côté carte |
-| **Boot** | Bootloader A/B, probation et rollback | Écrit le 2026-09-16, logique testée hors cible, **jamais compilé** | Compiler les trois images ; installer par SWD ; recette nominale puis test négatif |
+| **Boot** | Bootloader A/B, probation et rollback | Écrit et **compilé** le 2026-09-16 (24 608 o sur 32 768), logique testée hors cible | Installer par SWD ; recette nominale puis test négatif |
 | **M2** | Étage de puissance et capteurs (étapes 2 à 9) | Pas commencé | — |
 | **M3** | Asservissements (étapes 10 à 13) | Pas commencé | — |
 
@@ -64,8 +64,28 @@ fichiers qu'il cite existe. Les douze manquants ont été écrits le 2026-09-16 
 `comm/scope` et `boot_shared` d'abord, puis les neuf que réclamaient `make boot-images` et
 `make install-bootloader`.
 
-Ce qui existe n'est pas pour autant vérifié : « présent » et « compilé » sont deux états
-différents, et aucune de ces sources n'a encore vu un compilateur ARM.
+Et depuis l'installation de STM32CubeIDE 2.2.0, elles compilent. Les cinq images sortent sans
+un seul avertissement — `-Wall -Wextra -Wshadow -Wundef -Wdouble-promotion` :
+
+| Image | Flash utilisée | Capacité |
+|---|---|---|
+| autonome | 48 652 o | 256 ko |
+| bootloader | 24 608 o | **32 ko (75 %)** |
+| slot A | 48 692 o | 224 ko |
+| slot B | 48 692 o | 224 ko |
+| image de probation défaillante | 12 o | — |
+
+C'est la première fois que le dépôt produit son propre firmware. M0 à M1c cessent d'être
+« validés sur une carte qu'on ne sait plus reconstruire ».
+
+Les vecteurs des cinq images ont été relus dans les binaires : chacune porte
+`_estack = 0x2001FF00` — les quatre linkers amputent bien les 256 octets de la poignée de
+main — et chaque point d'entrée tombe dans son propre slot. Les slots A et B font exactement
+la même taille, ce qui aurait pu masquer une erreur d'adresse de link ; les adresses réelles
+(`0x08010931` et `0x08048931`) montrent qu'il n'y en a pas.
+
+Ce qui reste hors de portée sans carte : que ces images **fonctionnent**. Rien de tout cela
+n'a encore été exécuté.
 
 ### Bootloader A/B
 
@@ -89,11 +109,16 @@ séquence candidat / probation / rollback, réponse `BOOT_INFO`. 117 vérificati
 `python controller-2/tools/hosttest/run.py`. C'est là que vivent les décisions qui peuvent
 briquer une carte, et c'est pour cela qu'elles sont écrites séparées du matériel.
 
-Ce qui n'est **pas** vérifié, et ne peut pas l'être ici : que tout cela compile. Ni l'effacement
-et la programmation réels, ni l'armement IWDG, ni le saut vers un slot, ni l'énumération USB du
-bootloader, ni la taille de l'image — qui doit tenir dans 32 ko et dont le dépassement ne se
-verra qu'au link. Rien n'a été installé sur une carte, et l'installation initiale — qui efface la
-flash applicative — n'a jamais été ni autorisée ni exécutée.
+Ce qui n'est **pas** vérifié : l'effacement et la programmation réels, l'armement IWDG, le saut
+vers un slot, l'énumération USB du bootloader. Rien n'a été installé sur une carte, et
+l'installation initiale — qui efface la flash applicative — n'a jamais été ni autorisée ni
+exécutée.
+
+La taille, elle, n'est plus une inconnue : 24 608 o sur 32 768, soit **75 %**. Ça passe, avec
+8 ko de marge, mais c'est le seul binaire du dépôt qui soit à l'étroit et son slot ne peut pas
+grandir — il précède le slot A, dont l'adresse est figée dans trois linkers. `python
+tools/status.py boot` affiche ce pourcentage à chaque passage, pour qu'on voie venir le mur
+plutôt que de le toucher.
 
 **Ordre de recette, quand la toolchain sera là** : compiler les trois images ; vérifier la taille
 du bootloader ; installer par SWD sur une carte dont on accepte de perdre le contenu ; `BOOT_INFO`

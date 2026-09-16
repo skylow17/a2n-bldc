@@ -15,6 +15,7 @@ outil de CI, c'est un constat.
 import io
 import os
 import re
+import shutil
 import subprocess
 import sys
 
@@ -55,6 +56,42 @@ def run(cmd, cwd, timeout=600):
         return None, "outil introuvable"
     except subprocess.TimeoutExpired:
         return None, "delai depasse"
+
+
+def make_cmd():
+    """Rend la commande `make` a utiliser.
+
+    STM32CubeIDE fournit son propre make, dans un plugin dont le nom porte un numero de
+    version qui change d'une version de l'IDE a l'autre. Il n'est pas dans le PATH, et
+    demander a l'utilisateur de l'y mettre serait une deuxieme configuration a tenir a jour
+    en plus de `toolchain.local.mk` — donc une occasion de plus de les voir diverger.
+
+    On repart de la meme source de verite : `IDE` dans `toolchain.local.mk` designe deja le
+    dossier des plugins. On y cherche celui du make. A defaut, `make` tout court, qui marche
+    sur un poste ou il est installe autrement.
+    """
+    plain = "make"
+    if shutil.which("make"):
+        return plain
+
+    local = os.path.join(FW, "toolchain.local.mk")
+    if not os.path.isfile(local):
+        return plain
+    with io.open(local, encoding="utf-8", errors="replace") as fh:
+        m = re.search(r"^\s*IDE\s*:?=\s*(.+?)\s*$", fh.read(), re.M)
+    if m is None:
+        return plain
+
+    plugins = m.group(1)
+    if not os.path.isdir(plugins):
+        return plain
+    for name in sorted(os.listdir(plugins)):
+        if "externaltools.make" not in name:
+            continue
+        exe = os.path.join(plugins, name, "tools", "bin", "make.exe")
+        if os.path.isfile(exe):
+            return '"%s"' % exe
+    return plain
 
 
 # Un outil absent du PATH ne se signale pas de la meme facon selon le shell.
@@ -170,9 +207,14 @@ def hosttest():
         print("  harnais absent")
         return
     code, out = run('"%s" "%s"' % (sys.executable, runner), ROOT)
-    lines = [l.strip() for l in out.splitlines() if "verifications passees" in l]
-    if lines:
-        print("  " + lines[0])
+    # Une ligne de total par suite. N'en lire qu'une sous-declarait la couverture d'un
+    # facteur trois des qu'une deuxieme suite est apparue, ce qui est exactement le genre
+    # de silence que cet outil est cense ne plus produire.
+    tallies = re.findall(r"(\d+) verifications passees, (\d+) en echec", out)
+    if tallies:
+        ok = sum(int(a) for a, _ in tallies)
+        ko = sum(int(b) for _, b in tallies)
+        print("  %d verification(s) sur %d suite(s), %d en echec" % (ok, len(tallies), ko))
     elif "Aucun compilateur" in out:
         print("  aucun compilateur hote (gcc, clang ou cl) — suites non executees")
     else:
@@ -182,9 +224,52 @@ def hosttest():
             print("    " + l.strip())
 
 
+def boot_images():
+    """Les trois images A/B. Le bootloader est le seul binaire du depot qui soit a l'etroit.
+
+    Son slot fait 32 ko et rien ne l'agrandira : il precede le slot A, dont l'adresse est
+    figee dans trois linkers et dans les metadonnees deja ecrites sur les cartes. Un
+    depassement se voit au link, mais autant voir venir le mur avant de le toucher.
+    """
+    section("Images bootloader A/B")
+    mk = make_cmd()
+    rows = [("bootloader", "bootloader", 32 * 1024),
+            ("slot A", "slot-a", 224 * 1024),
+            ("slot B", "slot-b", 224 * 1024)]
+    # Le Makefile nomme le binaire du bootloader autrement que son dossier.
+    binaries = {"bootloader": "a2n-bldc-bootloader.bin",
+                "slot-a": "a2n-bldc-slot-a.bin",
+                "slot-b": "a2n-bldc-slot-b.bin"}
+    for label, image, capacity in rows:
+        code, out = run("%s IMAGE=%s" % (mk, image), FW)
+        if code is None or MISSING_TOOL.search(out):
+            print("  build impossible : `make` introuvable")
+            return
+        if code != 0:
+            print("  %-10s ECHEC DE BUILD" % label)
+            for l in out.splitlines():
+                if "error" in l.lower():
+                    print("    " + l.strip())
+            continue
+        warn = len([l for l in out.splitlines() if "warning" in l.lower()])
+        # La taille se lit sur le .bin plutot que dans la sortie du link : c'est
+        # exactement ce qui sera programme, et c'est disponible meme quand `make`
+        # n'a rien eu a refaire — cas frequent, et ou la version precedente
+        # n'affichait rien du tout.
+        binary = os.path.join(FW, "build", image, binaries[image])
+        if not os.path.isfile(binary):
+            print("  %-10s binaire introuvable (%s)" % (label, binary))
+            continue
+        used = os.path.getsize(binary)
+        print("  %-10s %6d o sur %6d  (%5.1f %%)%s"
+              % (label, used, capacity, 100.0 * used / capacity,
+                 "" if warn == 0 else "  %d avertissement(s)" % warn))
+
+
 def firmware():
     section("Firmware")
-    code, out = run("make", FW)
+    mk = make_cmd()
+    code, out = run(mk, FW)
     if code is None or MISSING_TOOL.search(out):
         print("  build impossible : `make` introuvable")
         print("  (il est fourni par STM32CubeIDE ; voir README.md)")
@@ -211,7 +296,7 @@ def firmware():
     else:
         # Rien n'a ete relie, donc pas de --print-memory-usage : on relit l'ELF avec
         # `size -A`, qui liste les sections avec leur adresse de chargement.
-        code2, out2 = run("make size", FW)
+        code2, out2 = run(mk + " size", FW)
         flash_b, ram_b = 0, 0
         for line in out2.splitlines():
             m = re.match(r"^\s*(\.\S+)\s+(\d+)\s+(\d+)\s*$", line)
@@ -285,7 +370,7 @@ def main():
     only = sys.argv[1] if len(sys.argv) > 1 else None
     steps = {
         "tests": tests, "types": typecheck, "sources": sources,
-        "hosttest": hosttest, "fw": firmware,
+        "hosttest": hosttest, "fw": firmware, "boot": boot_images,
         "sim": simulator, "board": board, "git": history,
     }
     if only in steps:

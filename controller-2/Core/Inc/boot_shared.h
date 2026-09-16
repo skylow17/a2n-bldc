@@ -5,7 +5,7 @@
  * Deux messages passent par là, et ils ne peuvent pas passer ailleurs : un reset efface les
  * registres, la flash coûte un cycle d'effacement, et il n'existe aucun périphérique commun
  * aux deux images. Les 256 derniers octets de la SRAM sont donc soustraits aux deux linkers
- * (`ld/*.ld`, `LENGTH = 0x1FF00`) et réservés à ce dialogue.
+ * (les trois scripts de `ld/`, `LENGTH = 0x1FF00`) et réservés à ce dialogue.
  *
  * ```
  *   application  --ENTER-->   reset   -->  bootloader reste en mise a jour

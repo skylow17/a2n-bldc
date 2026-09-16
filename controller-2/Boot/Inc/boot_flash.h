@@ -31,6 +31,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "boot_shared.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -39,7 +41,10 @@ extern "C" {
 
 #define FLASH_BASE_ADDR        0x08000000UL
 #define FLASH_TOTAL_SIZE       (512UL * 1024UL)
-#define FLASH_PAGE_SIZE        2048UL
+/* Préfixée : le HAL définit son propre `FLASH_PAGE_SIZE`, avec la même valeur. Reprendre
+ * le nom marcherait aujourd'hui et casserait le jour où l'un des deux changerait, sans
+ * que rien ne le signale ailleurs qu'en avertissement. */
+#define BOOT_FLASH_PAGE_SIZE   2048UL
 
 #define BOOT_SLOT_A_ADDR       0x08008000UL
 #define BOOT_SLOT_B_ADDR       0x08040000UL
@@ -50,7 +55,7 @@ extern "C" {
 
 /** Les deux enregistrements alternés vivent chacun sur leur page. */
 #define BOOT_META_PAGE_A       BOOT_META_ADDR
-#define BOOT_META_PAGE_B       (BOOT_META_ADDR + FLASH_PAGE_SIZE)
+#define BOOT_META_PAGE_B       (BOOT_META_ADDR + BOOT_FLASH_PAGE_SIZE)
 
 /** Identifiants de slot, tels qu'ils voyagent sur le fil (`../../../docs/protocol.md` §8). */
 #define BOOT_SLOT_A            0U

@@ -193,10 +193,13 @@ void BootMeta_Blank(BootMeta_t *out)
 
 bool BootFlash_VectorsPlausible(uint32_t initial_sp, uint32_t reset_pc, uint32_t slot_addr)
 {
-  /* Le pointeur de pile initial pointe la fin de la pile, donc le haut de la SRAM. On accepte
-   * la borne supérieure : `_estack` vaut exactement `ORIGIN + LENGTH`, adresse valide comme
-   * pile descendante. */
-  if ((initial_sp < 0x20000000UL) || (initial_sp > 0x20020000UL)) {
+  /* Le pointeur de pile initial pointe la fin de la pile, donc le haut de la SRAM — mais pas
+   * le haut des 128 ko : les 256 derniers octets sont la poignée de main avec l'application
+   * (`boot_shared.h`), et une pile qui démarrerait au-dessus descendrait dedans. Les quatre
+   * linkers du dépôt produisent tous `_estack == 0x2001FF00`, ce qui est aussi la borne
+   * acceptée ici ; une image liée sans cette amputation est justement celle qu'il faut
+   * refuser, puisqu'elle écraserait le dialogue qui décide de son propre rollback. */
+  if ((initial_sp < 0x20000000UL) || (initial_sp > BOOT_SHARED_BASE)) {
     return false;
   }
   if ((initial_sp & 0x7U) != 0U) {
@@ -409,10 +412,10 @@ static void PageOf(uint32_t addr, uint32_t *bank, uint32_t *page)
   const uint32_t off = addr - FLASH_BASE_ADDR;
   if (off < (FLASH_TOTAL_SIZE / 2U)) {
     *bank = FLASH_BANK_1;
-    *page = off / FLASH_PAGE_SIZE;
+    *page = off / BOOT_FLASH_PAGE_SIZE;
   } else {
     *bank = FLASH_BANK_2;
-    *page = (off - (FLASH_TOTAL_SIZE / 2U)) / FLASH_PAGE_SIZE;
+    *page = (off - (FLASH_TOTAL_SIZE / 2U)) / BOOT_FLASH_PAGE_SIZE;
   }
 }
 
@@ -427,7 +430,7 @@ static bool ErasePages(uint32_t addr, uint32_t bytes)
   e.TypeErase = FLASH_TYPEERASE_PAGES;
   e.Banks = bank;
   e.Page = page;
-  e.NbPages = bytes / FLASH_PAGE_SIZE;
+  e.NbPages = bytes / BOOT_FLASH_PAGE_SIZE;
 
   if (HAL_FLASH_Unlock() != HAL_OK) {
     return false;
@@ -470,7 +473,7 @@ bool BootFlash_CommitMeta(const BootMeta_t *meta)
   uint8_t raw[BOOT_META_RECORD_LEN];
   BootMeta_Encode(&next, raw);
 
-  if (!ErasePages(target, FLASH_PAGE_SIZE)) {
+  if (!ErasePages(target, BOOT_FLASH_PAGE_SIZE)) {
     return false;
   }
   if (!ProgramAt(target, raw, sizeof(raw))) {
