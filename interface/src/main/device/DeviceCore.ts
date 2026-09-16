@@ -55,7 +55,25 @@ export interface DeviceSnapshot {
   }>;
   /** Pilotage par un agent — voir `setAiControl`. */
   aiControl: boolean;
+  /** Abonnement télémétrie en cours, `null` si le flux est coupé. */
+  telemetry: TelemetryState | null;
   lastError: string | null;
+}
+
+/**
+ * Abonnement télémétrie en cours.
+ *
+ * Il figure dans le snapshot parce que le device n'en accepte qu'un seul : savoir à quoi
+ * l'interface s'est abonnée, et à quelle cadence, fait partie de l'état partagé entre
+ * l'humain et l'agent.
+ */
+export interface TelemetryState {
+  /** Cadence **retenue par le firmware**, pas celle demandée. */
+  rateHz: number;
+  /** Noms des signaux, dans l'ordre des valeurs de chaque trame. */
+  signalNames: string[];
+  /** Unités, dans le même ordre — pour étiqueter un axe sans relire le dictionnaire. */
+  units: string[];
 }
 
 export interface ConnectTarget {
@@ -95,9 +113,13 @@ export class DeviceCore {
   private aiControl = false;
   private lastError: string | null = null;
   private logSeq = 0;
+  private telemetry: TelemetryState | null = null;
+  private telemOff: (() => void) | null = null;
 
   readonly onChange = new Emitter<DeviceSnapshot>();
   readonly onLog = new Emitter<LogEntry>();
+  /** Flux de télémétrie souscrit — une émission par trame reçue. */
+  readonly onTelemetry = new Emitter<TelemFrame>();
 
   /* ---------------------------------------------------------------- journal */
 
@@ -134,6 +156,7 @@ export class DeviceCore {
           };
         }) ?? [],
       aiControl: this.aiControl,
+      telemetry: this.telemetry,
       lastError: this.lastError,
     };
   }
@@ -203,6 +226,9 @@ export class DeviceCore {
 
   private onLinkLost(e: Error): void {
     if (this.connection === 'disconnected') return;
+    // Le flux ne reviendra pas tout seul : le dire dans l'état, plutôt que de laisser des
+    // courbes figées passer pour des courbes plates.
+    this.detachTelemetry();
     this.lastError = e.message;
     this.connection = 'error';
     this.log('error', 'device', `link lost: ${e.message}`);
@@ -210,6 +236,7 @@ export class DeviceCore {
   }
 
   async disconnect(quiet = false): Promise<void> {
+    this.detachTelemetry();
     if (this.client !== null) {
       await this.client.close().catch(() => undefined);
     }
@@ -321,23 +348,111 @@ export class DeviceCore {
     return client.readSignals();
   }
 
+  /**
+   * Résout des noms de signaux en descripteurs, depuis le dictionnaire du device.
+   *
+   * Sans nom, rend tout ce que le firmware publie. C'est le seul endroit où la
+   * correspondance nom → identifiant se fait : ni l'UI, ni la CLI, ni un agent n'ont à
+   * connaître la numérotation du protocole.
+   */
+  private async resolveSignals(names?: readonly string[]): Promise<SignalDesc[]> {
+    const { client } = this.require();
+    const available = await client.readSignals();
+    if (names === undefined || names.length === 0) return available;
+    return names.map((name) => {
+      const signal = available.find((candidate) => candidate.name === name);
+      if (signal === undefined) throw new Error(`unknown signal: ${name}`);
+      return signal;
+    });
+  }
+
+  private assertTelemetrySelection(selected: readonly SignalDesc[]): void {
+    if (selected.length === 0) {
+      throw new Error('telemetry needs at least one signal');
+    }
+    if (selected.length > 16 || new Set(selected.map((s) => s.id)).size !== selected.length) {
+      throw new Error('telemetry accepts 1 to 16 unique signals');
+    }
+  }
+
+  /** Coupe l'écoute locale sans toucher au device. Utilisé avant de réécrire l'abonnement. */
+  private detachTelemetry(): void {
+    if (this.telemOff !== null) {
+      this.telemOff();
+      this.telemOff = null;
+    }
+    this.telemetry = null;
+  }
+
+  /**
+   * Ouvre un flux de télémétrie **qui dure**, et pousse chaque trame sur `onTelemetry`.
+   *
+   * C'est ce qui alimente les courbes temps réel. À ne pas confondre avec
+   * `sampleTelemetry`, qui prend un burst et referme derrière lui.
+   *
+   * Le device n'accepte **qu'un seul abonnement**. Il est donc détenu ici, et publié dans
+   * le snapshot : deux consommateurs qui s'abonneraient chacun de leur côté se
+   * décrocheraient mutuellement sans que rien ne le dise.
+   */
+  async startTelemetry(signalNames?: readonly string[], rateHz = 200): Promise<TelemetryState> {
+    const { client } = this.require();
+    const selected = await this.resolveSignals(signalNames);
+    this.assertTelemetrySelection(selected);
+
+    this.detachTelemetry();
+    const applied = await client.subscribeTelemetry(rateHz, selected.map((s) => s.id));
+    this.telemOff = client.onTelemetry((frame) => this.onTelemetry.emit(frame));
+    this.telemetry = {
+      rateHz: applied.rateHz,
+      signalNames: selected.map((s) => s.name),
+      units: selected.map((s) => s.unit),
+    };
+
+    // Le firmware choisit un diviseur entier de la boucle 20 kHz : la cadence retenue
+    // n'est pas toujours celle demandée, et c'est la retenue qu'on journalise.
+    this.log('info', 'gui', `telemetry on: ${selected.length} signal(s) at ${applied.rateHz} Hz`);
+    this.emitChange();
+    return this.telemetry;
+  }
+
+  async stopTelemetry(): Promise<void> {
+    const wasOn = this.telemetry !== null;
+    this.detachTelemetry();
+    const { client } = this.require();
+    await client.subscribeTelemetry(0, []);
+    if (wasOn) {
+      this.log('info', 'gui', 'telemetry off');
+      this.emitChange();
+    }
+  }
+
+  get telemetryState(): TelemetryState | null {
+    return this.telemetry;
+  }
+
+  /**
+   * Prend un burst court et referme derrière lui. Sert la CLI et les agents, pas les
+   * courbes temps réel.
+   *
+   * S'il y avait un flux en cours, il est **interrompu puis rétabli** : le device n'a
+   * qu'un seul abonnement, et le burst doit pouvoir demander d'autres signaux ou une autre
+   * cadence. L'interruption passe par le journal plutôt que de faire décrocher les courbes
+   * de l'interface sans explication.
+   */
   async sampleTelemetry(
     frames = 20,
     rateHz = 100,
     signalNames?: readonly string[],
   ): Promise<{ signals: SignalDesc[]; frames: TelemFrame[]; rateHz: number }> {
     const { client } = this.require();
-    const available = await client.readSignals();
-    const selected = signalNames === undefined || signalNames.length === 0
-      ? available
-      : signalNames.map((name) => {
-          const signal = available.find((candidate) => candidate.name === name);
-          if (signal === undefined) throw new Error(`unknown signal: ${name}`);
-          return signal;
-        });
-    if (selected.length > 16 || new Set(selected.map((s) => s.id)).size !== selected.length) {
-      throw new Error('telemetry accepts 1 to 16 unique signals');
+    const selected = await this.resolveSignals(signalNames);
+    this.assertTelemetrySelection(selected);
+
+    const previous = this.telemetry;
+    if (previous !== null) {
+      this.log('info', 'gui', 'live telemetry paused for a burst sample');
     }
+    this.detachTelemetry();
 
     const received: TelemFrame[] = [];
     let resolveDone = (): void => undefined;
@@ -357,7 +472,14 @@ export class DeviceCore {
     } finally {
       clearTimeout(timer);
       off();
-      await client.subscribeTelemetry(0, []).catch(() => undefined);
+      if (previous === null) {
+        await client.subscribeTelemetry(0, []).catch(() => undefined);
+      } else {
+        // Rétablir exactement ce qui tournait avant, y compris la cadence retenue.
+        await this.startTelemetry(previous.signalNames, previous.rateHz).catch((e: unknown) => {
+          this.log('warn', 'gui', `could not restore live telemetry: ${describe(e)}`);
+        });
+      }
     }
     if (received.length < frames) {
       throw new TimeoutError(`telemetry sample (${received.length}/${frames})`, 5000);

@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import { BrowserWindow, app, ipcMain, shell } from 'electron';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
+import type { TelemFrame } from '../shared/messages.js';
 import {
   DeviceCore,
   type ConnectTarget,
@@ -31,6 +32,30 @@ function broadcast(channel: string, payload: unknown): void {
 
 core.onChange.on((s) => broadcast('device:state', s));
 core.onLog.on((e) => broadcast('device:log', e));
+
+/**
+ * La télémétrie arrive jusqu'à 500 fois par seconde. Une trame par message IPC ferait
+ * autant de traversées de processus et autant de rendus React, pour un tracé qui n'a
+ * besoin que de suivre l'œil. On regroupe donc à ~30 Hz.
+ *
+ * Le regroupement vit ici et non dans le `DeviceCore` : c'est une contrainte de transport
+ * vers le renderer, pas une propriété du device. La CLI et le serveur MCP, qui sont dans
+ * le même processus, reçoivent les trames une par une.
+ */
+const TELEM_BATCH_MS = 33;
+let telemBatch: TelemFrame[] = [];
+let telemTimer: ReturnType<typeof setTimeout> | null = null;
+
+core.onTelemetry.on((frame) => {
+  telemBatch.push(frame);
+  if (telemTimer !== null) return;
+  telemTimer = setTimeout(() => {
+    telemTimer = null;
+    const batch = telemBatch;
+    telemBatch = [];
+    if (batch.length > 0) broadcast('device:telem', batch);
+  }, TELEM_BATCH_MS);
+});
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -96,6 +121,10 @@ handle('device:console', (line: string) => core.sendConsole(line));
 // de faire ce que l'UI ne peut pas est un trou dans l'UI, pas une fonctionnalite du MCP.
 handle('device:readSignals', () => core.readSignals());
 handle('device:captureScope', (req: ScopeRequest) => core.captureScope(req));
+handle('device:startTelemetry', (signalNames: string[] | undefined, rateHz: number | undefined) =>
+  core.startTelemetry(signalNames, rateHz),
+);
+handle('device:stopTelemetry', () => core.stopTelemetry());
 handle('device:setAiControl', (enabled: boolean) => {
   core.setAiControl(enabled);
 });

@@ -8,6 +8,7 @@
 
 import { describe, expect, it } from 'vitest';
 
+import type { TelemFrame } from '../../../shared/messages.js';
 import { ScopeTrigger } from '../../../shared/protocol.js';
 import { DeviceCore, type LogEntry } from '../DeviceCore.js';
 
@@ -231,5 +232,96 @@ describe('scope', () => {
     await expect(
       core.captureScope({ depth: 16, pretriggerSamples: 16 }),
     ).rejects.toThrow('pretrigger must be below depth');
+  });
+});
+
+describe('télémétrie continue', () => {
+  /** Attend `n` trames sur le flux souscrit, ou échoue au bout de 3 s. */
+  async function collect(core: DeviceCore, n: number): Promise<TelemFrame[]> {
+    const got: TelemFrame[] = [];
+    return new Promise<TelemFrame[]>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        off();
+        reject(new Error(`only ${got.length}/${n} frames`));
+      }, 3000);
+      const off = core.onTelemetry.on((f) => {
+        got.push(f);
+        if (got.length >= n) {
+          clearTimeout(timer);
+          off();
+          resolve(got);
+        }
+      });
+    });
+  }
+
+  it('ouvre un flux qui dure et pousse les trames', async () => {
+    const { core } = await connected();
+    const state = await core.startTelemetry(['loop.load_pct'], 500);
+
+    expect(state.signalNames).toEqual(['loop.load_pct']);
+    expect(state.units).toEqual(['%']);
+    // Le firmware choisit un diviseur entier de la boucle : c'est la cadence retenue qui
+    // est publiée, pas celle demandée.
+    expect(state.rateHz).toBe(500);
+
+    const frames = await collect(core, 5);
+    expect(frames).toHaveLength(5);
+    expect(frames[0]?.values).toHaveLength(1);
+  });
+
+  it("publie l'abonnement dans le snapshot", async () => {
+    // Le device n'accepte qu'un seul abonnement : à quoi l'interface s'est abonnée fait
+    // partie de l'état partagé, pas d'un détail interne.
+    const { core } = await connected();
+    expect(core.snapshot().telemetry).toBeNull();
+
+    await core.startTelemetry(['loop.load_pct', 'loop.duration_ns'], 200);
+    expect(core.snapshot().telemetry?.signalNames).toEqual([
+      'loop.load_pct',
+      'loop.duration_ns',
+    ]);
+
+    await core.stopTelemetry();
+    expect(core.snapshot().telemetry).toBeNull();
+  });
+
+  it('coupe le flux à la déconnexion', async () => {
+    const { core } = await connected();
+    await core.startTelemetry(['loop.load_pct'], 200);
+    await core.disconnect();
+    expect(core.snapshot().telemetry).toBeNull();
+  });
+
+  it('rétablit le flux après un burst pris par un agent', async () => {
+    // C'est le vrai piège : le device n'a qu'un abonnement, et sampleTelemetry le
+    // réécrivait. Un agent qui échantillonnait faisait décrocher les courbes de
+    // l'interface, sans que rien ne le dise.
+    const { core, logs } = await connected();
+    await core.startTelemetry(['loop.load_pct'], 500);
+    const before = core.snapshot().telemetry;
+
+    await core.sampleTelemetry(5, 100, ['current.raw_ia_count']);
+
+    expect(core.snapshot().telemetry).toEqual(before);
+    expect(logs.some((l) => l.text.includes('paused for a burst sample'))).toBe(true);
+
+    // Et le flux rétabli pousse réellement à nouveau.
+    const frames = await collect(core, 3);
+    expect(frames[0]?.values).toHaveLength(1);
+  });
+
+  it('laisse le flux coupé si rien ne tournait avant le burst', async () => {
+    const { core } = await connected();
+    await core.sampleTelemetry(5, 100, ['loop.load_pct']);
+    expect(core.snapshot().telemetry).toBeNull();
+  });
+
+  it('refuse une sélection vide ou trop large', async () => {
+    const { core } = await connected();
+    await expect(core.startTelemetry([], 200)).resolves.toBeDefined(); // vide = tous
+    const names = (await core.readSignals()).map((s) => s.name);
+    await expect(core.startTelemetry([...names, ...names], 200)).rejects.toThrow('1 to 16');
+    await expect(core.startTelemetry(['nope'], 200)).rejects.toThrow('unknown signal');
   });
 });

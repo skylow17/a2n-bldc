@@ -8,12 +8,14 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 import type { ScopeCapture } from '../shared/client.js';
+import type { TelemFrame } from '../shared/messages.js';
 import type { SignalDesc } from '../shared/protocol.js';
 import type {
   ConnectTarget,
   DeviceSnapshot,
   LogEntry,
   ScopeRequest,
+  TelemetryState,
 } from '../main/device/DeviceCore.js';
 import type { SerialPortInfo } from '../node/serial.js';
 
@@ -39,6 +41,9 @@ const api = {
   readSignals: () => call<SignalDesc[]>('device:readSignals'),
   captureScope: (req: ScopeRequest) =>
     call<{ signals: SignalDesc[]; capture: ScopeCapture }>('device:captureScope', req),
+  startTelemetry: (signalNames?: string[], rateHz?: number) =>
+    call<TelemetryState>('device:startTelemetry', signalNames, rateHz),
+  stopTelemetry: () => call<void>('device:stopTelemetry'),
   setAiControl: (enabled: boolean) => call<void>('device:setAiControl', enabled),
 
   onState: (listener: (s: DeviceSnapshot) => void): (() => void) => {
@@ -51,6 +56,13 @@ const api = {
     const h = (_e: unknown, entry: LogEntry): void => listener(entry);
     ipcRenderer.on('device:log', h);
     return () => ipcRenderer.removeListener('device:log', h);
+  },
+
+  /** Trames de télémétrie, **par lots** : le main regroupe à ~30 Hz. */
+  onTelemetry: (listener: (frames: TelemFrame[]) => void): (() => void) => {
+    const h = (_e: unknown, frames: TelemFrame[]): void => listener(frames);
+    ipcRenderer.on('device:telem', h);
+    return () => ipcRenderer.removeListener('device:telem', h);
   },
 };
 
