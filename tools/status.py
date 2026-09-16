@@ -67,22 +67,26 @@ def make_cmd():
     en plus de `toolchain.local.mk` — donc une occasion de plus de les voir diverger.
 
     On repart de la meme source de verite : `IDE` dans `toolchain.local.mk` designe deja le
-    dossier des plugins. On y cherche celui du make. A defaut, `make` tout court, qui marche
-    sur un poste ou il est installe autrement.
+    dossier des plugins, et a defaut la valeur par defaut du `Makefile` — celle que `make`
+    utiliserait lui-meme sur un poste sans fichier local. On y cherche le plugin du make.
+    A defaut, `make` tout court, qui marche sur un poste ou il est installe autrement.
     """
     plain = "make"
     if shutil.which("make"):
         return plain
 
-    local = os.path.join(FW, "toolchain.local.mk")
-    if not os.path.isfile(local):
-        return plain
-    with io.open(local, encoding="utf-8", errors="replace") as fh:
-        m = re.search(r"^\s*IDE\s*:?=\s*(.+?)\s*$", fh.read(), re.M)
-    if m is None:
+    plugins = None
+    for candidate in (os.path.join(FW, "toolchain.local.mk"), os.path.join(FW, "Makefile")):
+        if not os.path.isfile(candidate):
+            continue
+        with io.open(candidate, encoding="utf-8", errors="replace") as fh:
+            m = re.search(r"^\s*IDE\s*\??:?=\s*(.+?)\s*$", fh.read(), re.M)
+        if m is not None:
+            plugins = m.group(1)
+            break
+    if plugins is None:
         return plain
 
-    plugins = m.group(1)
     if not os.path.isdir(plugins):
         return plain
     for name in sorted(os.listdir(plugins)):
