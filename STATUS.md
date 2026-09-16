@@ -238,7 +238,7 @@ Relevées en écrivant M1c, à trancher dans `docs/protocol.md` avant d'y touche
 | `renderer/` — Control, Recipes | Vues présentes mais grisées, avec le jalon qui les débloquera |
 | `renderer/views/Firmware.tsx` | Mise à jour A/B depuis l'interface, gardée par la capacité annoncée |
 | `main/recipes/` — `.a2nrcp` | Pas commencé (attend la persistance NVM, M2) |
-| `main/mcp/` — serveur MCP | Écrit, testé sur simulateur **et sur carte** (`mcp:check --port`, 2026-09-16) |
+| `main/mcp/` — serveur MCP | Écrit, testé sur simulateur **et sur carte** (`mcp:check --port`, 2026-09-16) ; **piloté en live par un agent** le soir même, en HTTP local |
 
 ### Serveur MCP
 
@@ -258,6 +258,16 @@ fait 8 192 flottants, qu'aucun agent ne lit utilement.
 
 `npm run mcp:check` rejoue la surface complète à travers un vrai client MCP — contre le simulateur
 sans option, contre une carte avec `--port`. Passée sur carte le 2026-09-16, dix-sept points verts.
+
+**Le serveur est en HTTP local, dans le processus de la fenêtre.** Le mode `electron . --mcp`
+livré la veille n'a jamais pu fonctionner, pour deux raisons dont chacune suffisait : il tournait
+sans fenêtre, donc sans aucun chemin vers « Enable AI control » — un serveur que personne ne
+pouvait autoriser à écrire ; et sous Windows, Electron ferme le stdin de son processus principal
+avant le premier octet, donc le transport stdio ne recevait rien. `mcp:check` ne voyait ni l'un
+ni l'autre : il instancie le serveur en mémoire. Trouvé en essayant de faire la démo. Depuis, un
+agent s'est connecté sur `http://127.0.0.1:4817/mcp` pendant que l'interface tournait, a écrit un
+paramètre autorisé, s'est vu refuser une lecture seule par la carte et une commande hors liste
+par le PC — tout dans la console commune.
 
 **Écart assumé avec `interface/AGENTS.md` §5** : les familles y sont écrites `device.*`, `param.*` ;
 les outils s'appellent `device_connect`, `param_set`. Les clients MCP courants n'acceptent que
@@ -330,6 +340,7 @@ utile que la liste de ce qui marche.
 | **`STATUS.md` disait « rien n'a été installé sur une carte »** alors qu'un bootloader d'un arbre perdu y tournait — et rejetait toute application du dépôt | Première mise à jour A/B sur carte : rollback inattendu, puis `BOOT_INFO` lu avant d'y toucher |
 | **`BOOT_REBOOT` se réinitialisait avant d'avoir répondu, sur les ticks pairs** — `HAL_GetTick() \| 1U` comme sentinelle, soustraction non signée qui déborde | `boot-check` rouge une fois sur deux ; les octets bruts ont montré le port disparaître à 8 ms au lieu de 50 |
 | `tools/status.py` ne trouvait pas le `make` de CubeIDE sans `toolchain.local.mk`, alors que le `Makefile` a des défauts valables | Sa sortie « build impossible » sur un poste qui venait de compiler |
+| **Le serveur MCP stdio ne pouvait ni être autorisé (pas de fenêtre) ni recevoir un octet (Electron ferme stdin sous Windows)** — deux défauts invisibles à `mcp:check`, qui instancie le serveur en mémoire | Première démo à un humain : le toggle activé dans la fenêtre n'atteignait rien, puis `initialize` restait sans réponse |
 
 Le motif commun des deux premiers et du quatrième : **le code était juste de chaque côté, c'est la
 jonction qui ne l'était pas**. Un test unitaire ne les voyait pas.

@@ -172,14 +172,20 @@ Proposer des boutons qui échoueraient serait pire que de ne rien proposer.
 
 ### Le serveur MCP
 
-Le serveur tourne dans le processus principal Electron et reçoit **le `DeviceCore` de
-l'interface**, pas une instance à lui : l'agent et l'humain partagent la connexion, l'état et le
-journal. Un paramètre écrit par l'agent bouge dans l'UI, et chaque appel d'outil apparaît dans la
-console commune, source `mcp`, avec ses arguments et son résultat.
+Le serveur tourne **dans le processus de la fenêtre** et reçoit le `DeviceCore` de l'interface,
+pas une instance à lui : l'agent et l'humain partagent la connexion, l'état et le journal. Un
+paramètre écrit par l'agent bouge dans l'UI, et chaque appel d'outil apparaît dans la console
+commune, source `mcp`, avec ses arguments et son résultat.
+
+Il écoute en HTTP local dès que l'interface est ouverte — `http://127.0.0.1:4817/mcp`, port
+surchargeable par `A2N_MCP_PORT`. Pas de mode stdio : un serveur stdio vivrait dans un processus
+sans fenêtre, donc sans personne pour activer « Enable AI control » — et sous Windows, Electron
+ferme le stdin de son processus principal avant le premier octet.
 
 ```
 cd interface
-npm run mcp          # sert le protocole MCP sur stdio
+npm run dev          # l'interface, avec le serveur MCP dedans
+claude mcp add --transport http a2n-bldc http://127.0.0.1:4817/mcp   # côté agent, une fois
 npm run mcp:check    # recette de la surface complète, sur simulateur
 npm run mcp:check -- --port COM3    # la même, sur une carte
 ```
