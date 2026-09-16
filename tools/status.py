@@ -38,7 +38,13 @@ def strip_ansi(text):
 
 
 def run(cmd, cwd, timeout=600):
-    """Lance une commande et rend (code, sortie). Un outil absent n'est pas une erreur."""
+    """Lance une commande et rend (code, sortie).
+
+    `code` vaut None quand la commande n'a pas pu etre lancee du tout. Le shell renvoie
+    sinon son propre code, y compris pour un exécutable introuvable : c'est a l'appelant
+    de le regarder. Ne pas le faire est precisement le defaut que ce fichier a porte —
+    `make` absent du PATH etait rapporte comme un firmware en bon etat.
+    """
     try:
         p = subprocess.run(
             cmd, cwd=cwd, shell=True, capture_output=True, text=True,
@@ -49,6 +55,12 @@ def run(cmd, cwd, timeout=600):
         return None, "outil introuvable"
     except subprocess.TimeoutExpired:
         return None, "delai depasse"
+
+
+# Un outil absent du PATH ne se signale pas de la meme facon selon le shell.
+MISSING_TOOL = re.compile(
+    r"command not found|n'est pas reconnu|is not recognized|CommandNotFound", re.I
+)
 
 
 def section(title):
@@ -83,12 +95,83 @@ def typecheck():
         print("    " + l.strip())
 
 
+# Racines des sources qui appartiennent au depot. Le reste des chemins du Makefile
+# pointe vers le paquet HAL/CubeMX, installe par poste et donc hors de notre controle.
+OWNED_PREFIXES = ("Core/", "Boot/", "USB_Device/", "startup/", "ld/")
+SOURCE_REF = re.compile(r"(?<![\w./$(-])((?:[\w.-]+/)+[\w.-]+\.(?:c|s|ld))")
+
+
+def sources():
+    """Verifie que tout fichier du depot cite par le Makefile existe reellement.
+
+    Ce controle ne demande aucune toolchain, et c'est la raison d'etre de son existence :
+    le defaut est arrive deux fois sur ce depot — un fichier reference par le Makefile,
+    jamais commite, donc un clone frais qui ne compile pas. Un poste sans CubeIDE ne peut
+    pas s'en apercevoir en lancant `make`, mais il peut le lire ici.
+    """
+    section("Sources du firmware")
+    makefile = os.path.join(FW, "Makefile")
+    if not os.path.isfile(makefile):
+        print("  Makefile introuvable")
+        return
+    with io.open(makefile, encoding="utf-8", errors="replace") as fh:
+        text = fh.read()
+
+    refs = []
+    for m in SOURCE_REF.finditer(text):
+        rel = m.group(1)
+        if rel.startswith(OWNED_PREFIXES) and rel not in refs:
+            refs.append(rel)
+
+    missing = [r for r in refs if not os.path.isfile(os.path.join(FW, r))]
+    print("  %d fichier(s) cite(s) par le Makefile" % len(refs))
+    if not missing:
+        print("  tous presents")
+        return
+    print("  %d ABSENT(S) — le firmware ne peut pas etre construit :" % len(missing))
+    for r in missing:
+        print("    manquant : " + r)
+
+
+def hosttest():
+    """Tests hors cible du firmware : la logique qui ne demande ni carte ni toolchain ARM."""
+    section("Tests hors cible du firmware")
+    runner = os.path.join(FW, "tools", "hosttest", "run.py")
+    if not os.path.isfile(runner):
+        print("  harnais absent")
+        return
+    code, out = run('"%s" "%s"' % (sys.executable, runner), ROOT)
+    lines = [l.strip() for l in out.splitlines() if "verifications passees" in l]
+    if lines:
+        print("  " + lines[0])
+    elif "Aucun compilateur" in out:
+        print("  aucun compilateur hote (gcc, clang ou cl) — suites non executees")
+    else:
+        print("  resultat illisible (code %s)" % code)
+    for l in out.splitlines():
+        if l.strip().startswith(("ECHEC", "avertissement", "compilation en echec")):
+            print("    " + l.strip())
+
+
 def firmware():
     section("Firmware")
     code, out = run("make", FW)
-    if code is None or "toolchain absente" in out:
+    if code is None or MISSING_TOOL.search(out):
+        print("  build impossible : `make` introuvable")
+        print("  (il est fourni par STM32CubeIDE ; voir README.md)")
+        return
+    if "toolchain absente" in out:
         print("  build impossible : toolchain introuvable")
         print("  (copier toolchain.local.mk.example en toolchain.local.mk)")
+        return
+    if code != 0:
+        # Un build casse doit se voir ici. La version precedente de cette fonction
+        # retombait sur « build a jour, tailles illisibles » et annoncait
+        # 0 avertissement, ce qui faisait passer un firmware qui ne compilait pas
+        # pour un firmware sain.
+        print("  BUILD EN ECHEC (code %s)" % code)
+        for l in [l for l in out.splitlines() if "error" in l.lower()][:5]:
+            print("    " + l.strip())
         return
 
     ram = re.search(r"RAM:\s+(\d+) B\s+(\S+)\s+([\d.]+)%", out)
@@ -122,7 +205,9 @@ def firmware():
             print("  flash %d o sur 262144  (%.2f %%)" % (flash_b, 100.0 * flash_b / 262144))
             print("  ram   %d o sur 131072  (%.2f %%)" % (ram_b, 100.0 * ram_b / 131072))
         else:
-            print("  build a jour, tailles illisibles")
+            # Le build a reussi (code 0 verifie plus haut) mais rien n'a ete relie :
+            # `make` n'avait rien a refaire et l'ELF n'est pas lisible d'ici.
+            print("  build a jour ; tailles indisponibles (`make clean && make` pour les relever)")
 
     warnings = [l for l in out.splitlines() if "warning:" in l]
     print("  %d avertissement(s) de compilation" % len(warnings))
@@ -170,7 +255,8 @@ def main():
 
     only = sys.argv[1] if len(sys.argv) > 1 else None
     steps = {
-        "tests": tests, "types": typecheck, "fw": firmware,
+        "tests": tests, "types": typecheck, "sources": sources,
+        "hosttest": hosttest, "fw": firmware,
         "sim": simulator, "board": board, "git": history,
     }
     if only in steps:
