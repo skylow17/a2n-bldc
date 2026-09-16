@@ -27,7 +27,7 @@ Dernière revue : 2026-09-16.
 | **M1b** | Codec binaire COBS + CRC16, dictionnaire de paramètres | Validé sur une carte, **et reproductible depuis le 2026-09-16** | Rejouer la recette sur carte |
 | **M1c** | Télémétrie souscrite + buffer scope | Réécrit et **compilé** le 2026-09-16, testé hors cible ; jamais exécuté sur carte | Rejouer `telem` et `scope` sur carte |
 | **M1d** | CLI de bring-up | Validé sur simulateur | Export de capture (le tracé existe dans l'interface) ; `telem` et `scope` dépendent de M1c côté carte |
-| **Boot** | Bootloader A/B, probation et rollback | Écrit et **compilé** le 2026-09-16 (24 608 o sur 32 768), logique testée hors cible | Installer par SWD ; recette nominale puis test négatif |
+| **Boot** | Bootloader A/B, probation et rollback | Écrit et **compilé** le 2026-09-16 (24 608 o sur 32 768) ; logique testée hors cible, chemin d'''écriture éprouvé sur simulateur | Installer par SWD ; recette nominale puis test négatif |
 | **M2** | Étage de puissance et capteurs (étapes 2 à 9) | Pas commencé | — |
 | **M3** | Asservissements (étapes 10 à 13) | Pas commencé | — |
 
@@ -120,6 +120,26 @@ grandir — il précède le slot A, dont l'adresse est figée dans trois linkers
 tools/status.py boot` affiche ce pourcentage à chaque passage, pour qu'on voie venir le mur
 plutôt que de le toucher.
 
+**Le chemin d'écriture, lui, tourne maintenant.** Il n'avait jamais été exécuté nulle part :
+pas sur carte faute de bootloader, et pas sur simulateur non plus, parce que celui-ci
+implémentait les six messages de la §8 sans jamais lever `PROTO_CAP.BOOTLOADER` —
+`firmware-update` refusait donc de démarrer. Le simulateur modélise désormais la séquence A/B
+complète, y compris la distinction entre **rebrancher un câble** et **redémarrer** : les
+confondre fait disparaître la probation, donc le rollback, donc la raison d'avoir deux slots.
+
+```bash
+npm run cli -- firmware-update --sim ../controller-2/build/slot-b/a2n-bldc-slot-b.bin 2.1.0
+npm run cli -- firmware-update --sim --sim-trial-fail ../controller-2/build/slot-b/a2n-bldc-slot-b.bin 2.1.0
+```
+
+Le premier promeut le candidat et rend 0 ; le second laisse le slot A actif et rend 1. C'est
+`Boot/Test/trial_fail.s` sans carte — et le seul moyen d'éprouver un rollback, qui repose sur
+l'**absence** d'une confirmation et ne peut donc pas se provoquer en injectant une panne.
+
+Ce que ça ne prouve toujours pas : que le firmware réel se comporte comme le simulateur. Les
+deux suivent la même spécification et les mêmes codes d'erreur, désormais figés au §8 — c'est
+une présomption sérieuse, pas une preuve.
+
 **Ordre de recette, quand la toolchain sera là** : compiler les trois images ; vérifier la taille
 du bootloader ; installer par SWD sur une carte dont on accepte de perdre le contenu ; `BOOT_INFO`
 doit répondre ; mettre à jour le slot inactif avec un firmware sain et confirmer la promotion ;
@@ -167,7 +187,8 @@ Relevées en écrivant M1c, à trancher dans `docs/protocol.md` avant d'y touche
 | `main/` — DeviceCore, IPC | Écrit, testé |
 | `renderer/` — Dashboard, Tuning, Console | Écrit ; le Dashboard trace la télémétrie souscrite |
 | `renderer/` — Scope | Écrit : configuration, déclenchement, pré-trigger, tracé. Validé sur simulateur |
-| `renderer/` — Control, Recipes, Firmware | Vues présentes mais grisées, avec le jalon qui les débloquera |
+| `renderer/` — Control, Recipes | Vues présentes mais grisées, avec le jalon qui les débloquera |
+| `renderer/views/Firmware.tsx` | Mise à jour A/B depuis l'interface, gardée par la capacité annoncée |
 | `main/recipes/` — `.a2nrcp` | Pas commencé (attend la persistance NVM, M2) |
 | `main/mcp/` — serveur MCP | Écrit, testé sur simulateur ; **validation sur liaison série réelle à faire** |
 
@@ -201,8 +222,19 @@ annonce au handshake**. Le firmware ne lève un bit que pour ce qui est réellem
 l'interface dit donc la vérité sur le firmware branché, et pas sur celui qu'on croyait avoir
 compilé. La vue Scope se débloque d'elle-même dès que la carte annonce `SCOPE`.
 
-Control, Recipes et Firmware restent gardées par un jalon : les capacités correspondantes
-n'existent dans aucun firmware, il n'y a rien à interroger.
+La vue **Firmware** a rejoint Scope le 2026-09-16 : elle est gardée par `BOOTLOADER` et non
+plus par un jalon écrit en dur. Elle choisit un `.bin`, demande une version, exige une
+confirmation qui cite le fichier, et suit les six phases de la mise à jour — `entering`,
+`erasing`, `writing`, `verifying`, `rebooting`, `confirming`. Nommer ces phases n'est pas
+cosmétique : une mise à jour A/B traverse trois re-énumérations USB, et sans les annoncer une
+déconnexion parfaitement normale se lit comme une panne — on débranche alors au pire moment.
+
+**Écrire un firmware est refusé aux agents**, et pas au titre de l'interrupteur de pilotage :
+refusé quoi qu'il arrive, comme le mouvement. Un mauvais paramètre asservit mal un moteur ;
+une mauvaise image demande une sonde et un tournevis.
+
+Control et Recipes restent gardées par un jalon : les capacités correspondantes n'existent
+dans aucun firmware, il n'y a rien à interroger.
 
 ### Écarts connus avec la spécification
 
