@@ -70,6 +70,17 @@ moment plutôt que de se fier à un chiffre recopié :
 python tools/status.py fw
 ```
 
+Une partie de la logique du firmware ne touche pas au matériel — dictionnaire de signaux,
+validation d'une configuration de scope, anneau de capture, décimation, déclenchement. Elle se
+vérifie sur le PC, sans carte et sans toolchain ARM, avec n'importe quel compilateur C de l'hôte :
+
+```
+python controller-2/tools/hosttest/run.py
+```
+
+Ces tests ne remplacent pas une recette sur carte, et ne prouvent rien de l'ADC, de TIM1, de l'USB
+ni des temps d'exécution. Ils servent à avancer quand le matériel n'est pas là.
+
 Le build par défaut reste l'image de bring-up liée à `0x08000000`. `make boot-images` produit
 séparément le bootloader à `0x08000000`, l'application A à `0x08008000` et l'application B à
 `0x08040000`. L'installation initiale reste une opération SWD explicite et destructive ; les mises
@@ -161,18 +172,16 @@ Proposer des boutons qui échoueraient serait pire que de ne rien proposer.
 
 ### Le serveur MCP
 
-Le serveur MCP tourne dans le processus principal Electron et reçoit le même `DeviceCore` que
-l'interface :
+**Pas encore écrit.** `src/main/index.ts` importe déjà `./mcp/server.js`, qui n'existe pas : tant
+que ce fichier manque, `npm run typecheck`, `npm run build`, `npm run dev` et `npm run mcp`
+échouent. Seuls `npm test` et la CLI fonctionnent. Voir `STATUS.md`.
 
-```
-cd interface
-npm run mcp
-```
-
-Il expose la connexion, l'identité, les paramètres, la télémétrie, le scope et une console de
-diagnostic strictement allow-listée. Une écriture de paramètre d'origine MCP reste refusée tant
-que l'humain n'a pas activé « Enable AI control » ; aucun outil MCP ne peut activer ce toggle.
-`ARM`, les consignes et le mouvement ne sont pas encore exposés.
+Ce qui est décidé et n'aura pas à être rediscuté : le serveur tournera dans le processus principal
+Electron et recevra le même `DeviceCore` que l'interface, pour que l'agent et l'humain voient le
+même état et le même journal. Il exposera la connexion, l'identité, les paramètres, la télémétrie,
+le scope et une console de diagnostic strictement allow-listée. Une écriture de paramètre d'origine
+MCP restera refusée tant que l'humain n'aura pas activé « Enable AI control » — barrière déjà
+présente dans le `DeviceCore` — et aucun outil MCP ne pourra activer ce toggle.
 
 ### Régénérer les vecteurs de protocole
 

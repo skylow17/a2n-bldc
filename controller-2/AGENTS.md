@@ -261,6 +261,13 @@ génération.
   principale, `make flash` programme le firmware autonome par SWD, `make flash-check` programme
   puis lance la recette matérielle, et `make compdb` régénère `compile_commands.json` pour clangd.
 - Ne jamais committer `build/`.
+- **Un fichier cité par le `Makefile` se commite dans la même passe que le `Makefile`.** Le défaut
+  est arrivé deux fois, la seconde sur douze fichiers d'un coup : le dépôt ne compilait plus nulle
+  part alors que l'arbre de travail de l'auteur, lui, compilait. `python ../tools/status.py sources`
+  vérifie ce point sans toolchain — à lancer avant de committer une modification du `Makefile`.
+- La logique qui ne touche pas au matériel se teste hors cible :
+  `python tools/hosttest/run.py`, avec n'importe quel compilateur C de l'hôte. Ajouter une suite
+  quand un module devient testable sans carte. Cela ne remplace aucune recette matérielle.
 - Toute nouvelle commande, trame ou paramètre du protocole arrive **avec** son entrée dans
   `../docs/protocol.md`, dans la même passe.
 - Toute grandeur qu'on aimerait voir dans un plot doit être **déclarée comme signal de télémétrie**

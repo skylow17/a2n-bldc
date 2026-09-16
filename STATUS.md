@@ -8,7 +8,13 @@ Ce fichier ne contient **aucun chiffre volatil** (nombre de tests, occupation fl
 Ces valeurs se mesurent, elles ne se recopient pas : `python tools/status.py` les relève sur le
 dépôt réel. Une valeur écrite à la main est fausse le lendemain.
 
-Dernière revue : 2026-09-15.
+Dernière revue : 2026-09-16.
+
+> **Cette revue a repris des états faux.** La passe du 2026-09-15 a marqué « validé sur carte » des
+> jalons dont le code n'a jamais été commité. Le détail est plus bas, section
+> [« Ce que la revue du 2026-09-16 a trouvé »](#ce-que-la-revue-du-2026-09-16-a-trouvé). La règle
+> qui en sort : un état ne se note ici qu'après avoir été **mesuré sur le dépôt**, pas sur un arbre
+> de travail local.
 
 ---
 
@@ -16,25 +22,78 @@ Dernière revue : 2026-09-15.
 
 | Jalon | Étape | État | Ce qui reste |
 |---|---|---|---|
-| **M0** | Squelette temps réel : PWM centré 20 kHz, TIM1 TRGO → ADC injecté, ISR | **Validé sur carte** | — |
-| **M1a** | Liaison USB CDC non bloquante, console texte | **Validé sur carte** | — |
-| **M1b** | Codec binaire COBS + CRC16, dictionnaire de paramètres | **Validé sur carte** | — |
-| **M1c** | Télémétrie souscrite + buffer scope | **Validé sur carte** | — |
-| **M1d** | CLI de bring-up | Validé sur simulateur et sur carte | Export/plot de capture à ajouter |
+| **M0** | Squelette temps réel : PWM centré 20 kHz, TIM1 TRGO → ADC injecté, ISR | Validé sur une carte, **non reproductible depuis le dépôt** | Reconstruire, puis rejouer la recette |
+| **M1a** | Liaison USB CDC non bloquante, console texte | Validé sur une carte, **non reproductible depuis le dépôt** | Reconstruire, puis rejouer la recette |
+| **M1b** | Codec binaire COBS + CRC16, dictionnaire de paramètres | Validé sur une carte, **non reproductible depuis le dépôt** | Reconstruire, puis rejouer la recette |
+| **M1c** | Télémétrie souscrite + buffer scope | Code réécrit le 2026-09-16, **jamais compilé pour la cible** | Compiler avec la toolchain ARM ; rejouer `telem` et `scope` sur carte |
+| **M1d** | CLI de bring-up | Validé sur simulateur | Export/plot de capture ; `telem` et `scope` dépendent de M1c côté carte |
 | **M2** | Étage de puissance et capteurs (étapes 2 à 9) | Pas commencé | — |
 | **M3** | Asservissements (étapes 10 à 13) | Pas commencé | — |
 
-**Aucun moteur n'a encore tourné.** La liaison USB, la console, le codec, le dictionnaire, le
-streaming à 500 Hz et une capture scope complète de 2 048 points ont passé leur recette sur la
-vraie carte. Les sorties restent en haute impédance ; le reste de la chaîne moteur n'est pas validé.
+**Aucun moteur n'a encore tourné**, et les sorties restent en haute impédance.
+
+La nuance sur M0 à M1b compte : la liaison USB, la console, le codec et le dictionnaire **ont**
+répondu sur la vraie carte. Mais l'image qui tournait ce jour-là a été construite depuis un arbre
+de travail qui contenait des fichiers absents du dépôt. Un clone frais ne produit pas ce binaire —
+il ne produit aucun binaire. Ces jalons ne sont donc pas à refaire depuis zéro ; ils sont à
+**reconstruire et à rejouer**, ce qui est court, mais ce n'est pas rien.
+
+### Ce que cette revue a trouvé
+
+La passe du 2026-09-15 (`1e93ec7 started bootloader and mcp implementation`) a commité un
+`Makefile`, des `#include` et du code d'aiguillage dans `proto.c` qui référencent **douze fichiers
+qui n'ont jamais existé dans le dépôt** — `git log --all` sur chacun ne rend rien, et ils ne sont
+nulle part sur le poste. Conséquences vérifiées :
+
+- `make` ne peut aboutir sur aucun poste, même correctement outillé ;
+- `npm run typecheck` échoue sur un import manquant, donc `npm run build` et `npm run mcp` aussi ;
+- `tools/status.py` annonçait pourtant « build à jour, 0 avertissement » : sa fonction `firmware()`
+  ne distinguait pas un `make` absent du `PATH` d'un build réussi.
+
+Le même défaut avait déjà été relevé une fois, sur un seul fichier
+(`ld/stm32g473ce_standalone.ld`). Il est revenu en douze exemplaires parce que rien ne le
+surveillait. C'est maintenant le cas : `python tools/status.py sources` lit le `Makefile` et
+vérifie que chaque fichier du dépôt qu'il cite existe — sans toolchain, donc exécutable partout.
+
+### Ce qui manque encore au dépôt
+
+Restauré le 2026-09-16 : `Core/Src/comm/signals.c`, `Core/Inc/comm/signals.h`,
+`Core/Src/comm/scope.c`, `Core/Inc/comm/scope.h`.
+
+Toujours absent, et cité par le `Makefile` :
+
+| Fichier | Rôle |
+|---|---|
+| `Core/Src/boot_shared.c` + `.h` | Handshake SRAM avec le bootloader, confirmation de probation. Appelé par `main.c` et `proto.c` |
+| `Boot/Src/boot_main.c`, `boot_it.c`, `boot_flash.c`, `boot_proto.c`, `boot_rx.c` | Le bootloader lui-même |
+| `Boot/Test/trial_fail.s` | Image inerte du test négatif de rollback |
+| `ld/stm32g473ce_boot.ld`, `stm32g473ce_slotB.ld`, `stm32g473ce_trial_fail_A.ld` | Linkers bootloader, slot B, test négatif |
+
+**`boot_shared.c` est le seul qui bloque encore `make` tout court** : les autres ne servent qu'aux
+cibles `make boot-images` et `make install-bootloader`.
 
 ### Bootloader A/B
 
-Le bootloader USB, les linkers A/B, les métadonnées alternées avec CRC et la probation IWDG sont
-construits. Les trois images compilent et le client d'upload passe sur simulateur. **L'installation
-initiale sur la carte n'a pas encore été autorisée ni exécutée** : elle efface la flash applicative
-avant d'écrire le bootloader et le slot A. La validation matérielle entrée → info → retour app, puis
-upload B → probation → confirmation/rollback reste à faire.
+Ce qui existe : la spécification (`docs/protocol.md` §8), `MSG_BOOT_ENTER` côté firmware dans
+`proto.c`, le linker du slot A, les cibles `make boot-images` / `make install-bootloader`, le codec
+et le client d'upload côté PC, et `npm run cli -- boot-check` qui passe sur simulateur.
+
+Ce qui n'existe pas : **le bootloader**. Ni son code, ni ses linkers, ni les métadonnées A/B, ni la
+probation IWDG. Rien n'a été installé sur une carte, et l'installation initiale — qui efface la
+flash applicative — n'a jamais été ni autorisée ni exécutée.
+
+### Questions de protocole ouvertes
+
+Relevées en écrivant M1c, à trancher dans `docs/protocol.md` avant d'y toucher des deux côtés :
+
+- **Pas de désarmement du scope.** `SCOPE_CONFIG` répond `ERR_BUSY` pendant une capture (§6), et
+  aucun message ne permet d'annuler un armement. Un scope armé sur un front qui n'arrive jamais
+  n'est donc plus reconfigurable jusqu'au reset. Le firmware implémente la spécification telle
+  qu'elle est écrite ; le test hors cible fige ce comportement pour qu'un changement se voie.
+- **`SCOPE_ARM` pendant une capture n'est pas spécifié.** Le device simulé accepte le réarmement,
+  `proto.c` prévoit un `ERR_BUSY`. Le firmware suit le simulateur — réarmer relance la capture —
+  parce qu'un écart de comportement entre carte et simulateur est exactement ce qui a déjà coûté
+  deux défauts à ce projet. À écrire dans la spécification dans un sens ou dans l'autre.
 
 ### Bloquants identifiés, à ne pas perdre de vue
 
@@ -58,13 +117,22 @@ upload B → probation → confirmation/rollback reste à faire.
 | Partie | État |
 |---|---|
 | `shared/` — codec, client, device simulé | Écrit, testé |
-| `node/` — transport série | Écrit, ouvert et validé sur une vraie carte |
-| `cli/` — bring-up | Écrit, validé sur simulateur et sur une vraie carte |
+| `node/` — transport série | Écrit, ouvert sur une vraie carte |
+| `cli/` — bring-up | Écrit, validé sur simulateur |
 | `main/` — DeviceCore, IPC | Écrit, testé |
 | `renderer/` — Dashboard, Tuning, Console | Écrit |
 | `renderer/` — Control, Scope, Recipes, Firmware | Vues présentes mais grisées, avec le jalon qui les débloquera |
 | `main/recipes/` — `.a2nrcp` | Pas commencé (attend la persistance NVM, M2) |
-| `main/mcp/` — serveur MCP | Construit et testé sur simulateur ; validation série réelle à faire. Lecture, télémétrie, scope, console sûre et écriture gated partagent le `DeviceCore` ; aucun outil ne peut activer « AI control » |
+| `main/mcp/` — serveur MCP | **Pas commencé.** `src/main/index.ts` l'importe déjà : le typecheck et le build sont cassés tant qu'il manque |
+
+Le serveur MCP est le point le plus coûteux de l'état actuel, parce qu'il ne casse pas seulement
+lui-même : `npm run typecheck`, `npm run build`, `npm run dev` et `npm run mcp` échouent tous sur
+le même import absent. `npm test` passe, parce que vitest ne charge pas le processus principal.
+Les dépendances (`@modelcontextprotocol/sdk`, `zod`) et les scripts npm (`mcp`, `mcp:check`) sont
+en place ; `src/cli/mcp-check.ts` manque également.
+
+La barrière que ce serveur exige — refus d'une écriture d'origine agent tant que « Enable AI
+control » est off — existe déjà dans le `DeviceCore` et n'est pas à réécrire.
 
 ### Écarts connus avec la spécification
 
@@ -73,7 +141,7 @@ Relevés lors d'une revue, assumés pour l'instant, à traiter :
 | Écart | Spécification | Décision |
 |---|---|---|
 | Pas de bascule thème clair | « thème sombre par défaut **avec bascule clair** » | À faire ; les variables CSS sont déjà en place |
-| `zod` partiel | « valider toute donnée entrante » | Les entrées MCP sont validées ; les futurs fichiers `.a2nrcp` devront l'être aussi |
+| `zod` non utilisé | « valider toute donnée entrante » | Le codec valide déjà structurellement. `zod` prendra son sens pour les entrées MCP et les fichiers `.a2nrcp` — à faire avec eux |
 | Polices non embarquées | la maquette utilise Barlow + IBM Plex Mono | Repli sur les polices système ; l'app ne ressemble pas tout à fait à la maquette validée |
 
 ---
@@ -91,19 +159,32 @@ utile que la liste de ce qui marche.
 | Bouton STOP envoyant une commande absente du firmware : réponse `ERR CMD`, donc aucun effet tout en paraissant agir | Revue des écarts avec la spécification |
 | Interface écrite en français alors que la spec impose l'anglais pour les libellés | Relevé par l'utilisateur |
 | `PB8/BOOT0` échantillonné haut : démarrage dans la ROM système et disparition du COM | Lecture du PC par SWD (`0x1FFF41C4`), puis retour immédiat après reset avec BOOT0 bas |
+| **Douze fichiers référencés par le `Makefile` et par `proto.c`, jamais commités** — le firmware ne compile sur aucun poste, et `STATUS.md` annonçait ces jalons validés | Reprise d'une session interrompue : lecture du `Makefile` contre le contenu réel du dépôt |
+| **`tools/status.py` rapportait « build à jour » quand `make` était absent du `PATH`** — l'outil censé mesurer la réalité validait le silence | Même reprise : son verdict contredisait le dépôt |
 
 Le motif commun des deux premiers et du quatrième : **le code était juste de chaque côté, c'est la
-jonction qui ne l'était pas**. Un test unitaire ne les voyait pas. D'où la règle ci-dessous.
+jonction qui ne l'était pas**. Un test unitaire ne les voyait pas.
+
+Les deux derniers ajoutent un second motif, plus bête et plus coûteux : **ce qui n'est pas mesuré
+dérive, y compris l'état d'avancement lui-même**. Un fichier qui n'existe que dans un arbre de
+travail local n'existe pas. Un outil de constat qui ne distingue pas l'absence du succès ne
+constate rien. D'où les deux règles ci-dessous.
 
 ---
 
 ## Règle de vérification avant d'annoncer un jalon
 
-1. `cd interface && npm test` — l'ensemble passe
-2. `npm run typecheck`
-3. `cd controller-2 && make` — build propre, sans avertissement
-4. `cd interface && npm run cli -- check --sim` — vert de bout en bout
-5. sur carte : `npm run cli -- check` — **le seul qui valide vraiment**
+1. `python tools/status.py sources` — aucun fichier cité par le `Makefile` ne manque
+2. `cd interface && npm test` — l'ensemble passe
+3. `npm run typecheck`
+4. `python controller-2/tools/hosttest/run.py` — logique firmware testable hors cible
+5. `cd controller-2 && make` — build propre, sans avertissement
+6. `cd interface && npm run cli -- check --sim` — vert de bout en bout
+7. sur carte : `npm run cli -- check` — **le seul qui valide vraiment**
 
-Les quatre premiers ne prouvent que la cohérence interne. Un jalon n'est « passé » que quand le
-cinquième l'est, et ce fichier doit le dire ainsi.
+Les six premiers ne prouvent que la cohérence interne. Un jalon n'est « passé » que quand le
+septième l'est, et ce fichier doit le dire ainsi.
+
+**Et la règle que cette revue ajoute :** l'état noté ici doit être vrai **pour un clone frais du
+dépôt**, pas pour l'arbre de travail de celui qui écrit. `git status` propre ne suffit pas — un
+fichier jamais ajouté n'y apparaît pas.
