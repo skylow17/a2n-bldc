@@ -8,7 +8,7 @@ Ce fichier ne contient **aucun chiffre volatil** (nombre de tests, occupation fl
 Ces valeurs se mesurent, elles ne se recopient pas : `python tools/status.py` les relève sur le
 dépôt réel. Une valeur écrite à la main est fausse le lendemain.
 
-Dernière revue : 2026-09-16.
+Dernière revue : 2026-09-16, seconde passe — **sur carte**.
 
 > **Cette revue a repris des états faux.** La passe du 2026-09-15 a marqué « validé sur carte » des
 > jalons dont le code n'a jamais été commité. Le détail est plus bas, section
@@ -22,22 +22,58 @@ Dernière revue : 2026-09-16.
 
 | Jalon | Étape | État | Ce qui reste |
 |---|---|---|---|
-| **M0** | Squelette temps réel : PWM centré 20 kHz, TIM1 TRGO → ADC injecté, ISR | Validé sur une carte, **et reproductible depuis le 2026-09-16** | Rejouer la recette sur carte |
-| **M1a** | Liaison USB CDC non bloquante, console texte | Validé sur une carte, **et reproductible depuis le 2026-09-16** | Rejouer la recette sur carte |
-| **M1b** | Codec binaire COBS + CRC16, dictionnaire de paramètres | Validé sur une carte, **et reproductible depuis le 2026-09-16** | Rejouer la recette sur carte |
-| **M1c** | Télémétrie souscrite + buffer scope | Réécrit et **compilé** le 2026-09-16, testé hors cible ; jamais exécuté sur carte | Rejouer `telem` et `scope` sur carte |
-| **M1d** | CLI de bring-up | Validé sur simulateur | Export de capture (le tracé existe dans l'interface) ; `telem` et `scope` dépendent de M1c côté carte |
-| **Boot** | Bootloader A/B, probation et rollback | Écrit et **compilé** le 2026-09-16 (24 608 o sur 32 768) ; logique testée hors cible, chemin d'''écriture éprouvé sur simulateur | Installer par SWD ; recette nominale puis test négatif |
+| **M0** | Squelette temps réel : PWM centré 20 kHz, TIM1 TRGO → ADC injecté, ISR | **Rejoué sur carte le 2026-09-16, depuis un clone frais** | — |
+| **M1a** | Liaison USB CDC non bloquante, console texte | **Rejoué sur carte le 2026-09-16, depuis un clone frais** | — |
+| **M1b** | Codec binaire COBS + CRC16, dictionnaire de paramètres | **Rejoué sur carte le 2026-09-16, depuis un clone frais** (`check` vert) | — |
+| **M1c** | Télémétrie souscrite + buffer scope | **Validé sur carte le 2026-09-16** : `telem` sans trou, `scope` 2048 points sur 4 signaux à la cadence de boucle | Coût de l'échantillonnage scope dans l'ISR, voir la piste plus bas |
+| **M1d** | CLI de bring-up | Validé sur simulateur **et sur carte** — toutes les commandes, `firmware-update` compris | — |
+| **Boot** | Bootloader A/B, probation et rollback | **Validé sur carte le 2026-09-16** : installation SWD, `BOOT_INFO`, mise à jour nominale promue, rollback sur image qui ne confirme jamais | Rien ; un défaut trouvé sur carte, corrigé, rejoué |
 | **M2** | Étage de puissance et capteurs (étapes 2 à 9) | Pas commencé | — |
 | **M3** | Asservissements (étapes 10 à 13) | Pas commencé | — |
 
 **Aucun moteur n'a encore tourné**, et les sorties restent en haute impédance.
 
-La nuance sur M0 à M1b compte : la liaison USB, la console, le codec et le dictionnaire **ont**
-répondu sur la vraie carte. Mais l'image qui tournait ce jour-là a été construite depuis un arbre
-de travail qui contenait des fichiers absents du dépôt. Un clone frais ne produit pas ce binaire —
-il ne produit aucun binaire. Ces jalons ne sont donc pas à refaire depuis zéro ; ils sont à
-**reconstruire et à rejouer**, ce qui est court, mais ce n'est pas rien.
+La seconde passe du 2026-09-16 a rejoué sur la carte tout ce que la première n'avait fait que
+compiler : les huit étapes de la [règle de vérification](#règle-de-vérification-avant-dannoncer-un-jalon),
+la dernière comprise. La carte porte désormais le bootloader du dépôt et, dans ses deux slots,
+l'application construite depuis un clone frais. C'est la première fois que **tout** ce qui tourne
+sur la carte est reconstructible depuis le dépôt.
+
+### Ce que la passe sur carte a trouvé
+
+**Un bootloader était déjà installé, et ce fichier disait le contraire.** La carte portait un
+bootloader `0.1.0` et deux slots valides, construits depuis l'arbre perdu du 2026-09-15 — donc
+depuis des sources que personne n'a plus. La ligne « rien n'a été installé sur une carte » était
+fausse ; elle a été écrite depuis le dépôt, pas depuis la carte. La règle de la première passe
+(« un état ne se note qu'après avoir été mesuré ») vaut dans les deux sens : mesurer le dépôt
+ne dit pas ce que la carte contient.
+
+Ce bootloader orphelin a coûté une mise à jour : l'application du dépôt, écrite en slot B, a
+été démarrée en probation puis **rejetée** — elle ne partageait pas la poignée de main SRAM de
+ce bootloader-là, ne se savait pas candidate, n'a donc jamais confirmé, et l'IWDG a fait son
+travail. Le rollback fonctionnait ; il n'était juste pas le bienvenu. La flash complète a été
+relue par SWD avant de l'effacer (`build/flash-full-before-boot-install-2026-09-16.bin`, hors
+dépôt), puis `make install-bootloader` a mis la carte au niveau du dépôt.
+
+**`BOOT_REBOOT` redémarrait avant d'avoir répondu, une fois sur deux.** Trouvé parce que
+`boot-check` échouait par intermittence sur `port fermé`. Le bootloader stockait l'instant de
+la demande forcé impair — `HAL_GetTick() | 1U` — pour le distinguer de « rien en cours ». Sur un
+tick pair, cet instant tombe 1 ms *dans le futur* ; la soustraction non signée qui mesure le
+délai écoulé déborde, le délai de vidage est considéré comme passé, et la carte se réinitialise
+avant que l'USB ait sorti la réponse. Un tick impair, et tout va bien : exactement 50 %. Les
+octets bruts l'ont montré — le port disparaissait 8 ms après la requête, pas 50. Corrigé avec
+l'idiome déjà en place côté application (échéance dans le futur, comparaison signée, drapeau
+explicite) ; douze `boot-check` consécutifs verts depuis, contre six sur dix avant.
+
+Les 117 vérifications hors cible ne pouvaient pas le voir : elles couvrent `boot_flash.c`,
+et ce défaut vivait dans `boot_proto.c`, dans la seule ligne qui touche à l'horloge.
+
+**Le premier démarrage après `make install-bootloader` reste en mode mise à jour.** Un seul cas,
+non reproduit ensuite : un reset par la sonde ou par `BOOT_REBOOT` démarre l'application
+normalement. L'explication la plus simple est un reste de poignée de main en SRAM laissé par
+l'ancienne image — la SRAM survit à un effacement de flash. À garder en tête pour la prochaine
+installation initiale : si `HELLO` répond `ERR_ID`, c'est le bootloader qui parle, et un reset
+suffit.
 
 ### Ce que cette revue a trouvé
 
@@ -109,10 +145,10 @@ séquence candidat / probation / rollback, réponse `BOOT_INFO`. 117 vérificati
 `python controller-2/tools/hosttest/run.py`. C'est là que vivent les décisions qui peuvent
 briquer une carte, et c'est pour cela qu'elles sont écrites séparées du matériel.
 
-Ce qui n'est **pas** vérifié : l'effacement et la programmation réels, l'armement IWDG, le saut
-vers un slot, l'énumération USB du bootloader. Rien n'a été installé sur une carte, et
-l'installation initiale — qui efface la flash applicative — n'a jamais été ni autorisée ni
-exécutée.
+Ce qui est vérifié **sur carte** depuis la seconde passe : l'installation initiale par SWD,
+l'énumération USB du bootloader, l'effacement et la programmation d'un slot, la vérification
+CRC, le saut vers un slot, la probation confirmée et promue, et le rollback par IWDG sur une
+image qui ne confirme jamais — dans cet ordre, le nominal avant le négatif.
 
 La taille, elle, n'est plus une inconnue : 24 608 o sur 32 768, soit **75 %**. Ça passe, avec
 8 ko de marge, mais c'est le seul binaire du dépôt qui soit à l'étroit et son slot ne peut pas
@@ -140,12 +176,24 @@ Ce que ça ne prouve toujours pas : que le firmware réel se comporte comme le s
 deux suivent la même spécification et les mêmes codes d'erreur, désormais figés au §8 — c'est
 une présomption sérieuse, pas une preuve.
 
-**Ordre de recette, quand la toolchain sera là** : compiler les trois images ; vérifier la taille
-du bootloader ; installer par SWD sur une carte dont on accepte de perdre le contenu ; `BOOT_INFO`
-doit répondre ; mettre à jour le slot inactif avec un firmware sain et confirmer la promotion ;
-**puis seulement** rejouer la même séquence avec `make boot-trial-fail-a`, qui ne confirme jamais,
-pour prouver le rollback. Le test négatif en dernier : il n'a de valeur que si le chemin nominal a
-déjà marché.
+**Recette, telle qu'elle a été passée le 2026-09-16** : compiler les trois images ; vérifier la
+taille du bootloader ; relire la flash par SWD ; `make install-bootloader` ; `BOOT_INFO` répond
+(métadonnées vierges, slot A implicite) ; `firmware-update` du slot inactif avec un firmware
+sain → promotion ; **puis seulement** `firmware-update` avec `make boot-trial-fail-a`, qui ne
+confirme jamais → rollback, code de retour 1 comme sur simulateur. Le test négatif en dernier :
+il n'a de valeur que si le chemin nominal a déjà marché. L'image de test est liée pour le slot A,
+donc le test négatif se joue quand **B** est actif.
+
+### Piste relevée sur carte, à mesurer avant M3
+
+La télémétrie donne la durée de l'ISR de contrôle : au repos, moins d'une microseconde ; pendant
+une capture scope, plusieurs — l'échantillonnage de quatre flottants coûte quelques centaines de
+cycles, bien plus que ce que quatre lectures et quatre écritures devraient. Deux candidats,
+non départagés : `PREFETCH_ENABLE` est à 0 dans `stm32g4xx_hal_conf.h` (défaut CubeMX) alors que
+le cœur tourne à 144 MHz avec quatre wait-states, et le firmware est compilé en `-Og`. Ce n'est
+pas bloquant à ce stade — la boucle reste très en dessous du plafond de charge — mais c'est le
+budget de la FOC qui se joue là, et `telem` le mesure en trente secondes. À faire avant M3,
+pas pendant.
 
 ### Questions de protocole ouvertes
 
@@ -190,7 +238,7 @@ Relevées en écrivant M1c, à trancher dans `docs/protocol.md` avant d'y touche
 | `renderer/` — Control, Recipes | Vues présentes mais grisées, avec le jalon qui les débloquera |
 | `renderer/views/Firmware.tsx` | Mise à jour A/B depuis l'interface, gardée par la capacité annoncée |
 | `main/recipes/` — `.a2nrcp` | Pas commencé (attend la persistance NVM, M2) |
-| `main/mcp/` — serveur MCP | Écrit, testé sur simulateur ; **validation sur liaison série réelle à faire** |
+| `main/mcp/` — serveur MCP | Écrit, testé sur simulateur **et sur carte** (`mcp:check --port`, 2026-09-16) |
 
 ### Serveur MCP
 
@@ -209,7 +257,7 @@ résultat. `scope_capture` ne rend par défaut que des statistiques par signal :
 fait 8 192 flottants, qu'aucun agent ne lit utilement.
 
 `npm run mcp:check` rejoue la surface complète à travers un vrai client MCP — contre le simulateur
-sans option, contre une carte avec `--port`. C'est la recette qui reste à passer sur matériel.
+sans option, contre une carte avec `--port`. Passée sur carte le 2026-09-16, dix-sept points verts.
 
 **Écart assumé avec `interface/AGENTS.md` §5** : les familles y sont écrites `device.*`, `param.*` ;
 les outils s'appellent `device_connect`, `param_set`. Les clients MCP courants n'acceptent que
@@ -279,12 +327,17 @@ utile que la liste de ce qui marche.
 | `PB8/BOOT0` échantillonné haut : démarrage dans la ROM système et disparition du COM | Lecture du PC par SWD (`0x1FFF41C4`), puis retour immédiat après reset avec BOOT0 bas |
 | **Douze fichiers référencés par le `Makefile` et par `proto.c`, jamais commités** — le firmware ne compile sur aucun poste, et `STATUS.md` annonçait ces jalons validés | Reprise d'une session interrompue : lecture du `Makefile` contre le contenu réel du dépôt |
 | **`tools/status.py` rapportait « build à jour » quand `make` était absent du `PATH`** — l'outil censé mesurer la réalité validait le silence | Même reprise : son verdict contredisait le dépôt |
+| **`STATUS.md` disait « rien n'a été installé sur une carte »** alors qu'un bootloader d'un arbre perdu y tournait — et rejetait toute application du dépôt | Première mise à jour A/B sur carte : rollback inattendu, puis `BOOT_INFO` lu avant d'y toucher |
+| **`BOOT_REBOOT` se réinitialisait avant d'avoir répondu, sur les ticks pairs** — `HAL_GetTick() \| 1U` comme sentinelle, soustraction non signée qui déborde | `boot-check` rouge une fois sur deux ; les octets bruts ont montré le port disparaître à 8 ms au lieu de 50 |
+| `tools/status.py` ne trouvait pas le `make` de CubeIDE sans `toolchain.local.mk`, alors que le `Makefile` a des défauts valables | Sa sortie « build impossible » sur un poste qui venait de compiler |
 
 Le motif commun des deux premiers et du quatrième : **le code était juste de chaque côté, c'est la
 jonction qui ne l'était pas**. Un test unitaire ne les voyait pas.
 
-Les deux derniers ajoutent un second motif, plus bête et plus coûteux : **ce qui n'est pas mesuré
-dérive, y compris l'état d'avancement lui-même**. Un fichier qui n'existe que dans un arbre de
+Les suivants ajoutent un second motif, plus bête et plus coûteux : **ce qui n'est pas mesuré
+dérive, y compris l'état d'avancement lui-même**. Et le défaut de `BOOT_REBOOT` en donne un
+troisième : **une sentinelle qui altère la valeur qu'elle marque** — forcer un bit pour dire
+« en cours » a déplacé l'instant qu'on voulait garder. Une variable de plus aurait coûté un octet. Un fichier qui n'existe que dans un arbre de
 travail local n'existe pas. Un outil de constat qui ne distingue pas l'absence du succès ne
 constate rien. D'où les deux règles ci-dessous.
 
@@ -299,8 +352,11 @@ constate rien. D'où les deux règles ci-dessous.
 5. `cd controller-2 && make` — build propre, sans avertissement
 6. `cd interface && npm run cli -- check --sim` — vert de bout en bout
 7. `npm run mcp:check` — surface MCP complète, sur simulateur
-8. sur carte : `npm run cli -- check`, puis `npm run mcp:check -- --port COMx` —
-   **les seuls qui valident vraiment**
+8. sur carte : `npm run cli -- check`, `telem`, `scope`, `boot-check`, puis
+   `npm run mcp:check -- --port COMx` — **les seuls qui valident vraiment**
+
+Passées toutes les huit le 2026-09-16, sauf la quatrième : ce poste n'a pas de compilateur C
+hôte. Elle reste due.
 
 Les sept premiers ne prouvent que la cohérence interne. Un jalon n'est « passé » que quand le
 huitième l'est, et ce fichier doit le dire ainsi.
