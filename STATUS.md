@@ -184,16 +184,22 @@ confirme jamais → rollback, code de retour 1 comme sur simulateur. Le test né
 il n'a de valeur que si le chemin nominal a déjà marché. L'image de test est liée pour le slot A,
 donc le test négatif se joue quand **B** est actif.
 
-### Piste relevée sur carte, à mesurer avant M3
+### Coût de l'ISR — mesuré, en partie réglé, le reste attend la FOC
 
-La télémétrie donne la durée de l'ISR de contrôle : au repos, moins d'une microseconde ; pendant
-une capture scope, plusieurs — l'échantillonnage de quatre flottants coûte quelques centaines de
-cycles, bien plus que ce que quatre lectures et quatre écritures devraient. Deux candidats,
-non départagés : `PREFETCH_ENABLE` est à 0 dans `stm32g4xx_hal_conf.h` (défaut CubeMX) alors que
-le cœur tourne à 144 MHz avec quatre wait-states, et le firmware est compilé en `-Og`. Ce n'est
-pas bloquant à ce stade — la boucle reste très en dessous du plafond de charge — mais c'est le
-budget de la FOC qui se joue là, et `telem` le mesure en trente secondes. À faire avant M3,
-pas pendant.
+La télémétrie donne la durée de l'ISR de contrôle, et le scope la donne *pendant* qu'il
+échantillonne. Trois configurations ont été comparées le 2026-09-16, même carte, même capture
+de 2048 points sur 4 signaux, ordres de grandeur : au repos, l'ISR vaut une fraction de
+microseconde ; l'échantillonnage scope lui ajoutait environ 3,3 µs avec la configuration
+d'origine (`-Og`, prefetch flash désactivé — le défaut CubeMX). Activer le prefetch retire
+environ un tiers de ce surcoût ; `-O2` en retire encore un sixième. Le prefetch est acquis
+(`PREFETCH_ENABLE 1` dans `stm32g4xx_hal_conf.h`). `-O2` n'est pas retenu par défaut : il
+change ce qu'on voit au débogueur, et la décision appartient au moment où la FOC existera.
+
+Ce qui reste — environ 1,8 µs pour copier quatre flottants — ne s'explique ni par le calcul ni
+par la SRAM. L'hypothèse la plus probable est le cache d'instructions de 1 Ko de l'ART, dépassé
+par le chemin ISR → scope → quatre lecteurs indirects : chaque passage repaye des wait-states.
+La réponse classique sur G4 est de faire tourner le chemin de contrôle depuis la CCM-SRAM.
+À faire avec la FOC, pas avant : c'est son budget, et son code, qui trancheront.
 
 ### Questions de protocole ouvertes
 
