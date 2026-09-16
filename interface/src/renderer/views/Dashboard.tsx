@@ -12,6 +12,7 @@ import type { ReactNode } from 'react';
 
 import type { DeviceSnapshot } from '../../main/device/DeviceCore.js';
 import { PROTO_CAP } from '../../shared/protocol.js';
+import { LiveTelemetry } from '../components/LiveTelemetry.js';
 import { Dot, Empty, Field, Panel, fmt } from '../components/ui.js';
 
 const CAPABILITIES: Array<{ bit: number; label: string; since: string }> = [
@@ -99,6 +100,12 @@ export function Dashboard({ state }: { state: DeviceSnapshot }): ReactNode {
           is not a failure — it is a milestone not yet reached.
         </p>
       </Panel>
+
+      {/* Le trace occupe toute la largeur : c'est ce qu'on regarde pendant un reglage, le
+          reste du tableau de bord est de l'identification qu'on lit une fois. */}
+      <div className="lg:col-span-2 xl:col-span-3">
+        <LiveTelemetry state={state} />
+      </div>
 
       <Panel title="Real-time constants" className="lg:col-span-2 xl:col-span-1">
         {state.params

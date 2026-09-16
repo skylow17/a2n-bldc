@@ -76,3 +76,62 @@ textarea {
   outline: 2px solid var(--color-accent);
   outline-offset: 1px;
 }
+
+/*
+ * uPlot sur fond sombre.
+ *
+ * La feuille de style livrée avec uPlot est pensée pour un fond clair : légende en noir,
+ * traits de curseur sombres, invisibles ici. On la réécrit dans les jetons du thème plutôt
+ * que d'imposer des couleurs en dur, pour que la bascule claire à venir suive sans retouche.
+ *
+ * Règle tenue ici comme ailleurs : le texte porte les jetons de texte, jamais la couleur de
+ * la courbe. Seule la pastille de la légende porte la couleur — l'identité d'une courbe
+ * n'est donc jamais portée par la couleur seule.
+ */
+.a2n-chart .u-legend {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-fg-2);
+  padding: 2px 0 6px 56px; /* aligne sous la zone tracee, pas sous l'axe */
+  text-align: left;
+}
+/* uPlot pose la legende dans un tableau centre ; on la remet en ligne, a gauche, pour
+   qu'elle coute une ligne et non un bloc. */
+.a2n-chart .u-legend > tbody {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 14px;
+}
+.a2n-chart .u-legend .u-series th {
+  font-weight: 500;
+}
+.a2n-chart .u-legend .u-series > * {
+  padding: 1px 6px;
+}
+.a2n-chart .u-legend .u-marker {
+  width: 10px;
+  height: 3px;
+  border-radius: 2px;
+  margin-right: 5px;
+  border: none !important;
+}
+.a2n-chart .u-legend .u-value {
+  color: var(--color-fg);
+}
+/* La ligne « s » est l'axe des temps : uPlot la traite comme une série, on la cache. */
+.a2n-chart .u-legend .u-series:first-child {
+  display: none;
+}
+.a2n-chart .u-legend .u-inactive {
+  opacity: 0.4;
+}
+.a2n-chart .u-cursor-x,
+.a2n-chart .u-cursor-y {
+  border-color: var(--color-fg-3);
+}
+.a2n-chart .u-cursor-pt {
+  border-color: var(--color-bg) !important;
+}
+.a2n-chart .u-axis {
+  color: var(--color-fg-3);
+}
