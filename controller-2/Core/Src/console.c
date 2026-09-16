@@ -122,6 +122,60 @@ static void CmdDrvStatus(void)
                 regs[DRV_REG_CSA_CONTROL]);
 }
 
+/* ---------------------------------------------------------------- PWM à vide (M2, étape 3) */
+
+/* `PWM ON` lève MOE ; `PWM OFF` le coupe ; `PWM <a> <b> <c>` pose les rapports cycliques en
+ * pour mille. Les rapports se posent MOE coupé ou levé, indifféremment : les CCR sont
+ * préchargés. Lever MOE exige un driver qui répond et aucune faute — sans quoi on
+ * commanderait des grilles que le DRV tient coupées, et on ne verrait rien de ce qu'on
+ * croit mesurer. */
+static void CmdPwm(const char *arg)
+{
+  if (strcasecmp(arg, "ON") == 0) {
+    Drv8304_Status_t st;
+    if (!Drv8304_ReadFaults()) {
+      Reply("ERR DRV");
+      return;
+    }
+    Drv8304_GetStatus(&st);
+    if (st.nfault_low || ((st.fault_status_1 & DRV_FS1_FAULT) != 0U)) {
+      Reply("ERR FAULT");
+      return;
+    }
+    if (!Link_HostAttached()) {
+      Reply("ERR LINK");
+      return;
+    }
+    Pwm_Enable();
+    Reply("OK");
+    return;
+  }
+  if (strcasecmp(arg, "OFF") == 0) {
+    Pwm_Disable();
+    Reply("OK");
+    return;
+  }
+
+  char *end = NULL;
+  unsigned long d[3];
+  const char *p = arg;
+  for (int i = 0; i < 3; i++) {
+    d[i] = strtoul(p, &end, 10);
+    if ((end == p) || (d[i] > 1000UL)) {
+      Reply("ERR ARG");
+      return;
+    }
+    p = end;
+    while (*p == ' ') { p++; }
+  }
+  if (*p != '\0') {
+    Reply("ERR ARG");
+    return;
+  }
+  Pwm_SetDutyPermille((uint16_t)d[0], (uint16_t)d[1], (uint16_t)d[2]);
+  Reply("OK");
+}
+
 /* `DRV.REG <addr>` lit, `DRV.REG <addr> <value>` écrit puis relit. Hexadécimal libre. */
 static void CmdDrvReg(const char *arg)
 {
@@ -174,8 +228,9 @@ void Console_ExecuteLine(const char *line)
     Ctrl_ResetStats();
     Reply("OK");
   } else if (Match(line, "LINK?", NULL)) {
-    Link_TxPrintf("OK tx_dropped=%lu rx_dropped=%lu\r\n",
-                  (unsigned long)Link_TxDropped(), (unsigned long)Link_RxDropped());
+    Link_TxPrintf("OK tx_dropped=%lu rx_dropped=%lu host=%u\r\n",
+                  (unsigned long)Link_TxDropped(), (unsigned long)Link_RxDropped(),
+                  Link_HostAttached() ? 1U : 0U);
   } else if (Match(line, "PROTO?", NULL)) {
     Link_TxPrintf("OK rx_frames=%lu rx_errors=%lu tx_dropped=%lu overflows=%lu "
                   "params=%u dict_hash=%08lX\r\n",
@@ -192,7 +247,12 @@ void Console_ExecuteLine(const char *line)
     Pwm_Disable();
     Reply("OK");
   } else if (Match(line, "PWM?", NULL)) {
-    Link_TxPrintf("OK enabled=%u\r\n", Pwm_IsEnabled() ? 1U : 0U);
+    uint16_t a, b, c;
+    Pwm_GetDutyPermille(&a, &b, &c);
+    Link_TxPrintf("OK enabled=%u a=%u b=%u c=%u host=%u\r\n", Pwm_IsEnabled() ? 1U : 0U,
+                  a, b, c, Link_HostAttached() ? 1U : 0U);
+  } else if (Match(line, "PWM", &arg)) {
+    CmdPwm(arg);
   } else if (Match(line, "DRV?", NULL)) {
     CmdDrvStatus();
   } else if (Match(line, "DRV.PROBE", NULL)) {

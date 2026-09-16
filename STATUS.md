@@ -28,7 +28,7 @@ Dernière revue : 2026-09-16, seconde passe — **sur carte**.
 | **M1c** | Télémétrie souscrite + buffer scope | **Validé sur carte le 2026-09-16** : `telem` sans trou, `scope` 2048 points sur 4 signaux à la cadence de boucle | Coût de l'échantillonnage scope dans l'ISR, voir la piste plus bas |
 | **M1d** | CLI de bring-up | Validé sur simulateur **et sur carte** — toutes les commandes, `firmware-update` compris | — |
 | **Boot** | Bootloader A/B, probation et rollback | **Validé sur carte le 2026-09-16** : installation SWD, `BOOT_INFO`, mise à jour nominale promue, rollback sur image qui ne confirme jamais | Rien ; un défaut trouvé sur carte, corrigé, rejoué |
-| **M2** | Étage de puissance et capteurs (étapes 2 à 9) | **Étape 2 validée sur carte le 2026-09-16** : le DRV8304 répond en SPI, sept registres relus cohérents avec la fiche technique, écriture-relecture par `DRV.PROBE`, fautes lisibles | Étape 3 : PWM à vide à l'oscilloscope. Le chemin nFAULT → coupure de `MOE` est écrit mais **jamais déclenché** — rien ne permet de provoquer une faute sans matériel |
+| **M2** | Étage de puissance et capteurs (étapes 2 à 9) | **Étape 2 validée sur carte le 2026-09-16** : le DRV8304 répond en SPI, sept registres relus cohérents avec la fiche technique, écriture-relecture par `DRV.PROBE`, fautes lisibles | Étape 3 : le firmware est prêt (`PWM <a> <b> <c>`, `PWM ON/OFF`, coupure automatique sans hôte, éprouvée) ; **reste la mesure à l'oscilloscope** — front de `PC13` contre `PB0`, temps mort, aucune conduction croisée. Le chemin nFAULT → coupure de `MOE` est écrit mais **jamais déclenché** — rien ne permet de provoquer une faute sans matériel |
 | **M3** | Asservissements (étapes 10 à 13) | Pas commencé | — |
 
 **Aucun moteur n'a encore tourné**, et les sorties restent en haute impédance.
@@ -217,8 +217,11 @@ Relevées en écrivant M1c, à trancher dans `docs/protocol.md` avant d'y touche
 ### Bloquants identifiés, à ne pas perdre de vue
 
 - **Watchdog de liaison** — limite dure firmware qui coupe le couple si le flux de commandes
-  s'interrompt. Rien ne tourne aujourd'hui, donc rien à couper ; mais c'est le seul filet si un
-  câble lâche pendant une rotation. **À implémenter avant M3, pas pendant.**
+  s'interrompt. **Première moitié en place depuis le 2026-09-16** : le firmware suit DTR et la
+  suspension du bus, et coupe `MOE` de lui-même dès que l'hôte disparaît — port fermé, câble
+  parti. Éprouvé sur carte : un `PWM ON` envoyé par un outil qui referme le port est coupé
+  dans la foulée. La seconde moitié, sur le *flux* de commandes (un hôte présent mais figé),
+  reste **à implémenter avant M3, pas pendant.**
 - **Schéma KiCad** — les affectations SPI2 sont électriquement impossibles (`AGENTS.md` §2). La
   carte a été retouchée à la main et fonctionne ; le schéma reste faux. **À corriger avant toute
   nouvelle fabrication**, sinon le défaut revient.

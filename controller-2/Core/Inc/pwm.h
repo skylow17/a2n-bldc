@@ -33,6 +33,10 @@ bool Pwm_IsEnabled(void);
 /** Rapports cycliques bruts, 0..PWM_ARR. Écriture directe des CCR, sans mise en forme. */
 void Pwm_SetDutyRaw(uint16_t a, uint16_t b, uint16_t c);
 
+/** Rapports cycliques en pour mille, 0..1000, pour les essais à vide de M2. */
+void Pwm_SetDutyPermille(uint16_t a, uint16_t b, uint16_t c);
+void Pwm_GetDutyPermille(uint16_t *a, uint16_t *b, uint16_t *c);
+
 #ifdef __cplusplus
 }
 #endif

@@ -130,3 +130,28 @@ void Pwm_SetDutyRaw(uint16_t a, uint16_t b, uint16_t c)
   PWM_TIM->CCR2 = b;
   PWM_TIM->CCR3 = c;
 }
+
+/* En comptage centré, CCR = ARR + 1 donne 100 % et 0 donne 0 %. Les trois écritures sont
+ * préchargées : elles prennent effet ensemble à l'événement de mise à jour suivant. */
+static uint16_t PermilleToCcr(uint16_t pm)
+{
+  if (pm > 1000U) { pm = 1000U; }
+  return (uint16_t)(((uint32_t)pm * (PWM_ARR + 1UL)) / 1000UL);
+}
+
+static uint16_t CcrToPermille(uint32_t ccr)
+{
+  return (uint16_t)((ccr * 1000UL + (PWM_ARR + 1UL) / 2UL) / (PWM_ARR + 1UL));
+}
+
+void Pwm_SetDutyPermille(uint16_t a, uint16_t b, uint16_t c)
+{
+  Pwm_SetDutyRaw(PermilleToCcr(a), PermilleToCcr(b), PermilleToCcr(c));
+}
+
+void Pwm_GetDutyPermille(uint16_t *a, uint16_t *b, uint16_t *c)
+{
+  *a = CcrToPermille(PWM_TIM->CCR1);
+  *b = CcrToPermille(PWM_TIM->CCR2);
+  *c = CcrToPermille(PWM_TIM->CCR3);
+}

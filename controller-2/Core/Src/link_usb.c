@@ -158,3 +158,30 @@ uint16_t Link_RxRead(uint8_t *dst, uint16_t max)
 
 uint32_t Link_TxDropped(void) { return s_tx_dropped; }
 uint32_t Link_RxDropped(void) { return s_rx_dropped; }
+
+/* ---------------------------------------------------------------- présence de l'hôte */
+
+/* Écrits depuis l'interruption USB, lus depuis la boucle principale : deux booléens,
+ * chacun atomique, et la conjonction se recalcule à chaque lecture. */
+static volatile bool s_dtr;
+static volatile bool s_suspended;
+
+bool Link_HostAttached(void)
+{
+  return s_dtr && !s_suspended;
+}
+
+void Link_OnControlLineState(bool dtr)
+{
+  s_dtr = dtr;
+}
+
+void Link_OnBusSuspend(void)
+{
+  s_suspended = true;
+}
+
+void Link_OnBusResume(void)
+{
+  s_suspended = false;
+}

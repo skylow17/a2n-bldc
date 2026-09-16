@@ -102,5 +102,12 @@ int main(void)
     Proto_Process();     /* streaming et transitions scope, jamais dans l'ISR */
     BootShared_Process(); /* confirmation d'un slot candidat, le cas échéant */
     Link_Pump();         /* écoule le tampon d'émission vers l'USB           */
+
+    /* Sans hôte, personne ne peut plus envoyer STOP : le pont ne reste pas actif. Port
+     * fermé, câble parti, bus suspendu — même réponse. Le watchdog de flux de commandes
+     * (M3) viendra en plus, pas à la place. */
+    if (Pwm_IsEnabled() && !Link_HostAttached()) {
+      Pwm_Disable();
+    }
   }
 }

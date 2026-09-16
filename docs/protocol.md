@@ -454,7 +454,8 @@ Une ligne = une commande, réponse `OK ...` ou `ERR <code>`. Elle couvre l'essen
 `PARAM <name> <value>`, `MODE <mode>`, `TARGET <value>`.
 
 Implémentées à ce jour : `PING`, `INFO?`, `STATS?`, `STATS.RESET`, `LINK?`, `PROTO?`,
-`SELFTEST`, `PWM?`, `STOP`, et depuis M2 les quatre commandes du driver de grille ci-dessous.
+`SELFTEST`, `PWM?`, `STOP`, et depuis M2 les commandes du driver de grille et de PWM à vide
+ci-dessous.
 Les autres arrivent avec la machine à états (M3).
 
 **Driver de grille DRV8304** (M2, étape 2) :
@@ -467,7 +468,25 @@ Les autres arrivent avec la machine à états (M3).
 | `DRV.CLR` | `OK` / `ERR SPI` | Pulse `CLR_FLT` |
 
 Une faute matérielle (nFAULT bas) coupe `MOE` depuis l'interruption, sans dialogue SPI ; c'est
-`DRV?` qui dit ensuite pourquoi. Sur une carte saine et jamais configurée, `csa` vaut `283`, la
+`DRV?` qui dit ensuite pourquoi.
+
+**PWM à vide** (M2, étape 3) — les seules commandes qui mettent une sortie de puissance en
+activité avant M3, et elles ne valent qu'à vide, moteur débranché :
+
+| Commande | Réponse | Rôle |
+|---|---|---|
+| `PWM <a> <b> <c>` | `OK` / `ERR ARG` | Rapports cycliques des trois bras en pour mille, 0..1000. Préchargés, s'appliquent ensemble à l'événement de mise à jour suivant, `MOE` levé ou non |
+| `PWM ON` | `OK` / `ERR DRV` / `ERR FAULT` / `ERR LINK` | Lève `MOE`. Refusé si le DRV8304 ne répond pas, s'il signale une faute, ou sans hôte |
+| `PWM OFF` | `OK` | Coupe `MOE`, comme `STOP` |
+| `PWM?` | `OK enabled=<0/1> a=<‰> b=<‰> c=<‰> host=<0/1>` | État |
+
+**`host`** est la présence de l'hôte vue du firmware : DTR levé par le port ouvert côté PC et
+bus USB actif. Elle retombe quand le port se ferme, quand le câble part ou quand le bus se
+suspend — et **le firmware coupe `MOE` de lui-même dès qu'elle retombe**, parce que sans hôte
+personne ne peut plus envoyer `STOP`. Conséquence pratique : `PWM ON` envoyé par un outil qui
+ouvre puis referme le port (le `console` du CLI) est coupé dans la foulée ; une mesure demande
+une session qui garde le port ouvert — la console de l'interface, ou un terminal. Ce n'est pas
+le watchdog de flux de commandes prévu pour M3 ; celui-là viendra en plus. Sur une carte saine et jamais configurée, `csa` vaut `283`, la
 valeur de reset de la fiche technique — c'est le test de présence le plus simple qui soit.
 
 **`STOP` existe dès maintenant**, et coupe `MOE` — les six sorties passent en haute impédance.

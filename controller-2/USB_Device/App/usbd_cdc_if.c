@@ -229,7 +229,10 @@ static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
     break;
 
     case CDC_SET_CONTROL_LINE_STATE:
-
+      /* Requête sans données : la pile passe le paquet SETUP lui-même dans `pbuf`.
+       * wValue bit 0 = DTR, bit 1 = RTS. Le port ouvert côté PC lève DTR ; sa fermeture,
+       * ou un câble qui part, le baisse — c'est le signal qui coupe le pont. */
+      Link_OnControlLineState((((const USBD_SetupReqTypedef *)pbuf)->wValue & 0x0001U) != 0U);
     break;
 
     case CDC_SEND_BREAK:

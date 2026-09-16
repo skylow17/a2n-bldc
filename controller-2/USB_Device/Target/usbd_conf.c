@@ -25,6 +25,7 @@
 #include "usbd_core.h"
 
 #include "usbd_cdc.h"
+#include "link_usb.h"
 
 /* USER CODE BEGIN Includes */
 
@@ -248,7 +249,7 @@ void HAL_PCD_SuspendCallback(PCD_HandleTypeDef *hpcd)
 #endif /* USE_HAL_PCD_REGISTER_CALLBACKS */
 {
   /* USER CODE BEGIN HAL_PCD_SuspendCallback_PreTreatment */
-
+  Link_OnBusSuspend();
   /* USER CODE END HAL_PCD_SuspendCallback_PreTreatment */
   /* Inform USB library that core enters in suspend Mode. */
   USBD_LL_Suspend((USBD_HandleTypeDef*)hpcd->pData);
@@ -278,6 +279,7 @@ void HAL_PCD_ResumeCallback(PCD_HandleTypeDef *hpcd)
 #endif /* USE_HAL_PCD_REGISTER_CALLBACKS */
 {
   /* USER CODE BEGIN HAL_PCD_ResumeCallback_PreTreatment */
+  Link_OnBusResume();
 
   /* USER CODE END HAL_PCD_ResumeCallback_PreTreatment */
 

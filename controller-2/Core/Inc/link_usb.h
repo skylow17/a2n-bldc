@@ -50,6 +50,17 @@ uint32_t Link_RxDropped(void);
 void Link_OnRxFromUsb(const uint8_t *data, uint16_t len);
 void Link_OnTxComplete(void);
 
+/**
+ * Présence de l'hôte, vue du firmware : DTR levé par le port ouvert côté PC, et bus USB
+ * actif. Retombe quand le PC ferme le port, quand le câble part ou quand le bus se suspend.
+ * C'est la condition pour laisser une sortie de puissance active : sans hôte, plus
+ * personne ne peut envoyer STOP.
+ */
+bool Link_HostAttached(void);
+void Link_OnControlLineState(bool dtr);
+void Link_OnBusSuspend(void);
+void Link_OnBusResume(void);
+
 #ifdef __cplusplus
 }
 #endif
