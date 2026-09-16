@@ -454,7 +454,21 @@ Une ligne = une commande, réponse `OK ...` ou `ERR <code>`. Elle couvre l'essen
 `PARAM <name> <value>`, `MODE <mode>`, `TARGET <value>`.
 
 Implémentées à ce jour : `PING`, `INFO?`, `STATS?`, `STATS.RESET`, `LINK?`, `PROTO?`,
-`SELFTEST`, `PWM?`, `STOP`. Les autres arrivent avec la machine à états (M3).
+`SELFTEST`, `PWM?`, `STOP`, et depuis M2 les quatre commandes du driver de grille ci-dessous.
+Les autres arrivent avec la machine à états (M3).
+
+**Driver de grille DRV8304** (M2, étape 2) :
+
+| Commande | Réponse | Rôle |
+|---|---|---|
+| `DRV?` | `OK spi=<0/1> nfault=<0/1> events=<n> fs1=<hex> fs2=<hex> ctrl=<hex> hs=<hex> ls=<hex> ocp=<hex> csa=<hex>` | État complet : bus SPI, broche nFAULT (1 = basse, faute), fronts comptés par l'EXTI depuis le reset, puis les sept registres sur 11 bits |
+| `DRV.PROBE` | `OK` / `ERR DRV` | Critère de l'étape 2 : bascule `COAST`, relit, restaure. Ne laisse rien dans le driver |
+| `DRV.REG <addr> [<value>]` | `OK reg=<a> value=<hex>` | Lecture, ou écriture puis relecture, d'un registre brut. Hexadécimal, 11 bits |
+| `DRV.CLR` | `OK` / `ERR SPI` | Pulse `CLR_FLT` |
+
+Une faute matérielle (nFAULT bas) coupe `MOE` depuis l'interruption, sans dialogue SPI ; c'est
+`DRV?` qui dit ensuite pourquoi. Sur une carte saine et jamais configurée, `csa` vaut `283`, la
+valeur de reset de la fiche technique — c'est le test de présence le plus simple qui soit.
 
 **`STOP` existe dès maintenant**, et coupe `MOE` — les six sorties passent en haute impédance.
 C'est aujourd'hui déjà l'état au repos, donc la commande ne change rien en pratique ; elle est là

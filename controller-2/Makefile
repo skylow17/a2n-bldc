@@ -70,6 +70,7 @@ APP_C_SOURCES := \
   Core/Src/board_clock.c \
   Core/Src/boot_shared.c \
   Core/Src/dbg_pin.c \
+  Core/Src/drv8304.c \
   Core/Src/pwm.c \
   Core/Src/adc_sync.c \
   Core/Src/ctrl.c \
@@ -123,6 +124,7 @@ HAL_SOURCES := \
   $(HAL)/Src/stm32g4xx_hal_dma.c \
   $(HAL)/Src/stm32g4xx_hal_dma_ex.c \
   $(HAL)/Src/stm32g4xx_hal_exti.c \
+  $(HAL)/Src/stm32g4xx_hal_spi.c \
   $(HAL)/Src/stm32g4xx_hal_tim.c \
   $(HAL)/Src/stm32g4xx_hal_tim_ex.c \
   $(HAL)/Src/stm32g4xx_hal_adc.c \

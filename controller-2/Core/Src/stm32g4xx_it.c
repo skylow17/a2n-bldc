@@ -4,6 +4,8 @@
  */
 #include "stm32g4xx_hal.h"
 #include "ctrl.h"
+#include "drv8304.h"
+#include "board.h"
 
 extern PCD_HandleTypeDef hpcd_USB_FS;
 
@@ -33,6 +35,15 @@ void ADC1_2_IRQHandler(void)
   if ((ADC1->ISR & ADC_ISR_JEOS) != 0U) {
     ADC1->ISR = ADC_ISR_JEOS;   /* write-1-to-clear */
     Ctrl_Isr();
+  }
+}
+
+/** nFAULT du DRV8304 sur PB11, front descendant. Coupe le pont, ne parle pas au DRV. */
+void EXTI15_10_IRQHandler(void)
+{
+  if (__HAL_GPIO_EXTI_GET_IT(PIN_DRV_NFAULT) != 0U) {
+    __HAL_GPIO_EXTI_CLEAR_IT(PIN_DRV_NFAULT);
+    Drv8304_OnFaultIrq();
   }
 }
 

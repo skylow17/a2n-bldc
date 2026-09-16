@@ -17,6 +17,7 @@
 #include "boot_shared.h"
 #include "ctrl.h"
 #include "dbg_pin.h"
+#include "drv8304.h"
 #include "pwm.h"
 #include "adc_sync.h"
 #include "comm/param.h"
@@ -74,6 +75,7 @@ int main(void)
 
   Pwm_Init();       /* TIM1 démarre, MOE = 0 : sorties en haute impédance   */
   AdcSync_Init();   /* conversions injectées armées sur TIM1_TRGO, ISR 20 kHz */
+  Drv8304_Init();   /* SPI2 + nFAULT ; ne configure rien dans le driver lui-même   */
 
   /* La liaison arrive après l'étage de puissance : si l'énumération USB traîne ou échoue,
    * la boucle de contrôle tourne déjà et les sorties sont déjà sûres. */

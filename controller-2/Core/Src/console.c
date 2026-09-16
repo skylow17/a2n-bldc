@@ -18,6 +18,7 @@
 
 #include "board.h"
 #include "ctrl.h"
+#include "drv8304.h"
 #include "comm/param.h"
 #include "comm/proto.h"
 #include "comm/rx_router.h"
@@ -95,6 +96,62 @@ static void CmdSelftest(void)
                 (unsigned long)r.dict_hash, r.dict_hash_ok ? 1U : 0U);
 }
 
+/* ---------------------------------------------------------------- DRV8304 */
+
+static void CmdDrvStatus(void)
+{
+  Drv8304_Status_t st;
+  const bool read = Drv8304_ReadFaults();
+  Drv8304_GetStatus(&st);
+
+  uint16_t regs[DRV_REG_COUNT] = {0};
+  bool regs_ok = read;
+  for (uint8_t r = DRV_REG_DRIVER_CONTROL; (r < DRV_REG_COUNT) && regs_ok; r++) {
+    regs_ok = Drv8304_ReadReg(r, &regs[r]);
+  }
+
+  /* `spi` dit si le bus répond ; `nfault` est la broche telle qu'elle est maintenant ;
+   * `events` compte les fronts vus par l'EXTI depuis le reset — une faute déjà retombée
+   * reste ainsi visible. Les registres en hexadécimal sur 11 bits, dans l'ordre de la carte. */
+  Link_TxPrintf("%s spi=%u nfault=%u events=%lu fs1=%03X fs2=%03X ctrl=%03X hs=%03X "
+                "ls=%03X ocp=%03X csa=%03X\r\n",
+                regs_ok ? "OK" : "ERR", st.spi_ok ? 1U : 0U, st.nfault_low ? 1U : 0U,
+                (unsigned long)st.fault_events, st.fault_status_1, st.vgs_status_2,
+                regs[DRV_REG_DRIVER_CONTROL], regs[DRV_REG_GATE_DRIVE_HS],
+                regs[DRV_REG_GATE_DRIVE_LS], regs[DRV_REG_OCP_CONTROL],
+                regs[DRV_REG_CSA_CONTROL]);
+}
+
+/* `DRV.REG <addr>` lit, `DRV.REG <addr> <value>` écrit puis relit. Hexadécimal libre. */
+static void CmdDrvReg(const char *arg)
+{
+  char *end = NULL;
+  const unsigned long addr = strtoul(arg, &end, 16);
+  if ((end == arg) || (addr >= DRV_REG_COUNT)) {
+    Reply("ERR ARG");
+    return;
+  }
+  while (*end == ' ') { end++; }
+  if (*end != '\0') {
+    char *end2 = NULL;
+    const unsigned long value = strtoul(end, &end2, 16);
+    if ((end2 == end) || (value > DRV_DATA_MASK)) {
+      Reply("ERR ARG");
+      return;
+    }
+    if (!Drv8304_WriteReg((uint8_t)addr, (uint16_t)value)) {
+      Reply("ERR SPI");
+      return;
+    }
+  }
+  uint16_t readback;
+  if (!Drv8304_ReadReg((uint8_t)addr, &readback)) {
+    Reply("ERR SPI");
+    return;
+  }
+  Link_TxPrintf("OK reg=%lX value=%03X\r\n", addr, readback);
+}
+
 void Console_ExecuteLine(const char *line)
 {
   const char *arg = NULL;
@@ -136,6 +193,15 @@ void Console_ExecuteLine(const char *line)
     Reply("OK");
   } else if (Match(line, "PWM?", NULL)) {
     Link_TxPrintf("OK enabled=%u\r\n", Pwm_IsEnabled() ? 1U : 0U);
+  } else if (Match(line, "DRV?", NULL)) {
+    CmdDrvStatus();
+  } else if (Match(line, "DRV.PROBE", NULL)) {
+    /* Critère de l'étape 2 : une écriture se relit. Ne laisse aucune trace dans le DRV. */
+    Reply(Drv8304_Probe() ? "OK" : "ERR DRV");
+  } else if (Match(line, "DRV.REG", &arg)) {
+    CmdDrvReg(arg);
+  } else if (Match(line, "DRV.CLR", NULL)) {
+    Reply(Drv8304_ClearFaults() ? "OK" : "ERR SPI");
   } else {
     Reply("ERR CMD");
   }
