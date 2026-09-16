@@ -8,7 +8,7 @@
 
 import { join } from 'node:path';
 
-import { writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 
 import { BrowserWindow, app, dialog, ipcMain, shell } from 'electron';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -17,6 +17,7 @@ import type { TelemFrame } from '../shared/messages.js';
 import {
   DeviceCore,
   type ConnectTarget,
+  type FirmwareProgress,
   type LogSource,
   type ScopeRequest,
 } from './device/DeviceCore.js';
@@ -34,6 +35,7 @@ function broadcast(channel: string, payload: unknown): void {
 
 core.onChange.on((s) => broadcast('device:state', s));
 core.onLog.on((e) => broadcast('device:log', e));
+core.onFirmware.on((p: FirmwareProgress) => broadcast('device:firmware', p));
 
 /**
  * La télémétrie arrive jusqu'à 500 fois par seconde. Une trame par message IPC ferait
@@ -146,6 +148,40 @@ handle('device:saveText', async (suggestedName: string, contents: string) => {
   core.log('info', 'gui', `saved ${result.filePath}`);
   return result.filePath;
 });
+/**
+ * Choisit une image de firmware, puis la programme.
+ *
+ * Le fichier est lu **ici** et jamais dans le renderer, qui n'a accès ni à Node ni au
+ * système de fichiers. L'utilisateur le désigne dans une boîte de dialogue native : rien ne
+ * peut être programmé sans qu'il ait vu et nommé le fichier concerné.
+ *
+ * Rend `null` s'il annule.
+ */
+handle('device:pickFirmware', async () => {
+  const win = mainWindow;
+  const options = {
+    title: 'Choose a firmware image',
+    filters: [{ name: 'Firmware image', extensions: ['bin'] }],
+    properties: ['openFile' as const],
+  };
+  const result =
+    win === null
+      ? await dialog.showOpenDialog(options)
+      : await dialog.showOpenDialog(win, options);
+  const chosen = result.filePaths[0];
+  if (result.canceled || chosen === undefined) return null;
+  const bytes = await readFile(chosen);
+  return { path: chosen, size: bytes.byteLength };
+});
+
+handle('device:updateFirmware', async (path: string, version: string) => {
+  // Relu au moment de programmer plutôt que gardé en mémoire depuis la sélection : entre
+  // les deux, l'utilisateur a pu recompiler. Programmer une image périmée en affichant le
+  // nom de la nouvelle est le genre de confusion qui coûte une demi-journée.
+  const bytes = await readFile(path);
+  return core.updateFirmware(new Uint8Array(bytes), version, 'gui');
+});
+
 handle('device:setAiControl', (enabled: boolean) => {
   core.setAiControl(enabled);
 });

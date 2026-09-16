@@ -9,15 +9,21 @@
  */
 
 import { DeviceClient, ProtocolError, TimeoutError, type ScopeCapture } from '../../shared/client.js';
-import { ParamStatus, PARAM_STATUS_NAME, type TelemFrame } from '../../shared/messages.js';
+import {
+  ParamStatus,
+  PARAM_STATUS_NAME,
+  type BootInfo,
+  type TelemFrame,
+} from '../../shared/messages.js';
 import { ParamDictionary, clampToParam, paramDictHash } from '../../shared/params.js';
 import {
+  PROTO_CAP,
   ScopeTrigger,
   type DeviceInfo,
   type ScopeTriggerValue,
   type SignalDesc,
 } from '../../shared/protocol.js';
-import { SimulatedDevice } from '../../shared/simulator.js';
+import { SimulatedDevice, newSimFlash } from '../../shared/simulator.js';
 import { Emitter, type Transport } from '../../shared/transport.js';
 import { SerialTransport, listSerialPorts, type SerialPortInfo } from '../../node/serial.js';
 
@@ -76,6 +82,35 @@ export interface TelemetryState {
   units: string[];
 }
 
+/**
+ * Où en est une mise à jour de firmware.
+ *
+ * Les phases ne sont pas décoratives : une mise à jour A/B passe par trois redémarrages, et
+ * pendant les plus longues l'interface ne doit pas avoir l'air figée. Surtout, `rebooting` et
+ * `confirming` sont les moments où la carte disparaît du bus — sans les nommer, une
+ * déconnexion parfaitement normale se lirait comme une panne.
+ */
+export type FirmwarePhase =
+  | 'entering'
+  | 'erasing'
+  | 'writing'
+  | 'verifying'
+  | 'rebooting'
+  | 'confirming'
+  | 'done'
+  | 'failed';
+
+export interface FirmwareProgress {
+  phase: FirmwarePhase;
+  /** Octets écrits et total, tous deux à 0 hors de la phase `writing`. */
+  written: number;
+  total: number;
+  /** Slot visé, connu une fois `BOOT_INFO` lu. */
+  slot: number | null;
+  /** Une phrase destinée à l'écran, pas un code. */
+  message: string;
+}
+
 export interface ConnectTarget {
   kind: 'serial' | 'simulator';
   path?: string;
@@ -115,11 +150,25 @@ export class DeviceCore {
   private logSeq = 0;
   private telemetry: TelemetryState | null = null;
   private telemOff: (() => void) | null = null;
+  /** Cible de la dernière connexion : une mise à jour doit savoir se rebrancher seule. */
+  private target: ConnectTarget | null = null;
+  /**
+   * Flash de la carte simulée, pour toute la session.
+   *
+   * Une carte garde sa flash à travers une re-énumération USB. Sans cet objet partagé,
+   * chaque reconnexion du simulateur repartirait d'une carte neuve et une mise à jour ne
+   * pourrait jamais aboutir — ce qui rendrait la vue Firmware indémontrable hors matériel.
+   */
+  private readonly simFlash = newSimFlash();
+  /** Mise à jour en cours. Deux en parallèle sur la même carte n'ont aucun sens. */
+  private updating = false;
 
   readonly onChange = new Emitter<DeviceSnapshot>();
   readonly onLog = new Emitter<LogEntry>();
   /** Flux de télémétrie souscrit — une émission par trame reçue. */
   readonly onTelemetry = new Emitter<TelemFrame>();
+  /** Avancement d'une mise à jour de firmware. */
+  readonly onFirmware = new Emitter<FirmwareProgress>();
 
   /* ---------------------------------------------------------------- journal */
 
@@ -175,9 +224,10 @@ export class DeviceCore {
     this.emitChange();
 
     try {
+      this.target = target;
       this.transport =
         target.kind === 'simulator'
-          ? new SimulatedDevice()
+          ? new SimulatedDevice({ flash: this.simFlash })
           : await SerialTransport.open(target.path ?? '');
 
       this.client = new DeviceClient(this.transport, { timeoutMs: 1500 });
@@ -559,6 +609,199 @@ export class DeviceCore {
     return { signals: selected, capture };
   }
 
+  /* ---------------------------------------------------------------- firmware */
+
+  /** Lit l'état des deux slots. La carte doit déjà être en bootloader. */
+  private async bootInfo(client: DeviceClient): Promise<BootInfo> {
+    return client.bootInfo();
+  }
+
+  /**
+   * Rebranche le câble et attend que la carte réponde.
+   *
+   * Une mise à jour A/B traverse trois re-énumérations USB : le port disparaît puis
+   * revient, et la fenêtre est trop courte pour être devinée. On réessaie donc jusqu'à
+   * `timeoutMs` plutôt que d'attendre un délai fixe, qui serait tantôt trop long tantôt
+   * trop court selon la machine.
+   */
+  private async reattach<T>(
+    probe: (client: DeviceClient) => Promise<T>,
+    timeoutMs = 15_000,
+  ): Promise<DeviceClient> {
+    const t = this.target;
+    if (t === null) throw new Error('no device connected');
+    const deadline = Date.now() + timeoutMs;
+    let last: unknown = null;
+
+    for (;;) {
+      let client: DeviceClient | null = null;
+      try {
+        const transport =
+          t.kind === 'simulator'
+            ? new SimulatedDevice({ flash: this.simFlash })
+            : await SerialTransport.open(t.path ?? '');
+        client = new DeviceClient(transport, { timeoutMs: 2000 });
+        await probe(client);
+        return client;
+      } catch (e) {
+        last = e;
+        await client?.close().catch(() => undefined);
+        if (Date.now() >= deadline) {
+          throw new Error(`device did not come back: ${describe(last)}`);
+        }
+        await delay(t.kind === 'simulator' ? 1 : 250);
+      }
+    }
+  }
+
+  private emitFirmware(
+    phase: FirmwarePhase,
+    message: string,
+    slot: number | null = null,
+    written = 0,
+    total = 0,
+  ): void {
+    this.onFirmware.emit({ phase, message, slot, written, total });
+  }
+
+  /**
+   * Écrit une image dans le slot inactif et mène la probation jusqu'au bout.
+   *
+   * Reprend la séquence de `npm run cli -- firmware-update`, qui est la seule à avoir été
+   * éprouvée de bout en bout. Ce n'est pas une réimplémentation : les deux appellent
+   * `flashInactiveSlot()`, et ce qui diffère n'est que la façon de rendre compte.
+   *
+   * **Jamais depuis un agent.** Le paramètre `source` n'est pas là pour être filtré par
+   * l'interrupteur de pilotage : écrire un firmware est refusé à `mcp` quoi qu'il arrive.
+   * Le pire qu'un réglage mal choisi puisse faire est de mal asservir un moteur ; une image
+   * fausse rend la carte muette, et la sortir de là demande une sonde et un tournevis. Ce
+   * n'est pas une décision qui se délègue.
+   */
+  async updateFirmware(
+    image: Uint8Array,
+    version: string,
+    source: LogSource = 'gui',
+  ): Promise<{ slot: number; committed: boolean }> {
+    if (source === 'mcp') {
+      throw new Error('firmware updates cannot be driven by an agent; use the interface');
+    }
+    if (this.updating) {
+      throw new Error('a firmware update is already running');
+    }
+    const { client } = this.require();
+    const info = this.info;
+    if (info === null) throw new Error('no device connected');
+    if ((info.capabilities & PROTO_CAP.BOOTLOADER) === 0) {
+      throw new Error('this firmware does not announce a bootloader');
+    }
+    if (image.length < 8) {
+      throw new Error('firmware image is too small to carry a vector table');
+    }
+
+    this.updating = true;
+    const sim = this.target?.kind === 'simulator';
+    const settle = (ms: number): Promise<void> => delay(sim ? 1 : ms);
+
+    try {
+      // La télémétrie ne survivrait pas aux redémarrages, et un flux qui se tait sans
+      // explication se lit comme une panne. On le coupe franchement.
+      this.detachTelemetry();
+
+      this.emitFirmware('entering', 'entering the bootloader');
+      this.log('info', source, `firmware update: ${image.length} bytes, version ${version}`);
+      await client.enterBootloader();
+      await this.disconnect(true);
+      await settle(750);
+
+      const boot = await this.reattach((c) => c.bootInfo());
+      let slot: number;
+      try {
+        const before = await this.bootInfo(boot);
+        slot = before.activeSlot === 1 ? 0 : 1;
+        const name = slot === 0 ? 'A' : 'B';
+
+        this.emitFirmware('erasing', `erasing slot ${name}`, slot);
+        slot = await boot.flashInactiveSlot(image, version, (written, total) => {
+          this.emitFirmware('writing', `writing slot ${name}`, slot, written, total);
+        });
+
+        this.emitFirmware('verifying', `verifying slot ${name}`, slot);
+        const staged = await this.bootInfo(boot);
+        const meta = staged.slots[slot];
+        if (staged.candidateSlot !== slot || meta === undefined || !meta.valid) {
+          throw new Error(`slot ${name} was written but not accepted as a candidate`);
+        }
+        this.log('info', source, `slot ${name} verified, crc ${hex(meta.crc32)}`);
+
+        this.emitFirmware('rebooting', 'restarting on the candidate', slot);
+        await boot.bootReboot();
+      } finally {
+        await boot.close().catch(() => undefined);
+      }
+
+      // Le candidat démarre, tient sa probation, écrit sa confirmation et redémarre une
+      // seconde fois. Se rattacher trop tôt prendrait sa première énumération — celle qui
+      // n'a encore rien prouvé — pour un succès.
+      this.emitFirmware('confirming', 'waiting for the candidate to confirm', slot);
+      await settle(4000);
+      const app = await this.reattach((c) => c.hello());
+      await app.close().catch(() => undefined);
+
+      // Vérifier que la promotion a bien eu lieu demande de repasser par le bootloader :
+      // c'est lui qui détient les métadonnées, et c'est le seul moyen de distinguer un
+      // candidat promu d'un rollback silencieux qui aurait tout remis comme avant.
+      const check = await this.reattach((c) => c.hello());
+      await check.enterBootloader();
+      await check.close().catch(() => undefined);
+      await settle(750);
+
+      const audit = await this.reattach((c) => c.bootInfo());
+      let committed = false;
+      try {
+        const after = await this.bootInfo(audit);
+        committed = after.activeSlot === slot && after.candidateSlot === 0xff;
+        this.log(
+          committed ? 'info' : 'error',
+          source,
+          committed
+            ? `firmware update committed on slot ${slot === 0 ? 'A' : 'B'}`
+            : `probation not committed: the board rolled back to slot ${
+                after.activeSlot === 0 ? 'A' : 'B'
+              }`,
+        );
+        await audit.bootReboot();
+      } finally {
+        await audit.close().catch(() => undefined);
+      }
+      await settle(750);
+
+      // Revenir à l'état où l'utilisateur nous a trouvés : connecté à l'application.
+      const t = this.target;
+      if (t !== null) await this.connect(t);
+
+      this.emitFirmware(
+        committed ? 'done' : 'failed',
+        committed
+          ? `slot ${slot === 0 ? 'A' : 'B'} is now active`
+          : 'the candidate did not confirm; the board rolled back',
+        slot,
+      );
+      return { slot, committed };
+    } catch (e) {
+      const why = describe(e);
+      this.log('error', source, `firmware update failed: ${why}`);
+      this.emitFirmware('failed', why);
+      // Une mise à jour interrompue laisse la carte quelque part entre deux états. Se
+      // reconnecter est ce qui permet de voir où, plutôt que de laisser l'interface
+      // afficher le dernier état connu comme s'il était toujours vrai.
+      const t = this.target;
+      if (t !== null) await this.connect(t).catch(() => undefined);
+      throw e;
+    } finally {
+      this.updating = false;
+    }
+  }
+
   /* ---------------------------------------------------------------- pilotage agent */
 
   /**
@@ -579,6 +822,10 @@ export class DeviceCore {
   get isAiControlEnabled(): boolean {
     return this.aiControl;
   }
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function hex(n: number): string {

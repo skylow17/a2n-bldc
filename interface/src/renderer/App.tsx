@@ -17,6 +17,7 @@ import { PROTO_CAP } from '../shared/protocol.js';
 import { Console } from './views/Console.js';
 import { Dashboard } from './views/Dashboard.js';
 import { Scope } from './views/Scope.js';
+import { Firmware } from './views/Firmware.js';
 import { Tuning } from './views/Tuning.js';
 
 type ViewId = 'dashboard' | 'control' | 'tuning' | 'recipes' | 'scope' | 'firmware';
@@ -63,8 +64,9 @@ const VIEWS: ViewDef[] = [
   {
     id: 'firmware',
     label: 'Firmware',
-    pending: 'later',
-    why: 'The A/B bootloader is not written; the board is programmed over SWD.',
+    pending: null,
+    requires: PROTO_CAP.BOOTLOADER,
+    why: 'This firmware does not announce a bootloader: the board is programmed over SWD.',
   },
 ];
 
@@ -264,6 +266,7 @@ export function App(): ReactNode {
             {view === 'dashboard' && <Dashboard state={state} />}
             {view === 'tuning' && <Tuning state={state} />}
             {view === 'scope' && currentBlocked === null && <Scope state={state} />}
+            {view === 'firmware' && currentBlocked === null && <Firmware state={state} />}
             {currentBlocked !== null && (
               <Empty
                 title={

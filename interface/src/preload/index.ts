@@ -13,6 +13,7 @@ import type { SignalDesc } from '../shared/protocol.js';
 import type {
   ConnectTarget,
   DeviceSnapshot,
+  FirmwareProgress,
   LogEntry,
   ScopeRequest,
   TelemetryState,
@@ -49,6 +50,11 @@ const api = {
     call<string | null>('device:saveText', suggestedName, contents),
   setAiControl: (enabled: boolean) => call<void>('device:setAiControl', enabled),
 
+  /** Boîte de dialogue native. `null` si l'utilisateur annule. */
+  pickFirmware: () => call<{ path: string; size: number } | null>('device:pickFirmware'),
+  updateFirmware: (path: string, version: string) =>
+    call<{ slot: number; committed: boolean }>('device:updateFirmware', path, version),
+
   onState: (listener: (s: DeviceSnapshot) => void): (() => void) => {
     const h = (_e: unknown, s: DeviceSnapshot): void => listener(s);
     ipcRenderer.on('device:state', h);
@@ -59,6 +65,12 @@ const api = {
     const h = (_e: unknown, entry: LogEntry): void => listener(entry);
     ipcRenderer.on('device:log', h);
     return () => ipcRenderer.removeListener('device:log', h);
+  },
+
+  onFirmware: (listener: (p: FirmwareProgress) => void): (() => void) => {
+    const h = (_e: unknown, p: FirmwareProgress): void => listener(p);
+    ipcRenderer.on('device:firmware', h);
+    return () => ipcRenderer.removeListener('device:firmware', h);
   },
 
   /** Trames de télémétrie, **par lots** : le main regroupe à ~30 Hz. */

@@ -348,3 +348,98 @@ describe('attribution dans le journal', () => {
     expect(logs.find((l) => l.text.startsWith('sampled '))?.source).toBe('gui');
   });
 });
+
+/**
+ * Mise à jour de firmware.
+ *
+ * C'est le seul geste de l'interface qui puisse rendre une carte injoignable. Le tester ici
+ * plutôt qu'en cliquant est moins un confort qu'une nécessité : la séquence traverse trois
+ * reconnexions, et une erreur au milieu ne se voit à l'écran que comme une carte qui ne
+ * revient pas.
+ */
+describe('mise à jour de firmware', () => {
+  /** Une image plausible pour le slot visé — le bootloader contrôle les vecteurs. */
+  function image(slot: number, bytes = 4096): Uint8Array {
+    const img = new Uint8Array(bytes);
+    const view = new DataView(img.buffer);
+    view.setUint32(0, 0x2001_ff00, true);
+    view.setUint32(4, (slot === 0 ? 0x0800_8000 : 0x0804_0000) + 0x201, true);
+    for (let i = 8; i < bytes; i++) img[i] = i & 0xff;
+    return img;
+  }
+
+  it('écrit le slot inactif et confirme la promotion', async () => {
+    const { core } = await connected();
+    const phases: string[] = [];
+    core.onFirmware.on((p) => phases.push(p.phase));
+
+    const result = await core.updateFirmware(image(1), '2.1.0');
+
+    expect(result).toEqual({ slot: 1, committed: true });
+    // Les phases servent à l'écran : chacune couvre un moment où la carte est absente du
+    // bus, et leur ordre est ce qui distingue une mise à jour d'une panne. `writing` se
+    // répète à chaque bloc — c'est la barre de progression ; on compare les transitions.
+    const steps = phases.filter((p, i) => p !== phases[i - 1]);
+    expect(steps).toEqual([
+      'entering',
+      'erasing',
+      'writing',
+      'verifying',
+      'rebooting',
+      'confirming',
+      'done',
+    ]);
+  });
+
+  it('revient connecté à l’application quand c’est fini', async () => {
+    // Laisser le DeviceCore en bootloader rendrait l'interface entière inutilisable après
+    // une mise à jour pourtant réussie.
+    const { core } = await connected();
+    await core.updateFirmware(image(1), '2.1.0');
+    expect(core.snapshot().connection).toBe('connected');
+    expect(core.snapshot().params.every((p) => p.value !== null)).toBe(true);
+  });
+
+  it('remonte la progression jusqu’au dernier octet', async () => {
+    const { core } = await connected();
+    let last = 0;
+    let total = 0;
+    core.onFirmware.on((p) => {
+      if (p.phase === 'writing') {
+        last = p.written;
+        total = p.total;
+      }
+    });
+    const img = image(1, 3000);
+    await core.updateFirmware(img, '2.1.0');
+    expect(total).toBe(img.length);
+    expect(last).toBe(img.length);
+  });
+
+  it('refuse une image qu’un agent lui demanderait d’écrire', async () => {
+    // Pas soumis à l'interrupteur de pilotage : refusé quoi qu'il arrive. Un mauvais
+    // réglage asservit mal un moteur ; une mauvaise image demande une sonde et un
+    // tournevis. Ce n'est pas une décision qui se délègue.
+    const { core } = await connected();
+    core.setAiControl(true);
+    await expect(core.updateFirmware(image(1), '2.1.0', 'mcp')).rejects.toThrow(/agent/);
+  });
+
+  it('refuse une image trop courte pour porter des vecteurs', async () => {
+    const { core } = await connected();
+    await expect(core.updateFirmware(new Uint8Array(4), '2.1.0')).rejects.toThrow(/too small/);
+  });
+
+  it('refuse sans device connecté', async () => {
+    const core = new DeviceCore();
+    await expect(core.updateFirmware(image(1), '2.1.0')).rejects.toThrow(/no device/);
+  });
+
+  it('journalise la mise à jour comme une action de l’interface', async () => {
+    const { core, logs } = await connected();
+    await core.updateFirmware(image(1), '2.1.0');
+    const entry = logs.find((l) => l.text.startsWith('firmware update:'));
+    expect(entry?.source).toBe('gui');
+    expect(logs.some((l) => l.text.includes('committed on slot B'))).toBe(true);
+  });
+});
