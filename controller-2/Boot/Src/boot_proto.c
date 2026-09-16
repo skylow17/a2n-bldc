@@ -29,13 +29,14 @@ static uint8_t       s_tx[FRAME_ENCODED_MAX];
 static uint8_t       s_payload[BOOT_WIRE_INFO_LEN];
 static BootSession_t s_session;
 
-/** Instant du `BOOT_REBOOT` accepté, ou 0. Non nul = plus aucune opération flash. */
-static uint32_t s_reboot_at;
+/** Un `BOOT_REBOOT` a été accepté : plus aucune opération flash, reset à l'échéance. */
+static bool     s_reboot_pending;
+static uint32_t s_reboot_deadline;
 
 void BootProto_Init(void)
 {
   (void)memset(&s_session, 0, sizeof(s_session));
-  s_reboot_at = 0U;
+  s_reboot_pending = false;
 }
 
 static void Send(uint16_t msg_id, uint8_t flags, uint8_t seq, const void *payload, uint16_t len)
@@ -221,9 +222,13 @@ static void OnReboot(uint8_t seq, uint16_t len)
   }
   SendOk(MSG_BOOT_REBOOT, seq, NULL, 0U);
 
-  /* `HAL_GetTick()` peut valoir 0 au tout premier tick : on décale d'un, sans quoi le
-   * redémarrage attendrait indéfiniment un instant qu'on a codé comme « rien en cours ». */
-  s_reboot_at = HAL_GetTick() | 1U;
+  /* Échéance dans le futur et comparaison signée, comme `proto.c` côté application. La
+   * première version stockait l'instant courant forcé impair (`| 1U`) pour le distinguer
+   * de « rien en cours » ; sur un tick pair, cela plaçait l'instant 1 ms *après* maintenant,
+   * la soustraction non signée débordait et la carte se réinitialisait avant d'avoir vidé
+   * sa réponse — une fois sur deux, exactement. Trouvé sur carte, pas en relecture. */
+  s_reboot_pending  = true;
+  s_reboot_deadline = HAL_GetTick() + BOOT_REBOOT_FLUSH_MS;
 }
 
 /* ------------------------------------------------------------------ aiguillage */
@@ -240,7 +245,7 @@ void BootProto_HandleFrame(uint16_t msg_id, uint8_t flags, uint8_t seq,
   /* Un reboot est en cours : la spec interdit toute autre opération flash pendant le délai
    * de vidage. Refuser explicitement vaut mieux qu'accepter une écriture qu'un reset
    * coupera en deux. */
-  if (s_reboot_at != 0U) {
+  if (s_reboot_pending) {
     BootProto_SendError(msg_id, seq, PROTO_ERR_BUSY);
     return;
   }
@@ -264,10 +269,10 @@ void BootProto_HandleFrame(uint16_t msg_id, uint8_t flags, uint8_t seq,
 
 void BootProto_Process(void)
 {
-  if (s_reboot_at == 0U) {
+  if (!s_reboot_pending) {
     return;
   }
-  if ((HAL_GetTick() - s_reboot_at) < BOOT_REBOOT_FLUSH_MS) {
+  if ((int32_t)(HAL_GetTick() - s_reboot_deadline) < 0) {
     return;
   }
   NVIC_SystemReset();
