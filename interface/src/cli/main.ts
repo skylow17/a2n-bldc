@@ -25,7 +25,7 @@ import {
   type ParamDictionary,
 } from '../shared/params.js';
 import { PROTO_CAP, ScopeTrigger, type DeviceInfo } from '../shared/protocol.js';
-import { SimulatedDevice } from '../shared/simulator.js';
+import { SimulatedDevice, newSimFlash } from '../shared/simulator.js';
 import type { Transport } from '../shared/transport.js';
 import { SerialTransport, findBoardPorts, listSerialPorts } from '../node/serial.js';
 
@@ -83,11 +83,34 @@ function flagsText(p: ParamDesc): string {
 interface GlobalOptions {
   port?: string;
   sim: boolean;
+  /**
+   * L'image candidate ne confirme jamais sa probation.
+   *
+   * Reproduit `Boot/Test/trial_fail.s` sans carte. Le rollback automatique repose sur
+   * l'**absence** d'une confirmation, jamais sur un signal d'erreur : c'est un chemin qui ne
+   * s'exerce pas en provoquant une panne, seulement en n'en signalant aucune.
+   */
+  simTrialFail: boolean;
   timeout: number;
 }
 
+/**
+ * Flash de la carte simulee, partagee par tous les transports de ce processus.
+ *
+ * Une mise a jour A/B traverse trois reconnexions. Si chacune fabriquait une carte neuve,
+ * ce qu'on vient d'ecrire disparaitrait precisement au moment ou il faut le relire, et
+ * `firmware-update --sim` ne pourrait jamais aboutir. Une vraie carte garde sa flash a
+ * travers une re-enumeration USB ; celle-ci aussi.
+ */
+const simFlash = newSimFlash();
+
 async function openTransport(o: GlobalOptions): Promise<Transport> {
-  if (o.sim) return new SimulatedDevice();
+  if (o.sim) {
+    return new SimulatedDevice({
+      flash: simFlash,
+      trialOutcome: o.simTrialFail ? 'fail' : 'confirm',
+    });
+  }
 
   let path = o.port;
   if (path === undefined) {
@@ -653,6 +676,7 @@ ${head('Commands')}
 ${head('Options')}
   --port <COMx>            serial port; otherwise the board is found by its USB ids
   --sim                    simulated device, no hardware needed
+  --sim-trial-fail         with --sim: the candidate never confirms, forcing a rollback
   --timeout <ms>           response timeout (default 1000)
 
 ${head('Examples')}
@@ -667,6 +691,7 @@ async function main(): Promise<number> {
     options: {
       port: { type: 'string' },
       sim: { type: 'boolean', default: false },
+      'sim-trial-fail': { type: 'boolean', default: false },
       timeout: { type: 'string', default: '1000' },
       help: { type: 'boolean', short: 'h', default: false },
     },
@@ -682,6 +707,7 @@ async function main(): Promise<number> {
   const o: GlobalOptions = {
     ...(values.port !== undefined && { port: values.port }),
     sim: values.sim,
+    simTrialFail: values['sim-trial-fail'] === true,
     timeout: Number(values.timeout) || 1000,
   };
 

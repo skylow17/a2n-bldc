@@ -36,8 +36,21 @@ describe('handshake', () => {
     const { client } = connect();
     const info = await client.hello();
     // Un bit levé ici sans code derrière ferait proposer à l'UI un bouton qui échoue.
-    expect(info.capabilities).toBe(PROTO_CAP.TELEMETRY | PROTO_CAP.SCOPE);
+    // L'inverse coûte aussi : le simulateur implémentait les six messages du bootloader
+    // sans lever BOOT, et `firmware-update` refusait de démarrer — le chemin d'écriture
+    // était donc intestable, sur simulateur comme ailleurs.
+    expect(info.capabilities).toBe(
+      PROTO_CAP.TELEMETRY | PROTO_CAP.SCOPE | PROTO_CAP.BOOTLOADER,
+    );
     expect(info.telemSignalCount).toBe(DEFAULT_SIM_SIGNALS.length);
+  });
+
+  it('ne lève NVM, CAN ni encodeur, qui ne sont pas implémentés', async () => {
+    const { client } = connect();
+    const info = await client.hello();
+    expect(info.capabilities & PROTO_CAP.NVM).toBe(0);
+    expect(info.capabilities & PROTO_CAP.CAN).toBe(0);
+    expect(info.capabilities & PROTO_CAP.ENCODER_INC).toBe(0);
   });
 });
 

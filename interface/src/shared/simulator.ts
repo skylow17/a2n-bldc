@@ -82,6 +82,51 @@ export interface SimulatorOptions {
   latencyMs?: number;
   /** Fraction de trames émises volontairement corrompues, pour éprouver la reprise. */
   corruptionRate?: number;
+  /**
+   * Flash persistante à réutiliser. Omettre revient à prendre une carte neuve ; passer le
+   * même objet à plusieurs transports simule plusieurs branchements de la même carte, ce
+   * qu'une mise à jour A/B traverse trois fois.
+   */
+  flash?: SimFlash;
+  /**
+   * Ce que fait l'image candidate pendant sa probation.
+   *
+   * `confirm` est le chemin nominal. `fail` modélise `Boot/Test/trial_fail.s` : l'image
+   * démarre et ne confirme jamais, ce qui doit produire un rollback au démarrage suivant.
+   * C'est le seul moyen d'éprouver ce chemin sans carte.
+   */
+  trialOutcome?: 'confirm' | 'fail';
+}
+
+/**
+ * Partie non volatile de la carte simulée : les deux slots, leurs métadonnées, et où en est
+ * la séquence A/B. Un appelant qui veut simuler plusieurs branchements de la **même** carte
+ * partage cet objet entre les transports successifs ; en créer un nouveau revient à prendre
+ * une carte neuve.
+ */
+export interface SimFlash {
+  activeSlot: number;
+  candidateSlot: number;
+  /** Le candidat a déjà été essayé : le prochain démarrage sans confirmation le rejette. */
+  candidateAttempted: boolean;
+  /** L'image qui va s'exécuter est en probation et doit confirmer. */
+  trialPending: boolean;
+  slots: Uint8Array[];
+  meta: { imageSize: number; crc32: number; valid: boolean; version: string }[];
+}
+
+export function newSimFlash(): SimFlash {
+  return {
+    activeSlot: 0,
+    candidateSlot: 0xff,
+    candidateAttempted: false,
+    trialPending: false,
+    slots: [new Uint8Array(224 * 1024).fill(0xff), new Uint8Array(224 * 1024).fill(0xff)],
+    meta: [
+      { imageSize: 0, crc32: 0, valid: false, version: '' },
+      { imageSize: 0, crc32: 0, valid: false, version: '' },
+    ],
+  };
 }
 
 export class SimulatedDevice implements Transport {
@@ -111,14 +156,17 @@ export class SimulatedDevice implements Transport {
   };
   private scopeSamples: number[][] = [];
   private scopeStartedUs = 0;
-  private bootActiveSlot = 0;
-  private bootCandidateSlot = 0xff;
+  /**
+   * Ce qui survit à une reconnexion, comme la flash d'une vraie carte.
+   *
+   * Sans ça, chaque `new SimulatedDevice()` repartait d'une carte sortie d'usine — or une
+   * mise à jour A/B se déroule justement à travers trois reconnexions. Le chemin d'écriture
+   * était donc intestable : tout ce qu'on venait d'écrire disparaissait au moment précis où
+   * il aurait fallu le relire.
+   */
+  private readonly flash: SimFlash;
+  /** Effacements de la session courante : volatil, un reset les oublie. Comme le firmware. */
   private bootErased = new Set<number>();
-  private readonly bootSlots = [new Uint8Array(224 * 1024).fill(0xff), new Uint8Array(224 * 1024).fill(0xff)];
-  private readonly bootMeta = [
-    { imageSize: 0, crc32: 0, valid: false, version: '' },
-    { imageSize: 0, crc32: 0, valid: false, version: '' },
-  ];
 
   readonly description = 'simulator';
 
@@ -131,9 +179,68 @@ export class SimulatedDevice implements Transport {
       dictPageSize: options.dictPageSize ?? 6,
       latencyMs: options.latencyMs ?? 0,
       corruptionRate: options.corruptionRate ?? 0,
+      flash: options.flash ?? newSimFlash(),
+      trialOutcome: options.trialOutcome ?? 'confirm',
     };
+    this.flash = this.opts.flash;
+    // Pas d'appel a onPowerUp() ici : construire un transport, c'est brancher un cable, pas
+    // appuyer sur reset. Une vraie carte traverse une re-enumeration USB sans redemarrer —
+    // et c'est vital pour la probation, dont la marque "essaye" est justement ce qui
+    // declenche le rollback au demarrage SUIVANT. Confondre les deux faisait echouer toute
+    // mise a jour a la premiere reconnexion.
     this.dictHash = paramDictHash(this.params);
     this.resetValues();
+  }
+
+  /**
+   * Ce que fait le bootloader au démarrage, modélisé d'après `Boot/Src/boot_flash.c`.
+   *
+   * L'ordre est celui du firmware, et il compte : la marque « essayé » est posée **avant**
+   * que le candidat ne s'exécute. Un candidat qui ne confirme pas est donc abandonné au
+   * démarrage suivant, sans qu'il ait eu à signaler quoi que ce soit — c'est le rollback
+   * automatique, et il repose sur l'absence d'un message, jamais sur sa présence.
+   */
+  private onPowerUp(): void {
+    const f = this.flash;
+    if (f.candidateSlot === 0xff || !f.meta[f.candidateSlot]?.valid) {
+      f.candidateSlot = 0xff;
+      f.candidateAttempted = false;
+      f.trialPending = false;
+      return;
+    }
+    if (!f.candidateAttempted) {
+      f.candidateAttempted = true;
+      f.trialPending = true;
+      return;
+    }
+    // Deuxième passage sans confirmation entre-temps : l'essai a échoué. L'image reste
+    // valide en flash — un rollback choisit, il ne détruit pas.
+    f.candidateSlot = 0xff;
+    f.candidateAttempted = false;
+    f.trialPending = false;
+  }
+
+  /**
+   * L'application candidate atteint son point de santé et confirme.
+   *
+   * Déclenché au premier `HELLO` : côté carte, la confirmation vient de la superloop une
+   * fois la boucle temps réel prouvée vivante, et `HELLO` est le premier signe équivalent
+   * qu'un hôte puisse observer ici.
+   */
+  private confirmTrialIfAny(): void {
+    const f = this.flash;
+    if (!f.trialPending) return;
+    f.trialPending = false;
+    if (this.opts.trialOutcome === 'fail') {
+      // L'image démarre et ne confirme jamais : `Boot/Test/trial_fail.s`. La marque
+      // « essayé » reste posée, et le prochain démarrage fera le rollback.
+      return;
+    }
+    if (f.candidateSlot !== 0xff && f.meta[f.candidateSlot]?.valid === true) {
+      f.activeSlot = f.candidateSlot;
+      f.candidateSlot = 0xff;
+      f.candidateAttempted = false;
+    }
   }
 
   get isOpen(): boolean {
@@ -235,6 +342,7 @@ export class SimulatedDevice implements Transport {
   private onFrame(msgId: number, seq: number, payload: Uint8Array): void {
     switch (msgId) {
       case MSG.HELLO:
+        this.confirmTrialIfAny();
         this.replyFrame(MSG.DEVICE_INFO, seq, this.deviceInfoPayload());
         break;
       case MSG.PARAM_DICT_GET:
@@ -293,15 +401,22 @@ export class SimulatedDevice implements Transport {
         break;
       case MSG.BOOT_ROLLBACK:
         if (payload.length !== 0) this.replyError(MSG.BOOT_ROLLBACK, seq, PROTO_ERR.LEN);
-        else if (this.bootCandidateSlot === 0xff) this.replyError(MSG.BOOT_ROLLBACK, seq, PROTO_ERR.STATE);
-        else { this.bootCandidateSlot = 0xff; this.replyFrame(MSG.BOOT_ROLLBACK, seq, new Uint8Array(0)); }
+        else if (this.flash.candidateSlot === 0xff) this.replyError(MSG.BOOT_ROLLBACK, seq, PROTO_ERR.STATE);
+        else {
+          this.flash.candidateSlot = 0xff;
+          this.flash.candidateAttempted = false;
+          this.replyFrame(MSG.BOOT_ROLLBACK, seq, new Uint8Array(0));
+        }
         break;
       case MSG.BOOT_REBOOT:
         if (payload.length !== 0) this.replyError(MSG.BOOT_REBOOT, seq, PROTO_ERR.LEN);
         else {
-          if (this.bootCandidateSlot !== 0xff) this.bootActiveSlot = this.bootCandidateSlot;
-          this.bootCandidateSlot = 0xff;
+          // Redémarre : ça ne promeut rien. La version précédente rendait le candidat actif
+          // sur-le-champ, ce qui faisait disparaître la probation — donc le rollback avec
+          // elle, et toute la raison d'avoir deux slots. C'est `onPowerUp()` qui décide.
           this.replyFrame(MSG.BOOT_REBOOT, seq, new Uint8Array(0));
+          this.bootErased.clear();
+          this.onPowerUp();
         }
         break;
       default:
@@ -326,7 +441,10 @@ export class SimulatedDevice implements Transport {
       .u32(0xdead0003)
       .u16(this.params.length)
       .u16(DEFAULT_SIM_SIGNALS.length)
-      .u32(PROTO_CAP.TELEMETRY | PROTO_CAP.SCOPE)
+      // Le simulateur implemente les six messages du bootloader (§8) : ne pas lever le bit
+      // rendait `firmware-update` impossible a exercer ici, et le chemin d'ecriture — erase,
+      // fragmentage, CRC, probation — n'avait alors jamais tourne nulle part.
+      .u32(PROTO_CAP.TELEMETRY | PROTO_CAP.SCOPE | PROTO_CAP.BOOTLOADER)
       .build();
   }
 
@@ -485,9 +603,10 @@ export class SimulatedDevice implements Transport {
     };
     const w = new PayloadWriter()
       .u16(0x0200).raw(fixed('0.1.0'))
-      .u8(this.bootActiveSlot).u8(this.bootCandidateSlot).u8(0).u8(0);
+      .u8(this.flash.activeSlot).u8(this.flash.candidateSlot)
+      .u8(this.flash.candidateAttempted ? 1 : 0).u8(0);
     for (let slot = 0; slot < 2; slot++) {
-      const meta = this.bootMeta[slot]!;
+      const meta = this.flash.meta[slot]!;
       w.u32(slot === 0 ? 0x08008000 : 0x08040000)
         .u32(224 * 1024)
         .u32(meta.imageSize)
@@ -503,11 +622,11 @@ export class SimulatedDevice implements Transport {
       return this.replyError(MSG.BOOT_ERASE, seq, PROTO_ERR.LEN);
     }
     const slot = payload[0]!;
-    if (slot > 1 || slot === this.bootActiveSlot) {
+    if (slot > 1 || slot === this.flash.activeSlot) {
       return this.replyError(MSG.BOOT_ERASE, seq, PROTO_ERR.STATE);
     }
-    this.bootSlots[slot]!.fill(0xff);
-    this.bootMeta[slot] = { imageSize: 0, crc32: 0, valid: false, version: '' };
+    this.flash.slots[slot]!.fill(0xff);
+    this.flash.meta[slot] = { imageSize: 0, crc32: 0, valid: false, version: '' };
     this.bootErased.add(slot);
     this.replyFrame(MSG.BOOT_ERASE, seq, payload);
   }
@@ -522,11 +641,11 @@ export class SimulatedDevice implements Transport {
         offset % 8 !== 0 || payload.length !== 8 + length) {
       return this.replyError(MSG.BOOT_WRITE, seq, PROTO_ERR.LEN);
     }
-    if (slot > 1 || slot === this.bootActiveSlot || !this.bootErased.has(slot) ||
-        offset + length > this.bootSlots[slot]!.length) {
+    if (slot > 1 || slot === this.flash.activeSlot || !this.bootErased.has(slot) ||
+        offset + length > this.flash.slots[slot]!.length) {
       return this.replyError(MSG.BOOT_WRITE, seq, PROTO_ERR.STATE);
     }
-    this.bootSlots[slot]!.set(payload.subarray(8), offset);
+    this.flash.slots[slot]!.set(payload.subarray(8), offset);
     this.replyFrame(MSG.BOOT_WRITE, seq, payload.subarray(0, 8));
   }
 
@@ -537,8 +656,8 @@ export class SimulatedDevice implements Transport {
     const size = view.getUint32(4, true);
     const expected = view.getUint32(8, true);
     const base = slot === 0 ? 0x08008000 : 0x08040000;
-    const image = this.bootSlots[slot];
-    if (slot > 1 || image === undefined || !this.bootErased.has(slot) || slot === this.bootActiveSlot ||
+    const image = this.flash.slots[slot];
+    if (slot > 1 || image === undefined || !this.bootErased.has(slot) || slot === this.flash.activeSlot ||
         size < 8 || size > image.length) {
       return this.replyError(MSG.BOOT_VERIFY, seq, PROTO_ERR.STATE);
     }
@@ -551,8 +670,8 @@ export class SimulatedDevice implements Transport {
       return this.replyError(MSG.BOOT_VERIFY, seq, PROTO_ERR.FLASH);
     }
     const version = new TextDecoder().decode(payload.subarray(12, 28)).replace(/\0.*$/s, '');
-    this.bootMeta[slot] = { imageSize: size, crc32: expected, valid: true, version };
-    this.bootCandidateSlot = slot;
+    this.flash.meta[slot] = { imageSize: size, crc32: expected, valid: true, version };
+    this.flash.candidateSlot = slot;
     this.replyFrame(MSG.BOOT_VERIFY, seq, new Uint8Array(0));
   }
 
