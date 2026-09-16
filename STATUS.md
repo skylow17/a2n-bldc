@@ -27,6 +27,7 @@ Dernière revue : 2026-09-16.
 | **M1b** | Codec binaire COBS + CRC16, dictionnaire de paramètres | Validé sur une carte, **non reproductible depuis le dépôt** | Reconstruire, puis rejouer la recette |
 | **M1c** | Télémétrie souscrite + buffer scope | Code réécrit le 2026-09-16, testé hors cible, **jamais compilé pour la cible** | Installer la toolchain ARM, compiler ; rejouer `telem` et `scope` sur carte |
 | **M1d** | CLI de bring-up | Validé sur simulateur | Export de capture (le tracé existe dans l'interface) ; `telem` et `scope` dépendent de M1c côté carte |
+| **Boot** | Bootloader A/B, probation et rollback | Écrit le 2026-09-16, logique testée hors cible, **jamais compilé** | Compiler les trois images ; installer par SWD ; recette nominale puis test négatif |
 | **M2** | Étage de puissance et capteurs (étapes 2 à 9) | Pas commencé | — |
 | **M3** | Asservissements (étapes 10 à 13) | Pas commencé | — |
 
@@ -56,37 +57,50 @@ Le même défaut avait déjà été relevé une fois, sur un seul fichier
 surveillait. C'est maintenant le cas : `python tools/status.py sources` lit le `Makefile` et
 vérifie que chaque fichier du dépôt qu'il cite existe — sans toolchain, donc exécutable partout.
 
-### Ce qui manque encore au dépôt
+### Ce qui manquait au dépôt
 
-Écrits le 2026-09-16 : `comm/signals.{c,h}`, `comm/scope.{c,h}`, `boot_shared.{c,h}`.
+**Plus rien** : `python tools/status.py sources` lit le `Makefile` et confirme que chacun des
+fichiers qu'il cite existe. Les douze manquants ont été écrits le 2026-09-16 — `comm/signals`,
+`comm/scope` et `boot_shared` d'abord, puis les neuf que réclamaient `make boot-images` et
+`make install-bootloader`.
 
-**L'image autonome a désormais toutes ses sources** — `python tools/status.py sources` le vérifie
-et le dit. Les neuf fichiers restants ne servent qu'aux cibles `make boot-images` et
-`make install-bootloader` :
-
-| Fichier | Rôle |
-|---|---|
-| `Boot/Src/boot_main.c`, `boot_it.c`, `boot_flash.c`, `boot_proto.c`, `boot_rx.c` | Le bootloader lui-même |
-| `Boot/Test/trial_fail.s` | Image inerte du test négatif de rollback |
-| `ld/stm32g473ce_boot.ld`, `stm32g473ce_slotB.ld`, `stm32g473ce_trial_fail_A.ld` | Linkers bootloader, slot B, test négatif |
+Ce qui existe n'est pas pour autant vérifié : « présent » et « compilé » sont deux états
+différents, et aucune de ces sources n'a encore vu un compilateur ARM.
 
 ### Bootloader A/B
 
-Ce qui existe : la spécification (`docs/protocol.md` §8), `MSG_BOOT_ENTER` côté firmware dans
-`proto.c`, le linker du slot A, les cibles `make boot-images` / `make install-bootloader`, le codec
-et le client d'upload côté PC, `npm run cli -- boot-check` qui passe sur simulateur, et depuis le
-2026-09-16 **`boot_shared.c`** — le côté application de la poignée de main SRAM : consommation du
-message laissé par le bootloader, confirmation de probation, demande d'entrée en bootloader. Sa
-décision de confirmation est testée hors cible.
+Ce qui existe désormais, **écrit sans toolchain ARM et donc jamais compilé** :
 
-Ce qui n'existe pas : **le bootloader lui-même**. Ni son code, ni ses linkers, ni les métadonnées
-A/B alternées, ni l'armement IWDG. Rien n'a été installé sur une carte, et l'installation initiale
-— qui efface la flash applicative — n'a jamais été ni autorisée ni exécutée.
+| Fichier | Rôle |
+|---|---|
+| `Boot/Src/boot_flash.c` | Géométrie, métadonnées alternées, règles de validation |
+| `Boot/Src/boot_proto.c` | Les six messages de la §8 |
+| `Boot/Src/boot_rx.c` | Réception, canal binaire seul |
+| `Boot/Src/boot_main.c` | Séquence de démarrage, probation, saut |
+| `Boot/Src/boot_it.c` | Deux vecteurs : SysTick et USB |
+| `Boot/Test/trial_fail.s` | Image inerte du test négatif de rollback |
+| `ld/stm32g473ce_boot.ld`, `stm32g473ce_slotB.ld`, `stm32g473ce_trial_fail_A.ld` | Linkers |
+| `Core/Src/boot_shared.c` | La poignée de main SRAM, maintenant des **deux** côtés |
 
-Il n'est volontairement pas écrit tant qu'aucune toolchain ARM n'est installée sur le poste : c'est
-du code de sûreté qu'on ne peut ni compiler ni tester ici, et dont l'installation efface la flash.
-Écrire à l'aveugle un module de cette nature est précisément ce qui a produit l'état trouvé le
-2026-09-16.
+Ce qui est **vérifié** : la logique de `boot_flash.c` — CRC-32, géométrie, plausibilité des
+vecteurs, encodage et relecture des métadonnées, choix entre les deux pages y compris au
+rebouclage du compteur de génération, règles d'effacement, d'écriture et de vérification,
+séquence candidat / probation / rollback, réponse `BOOT_INFO`. 117 vérifications hors cible,
+`python controller-2/tools/hosttest/run.py`. C'est là que vivent les décisions qui peuvent
+briquer une carte, et c'est pour cela qu'elles sont écrites séparées du matériel.
+
+Ce qui n'est **pas** vérifié, et ne peut pas l'être ici : que tout cela compile. Ni l'effacement
+et la programmation réels, ni l'armement IWDG, ni le saut vers un slot, ni l'énumération USB du
+bootloader, ni la taille de l'image — qui doit tenir dans 32 ko et dont le dépassement ne se
+verra qu'au link. Rien n'a été installé sur une carte, et l'installation initiale — qui efface la
+flash applicative — n'a jamais été ni autorisée ni exécutée.
+
+**Ordre de recette, quand la toolchain sera là** : compiler les trois images ; vérifier la taille
+du bootloader ; installer par SWD sur une carte dont on accepte de perdre le contenu ; `BOOT_INFO`
+doit répondre ; mettre à jour le slot inactif avec un firmware sain et confirmer la promotion ;
+**puis seulement** rejouer la même séquence avec `make boot-trial-fail-a`, qui ne confirme jamais,
+pour prouver le rollback. Le test négatif en dernier : il n'a de valeur que si le chemin nominal a
+déjà marché.
 
 ### Questions de protocole ouvertes
 

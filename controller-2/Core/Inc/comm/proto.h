@@ -30,6 +30,12 @@
 #define MSG_SCOPE_STATUS          0x0052U
 #define MSG_SCOPE_READ            0x0053U
 #define MSG_BOOT_ENTER            0x0070U
+#define MSG_BOOT_INFO             0x0071U
+#define MSG_BOOT_ERASE            0x0072U
+#define MSG_BOOT_WRITE            0x0073U
+#define MSG_BOOT_VERIFY           0x0074U
+#define MSG_BOOT_ROLLBACK         0x0075U
+#define MSG_BOOT_REBOOT           0x0076U
 
 /* Codes d'erreur — docs/protocol.md §2. */
 #define PROTO_ERR_CRC       1U

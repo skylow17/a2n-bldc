@@ -420,6 +420,26 @@ confirmation efface le candidat et repart sur l'ancien slot : c'est le rollback 
 `BOOT_ROLLBACK` a un payload et une réponse vides. Il annule un candidat en attente ; sans candidat,
 il répond `ERR_STATE`. Il ne rend jamais exécutable une image invalide.
 
+### Codes d'erreur du bootloader
+
+La spécification laissait ces cas ouverts, et firmware et simulateur avaient commencé à y
+répondre différemment. Un écart de ce genre ne se voit qu'au moment où l'on branche une carte,
+après que tout est passé au vert sur simulateur :
+
+| Cas | Code |
+|---|---|
+| Payload de mauvaise longueur, `data_len` hors bornes ou non multiple de 8, `offset` non multiple de 8 | `ERR_LEN` |
+| Slot inexistant, slot actif, slot non effacé dans la session, écriture ou vérification hors capacité | `ERR_STATE` |
+| `BOOT_ROLLBACK` sans candidat en attente | `ERR_STATE` |
+| CRC ou vecteurs de l'image refusés par `BOOT_VERIFY` | `ERR_FLASH` |
+| Effacement ou programmation refusés par le contrôleur de flash, métadonnées non enregistrées | `ERR_FLASH` |
+| Toute opération pendant le délai de vidage de `BOOT_REBOOT` | `ERR_BUSY` |
+| Message que le bootloader n'implémente pas — paramètres, télémétrie, moteur | `ERR_ID` |
+
+`ERR_CRC` reste réservé au lien : il désigne une trame corrompue, que l'hôte réémettra. Une
+image dont le CRC ne tombe pas juste n'est pas un problème de transmission, et la réémettre ne
+servirait à rien — d'où `ERR_FLASH`.
+
 `BOOT_REBOOT` a un payload et une réponse vides. Le bootloader met d'abord la réponse en file,
 attend 50 ms sans accepter d'autre opération flash, puis redémarre. Si un candidat vient d'être
 vérifié, la séquence probatoire ci-dessus commence ; sinon le slot actif reste inchangé.

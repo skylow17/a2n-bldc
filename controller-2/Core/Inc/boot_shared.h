@@ -99,6 +99,34 @@ void BootShared_RequestEnter(void);
  */
 bool BootShared_ShouldConfirm(uint32_t elapsed_ms, uint32_t ticks_advanced, bool pwm_enabled);
 
+#ifdef BOOT_IMAGE
+/* ------------------------------------------------------------------ côté bootloader
+ *
+ * L autre bout du même protocole. Ces trois fonctions ne sont bâties que dans l image du
+ * bootloader — l application n a rien à en faire, et les exposer des deux côtés inviterait
+ * à confirmer sa propre probation.
+ */
+
+/**
+ * @brief L application a-t-elle demandé à rester en mise à jour ? Consomme le message.
+ *
+ * Appelé une fois, tôt. Après cet appel la zone est neutre : une coupure d alimentation ne
+ * peut donc pas laisser la carte bloquée en bootloader.
+ */
+bool BootShared_TakeEnter(void);
+
+/**
+ * @brief Le candidat a-t-il atteint son point de santé ? Consomme le message.
+ *
+ * C est ce mot, et lui seul, qui autorise la promotion du candidat. Son absence vaut échec :
+ * le rollback est le comportement par défaut, pas une réaction à un signal d erreur.
+ */
+bool BootShared_TakeConfirm(void);
+
+/** Marque l exécution qui suit comme une probation. Écrit juste avant le saut. */
+void BootShared_MarkTrial(void);
+#endif /* BOOT_IMAGE */
+
 #ifdef __cplusplus
 }
 #endif

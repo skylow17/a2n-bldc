@@ -41,12 +41,18 @@ SUITES = [
     ], []),
     # boot_shared.c se compile ici sans HAL ni zone SRAM partagee : le define ne laisse que
     # la fonction de decision, qui est la seule partie qui tranche quoi que ce soit.
+    # boot_flash.c est coupe en deux par BOOT_FLASH_HOSTTEST : la moitie materielle demande
+    # le HAL, la moitie qui decide ne demande rien. C'est celle-ci qui peut briquer une carte.
+    ("Bootloader — metadonnees A/B et validation", "test_boot_flash.c", [
+        "Boot/Src/boot_flash.c",
+    ], ["BOOT_FLASH_HOSTTEST"]),
     ("Bootloader — decision de probation", "test_boot_shared.c", [
         "Core/Src/boot_shared.c",
     ], ["BOOT_SHARED_HOSTTEST"]),
 ]
 
-INCLUDES = [os.path.join(HERE, "shim"), os.path.join(FW, "Core", "Inc")]
+INCLUDES = [os.path.join(HERE, "shim"), os.path.join(FW, "Core", "Inc"),
+            os.path.join(FW, "Boot", "Inc")]
 
 
 def find_compiler():

@@ -1,13 +1,19 @@
 /**
  * @file boot_shared.c
- * @brief Côté application de la poignée de main SRAM. Voir boot_shared.h.
+ * @brief Poignée de main SRAM, des deux côtés. Voir boot_shared.h.
+ *
+ * Un seul fichier pour les deux images, parce que c est un protocole à deux bouts : les
+ * séparer laisserait les deux moitiés diverger sans que rien ne le signale. BOOT_IMAGE,
+ * posé par le Makefile, choisit le bout à bâtir.
  */
 #include "boot_shared.h"
 
 #ifndef BOOT_SHARED_HOSTTEST
 #include "board.h"
+#ifndef BOOT_IMAGE
 #include "ctrl.h"
 #include "pwm.h"
+#endif
 #endif
 
 /* ---------------------------------------------------------------- decision
@@ -74,6 +80,8 @@ static void Clear(void)
 
 /* ---------------------------------------------------------------- etat */
 
+#ifndef BOOT_IMAGE
+
 static bool     s_trial;
 static bool     s_confirmed;
 static uint32_t s_start_ms;
@@ -133,5 +141,37 @@ void BootShared_RequestEnter(void)
   Write(BOOT_SHARED_ENTER);
   NVIC_SystemReset();
 }
+
+#else /* BOOT_IMAGE ---------------------------------------------- côté bootloader */
+
+/* Le consommateur efface, ici comme en face. Chaque message est lu une fois puis invalidé :
+ * un mot qui survivrait à sa lecture se rejouerait au reset suivant, et une coupure
+ * d alimentation pendant une mise à jour bloquerait la carte en bootloader — précisément ce
+ * que la spécification interdit (../../docs/protocol.md §8). */
+
+bool BootShared_TakeEnter(void)
+{
+  const bool asked = (Read() == BOOT_SHARED_ENTER);
+  if (asked) {
+    Clear();
+  }
+  return asked;
+}
+
+bool BootShared_TakeConfirm(void)
+{
+  const bool confirmed = (Read() == BOOT_SHARED_CONFIRM);
+  if (confirmed) {
+    Clear();
+  }
+  return confirmed;
+}
+
+void BootShared_MarkTrial(void)
+{
+  Write(BOOT_SHARED_TRIAL);
+}
+
+#endif /* BOOT_IMAGE */
 
 #endif /* BOOT_SHARED_HOSTTEST */

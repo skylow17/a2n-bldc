@@ -97,6 +97,7 @@ BOOT_C_SOURCES := \
   Boot/Src/boot_flash.c \
   Boot/Src/boot_proto.c \
   Boot/Src/boot_rx.c \
+  Core/Src/boot_shared.c \
   Core/Src/board_clock.c \
   Core/Src/link_usb.c \
   Core/Src/comm/crc16.c \
@@ -158,6 +159,12 @@ C_INCLUDES := \
 C_DEFS := -DUSE_HAL_DRIVER -DSTM32G473xx
 ifneq ($(filter slot-a slot-b,$(IMAGE)),)
 C_DEFS += -DAPP_WITH_BOOTLOADER
+endif
+# La poignee de main SRAM est un seul fichier pour les deux images : c est un protocole a
+# deux bouts, et le separer laisserait les deux moities diverger sans que rien ne le dise.
+# BOOT_IMAGE choisit le bout a batir.
+ifeq ($(IMAGE),bootloader)
+C_DEFS += -DBOOT_IMAGE
 endif
 ifeq ($(DEBUG),1)
 C_DEFS += -DDEBUG
