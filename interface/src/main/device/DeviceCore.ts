@@ -229,14 +229,23 @@ export class DeviceCore {
    * ce qui a été demandé plutôt que ce qui a été retenu est précisément le genre de mensonge
    * qui fait régler un régulateur à l'aveugle.
    */
+  /**
+   * Barrière de pilotage par agent. Toute écriture d'origine `mcp` passe par ici, et par
+   * ici seulement : la règle vaut pour n'importe quelle commande future, pas seulement
+   * pour l'écriture de paramètre qui l'a introduite.
+   */
+  private requireAiControl(source: LogSource): void {
+    if (source === 'mcp' && !this.aiControl) {
+      throw new Error('AI control is off: enable it in the interface before driving from an agent');
+    }
+  }
+
   async writeParam(idOrName: number | string, value: number, source: LogSource = 'gui'): Promise<number> {
     const { client, dict } = this.require();
     const p = dict.get(idOrName);
     if (p === undefined) throw new Error(`unknown parameter: ${idOrName}`);
 
-    if (source === 'mcp' && !this.aiControl) {
-      throw new Error('AI control is off: enable it in the interface before driving from an agent');
-    }
+    this.requireAiControl(source);
 
     const clamped = clampToParam(p, value);
     const [res] = await client.writeParams([{ id: p.id, value: clamped }]);
@@ -257,6 +266,9 @@ export class DeviceCore {
 
   async resetDefaults(source: LogSource = 'gui'): Promise<void> {
     const { client } = this.require();
+    // Remettre tout le dictionnaire aux valeurs par défaut est une écriture, et la plus
+    // large qui soit : elle est au moins aussi gated qu'une écriture unitaire.
+    this.requireAiControl(source);
     await client.resetDefaults();
     this.log('info', source, 'parameters reset to defaults');
     await this.refreshValues();

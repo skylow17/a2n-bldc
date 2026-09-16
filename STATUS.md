@@ -46,7 +46,8 @@ qui n'ont jamais existé dans le dépôt** — `git log --all` sur chacun ne ren
 nulle part sur le poste. Conséquences vérifiées :
 
 - `make` ne peut aboutir sur aucun poste, même correctement outillé ;
-- `npm run typecheck` échoue sur un import manquant, donc `npm run build` et `npm run mcp` aussi ;
+- `npm run typecheck` échouait sur un import manquant, et avec lui `npm run build`, `npm run dev`
+  et `npm run mcp` — le serveur MCP a été écrit depuis, ce point est levé ;
 - `tools/status.py` annonçait pourtant « build à jour, 0 avertissement » : sa fonction `firmware()`
   ne distinguait pas un `make` absent du `PATH` d'un build réussi.
 
@@ -123,16 +124,30 @@ Relevées en écrivant M1c, à trancher dans `docs/protocol.md` avant d'y touche
 | `renderer/` — Dashboard, Tuning, Console | Écrit |
 | `renderer/` — Control, Scope, Recipes, Firmware | Vues présentes mais grisées, avec le jalon qui les débloquera |
 | `main/recipes/` — `.a2nrcp` | Pas commencé (attend la persistance NVM, M2) |
-| `main/mcp/` — serveur MCP | **Pas commencé.** `src/main/index.ts` l'importe déjà : le typecheck et le build sont cassés tant qu'il manque |
+| `main/mcp/` — serveur MCP | Écrit, testé sur simulateur ; **validation sur liaison série réelle à faire** |
 
-Le serveur MCP est le point le plus coûteux de l'état actuel, parce qu'il ne casse pas seulement
-lui-même : `npm run typecheck`, `npm run build`, `npm run dev` et `npm run mcp` échouent tous sur
-le même import absent. `npm test` passe, parce que vitest ne charge pas le processus principal.
-Les dépendances (`@modelcontextprotocol/sdk`, `zod`) et les scripts npm (`mcp`, `mcp:check`) sont
-en place ; `src/cli/mcp-check.ts` manque également.
+### Serveur MCP
 
-La barrière que ce serveur exige — refus d'une écriture d'origine agent tant que « Enable AI
-control » est off — existe déjà dans le `DeviceCore` et n'est pas à réécrire.
+Treize outils, tous branchés sur des méthodes du `DeviceCore` que l'interface utilise déjà :
+`device_*` (ports, connexion, état), `param_*` (liste, lecture, écriture, remise aux défauts),
+`telemetry_*` (signaux, échantillon résumé), `scope_capture`, `console_send` et `log_read`.
+
+Ce qui n'est **pas** exposé, et pourquoi : ni `ARM`, ni consigne, ni mouvement — ces fonctions
+n'existent pas encore dans le firmware (M3), et elles arriveront gated. Aucun outil ne peut activer
+« Enable AI control » : le toggle reste une action humaine dans l'UI. La barrière elle-même vit
+dans le `DeviceCore` et n'est pas recopiée dans le serveur ; `resetDefaults` y a été ajouté au
+même contrôle que `writeParam`, étant l'écriture la plus large qui soit.
+
+Tout appel MCP est journalisé dans la console commune, source `mcp`, avec ses arguments et son
+résultat. `scope_capture` ne rend par défaut que des statistiques par signal : une capture pleine
+fait 8 192 flottants, qu'aucun agent ne lit utilement.
+
+`npm run mcp:check` rejoue la surface complète à travers un vrai client MCP — contre le simulateur
+sans option, contre une carte avec `--port`. C'est la recette qui reste à passer sur matériel.
+
+**Écart assumé avec `interface/AGENTS.md` §5** : les familles y sont écrites `device.*`, `param.*` ;
+les outils s'appellent `device_connect`, `param_set`. Les clients MCP courants n'acceptent que
+`[a-zA-Z0-9_-]` dans un nom d'outil. Les familles sont inchangées, seul le séparateur diffère.
 
 ### Écarts connus avec la spécification
 
@@ -141,7 +156,7 @@ Relevés lors d'une revue, assumés pour l'instant, à traiter :
 | Écart | Spécification | Décision |
 |---|---|---|
 | Pas de bascule thème clair | « thème sombre par défaut **avec bascule clair** » | À faire ; les variables CSS sont déjà en place |
-| `zod` non utilisé | « valider toute donnée entrante » | Le codec valide déjà structurellement. `zod` prendra son sens pour les entrées MCP et les fichiers `.a2nrcp` — à faire avec eux |
+| `zod` partiel | « valider toute donnée entrante » | Le codec valide structurellement, et les entrées des outils MCP passent par un schéma `zod`. Les futurs fichiers `.a2nrcp` devront l'être aussi |
 | Polices non embarquées | la maquette utilise Barlow + IBM Plex Mono | Repli sur les polices système ; l'app ne ressemble pas tout à fait à la maquette validée |
 
 ---
@@ -180,10 +195,12 @@ constate rien. D'où les deux règles ci-dessous.
 4. `python controller-2/tools/hosttest/run.py` — logique firmware testable hors cible
 5. `cd controller-2 && make` — build propre, sans avertissement
 6. `cd interface && npm run cli -- check --sim` — vert de bout en bout
-7. sur carte : `npm run cli -- check` — **le seul qui valide vraiment**
+7. `npm run mcp:check` — surface MCP complète, sur simulateur
+8. sur carte : `npm run cli -- check`, puis `npm run mcp:check -- --port COMx` —
+   **les seuls qui valident vraiment**
 
-Les six premiers ne prouvent que la cohérence interne. Un jalon n'est « passé » que quand le
-septième l'est, et ce fichier doit le dire ainsi.
+Les sept premiers ne prouvent que la cohérence interne. Un jalon n'est « passé » que quand le
+huitième l'est, et ce fichier doit le dire ainsi.
 
 **Et la règle que cette revue ajoute :** l'état noté ici doit être vrai **pour un clone frais du
 dépôt**, pas pour l'arbre de travail de celui qui écrit. `git status` propre ne suffit pas — un

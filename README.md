@@ -172,16 +172,30 @@ Proposer des boutons qui échoueraient serait pire que de ne rien proposer.
 
 ### Le serveur MCP
 
-**Pas encore écrit.** `src/main/index.ts` importe déjà `./mcp/server.js`, qui n'existe pas : tant
-que ce fichier manque, `npm run typecheck`, `npm run build`, `npm run dev` et `npm run mcp`
-échouent. Seuls `npm test` et la CLI fonctionnent. Voir `STATUS.md`.
+Le serveur tourne dans le processus principal Electron et reçoit **le `DeviceCore` de
+l'interface**, pas une instance à lui : l'agent et l'humain partagent la connexion, l'état et le
+journal. Un paramètre écrit par l'agent bouge dans l'UI, et chaque appel d'outil apparaît dans la
+console commune, source `mcp`, avec ses arguments et son résultat.
 
-Ce qui est décidé et n'aura pas à être rediscuté : le serveur tournera dans le processus principal
-Electron et recevra le même `DeviceCore` que l'interface, pour que l'agent et l'humain voient le
-même état et le même journal. Il exposera la connexion, l'identité, les paramètres, la télémétrie,
-le scope et une console de diagnostic strictement allow-listée. Une écriture de paramètre d'origine
-MCP restera refusée tant que l'humain n'aura pas activé « Enable AI control » — barrière déjà
-présente dans le `DeviceCore` — et aucun outil MCP ne pourra activer ce toggle.
+```
+cd interface
+npm run mcp          # sert le protocole MCP sur stdio
+npm run mcp:check    # recette de la surface complète, sur simulateur
+npm run mcp:check -- --port COM3    # la même, sur une carte
+```
+
+Treize outils : `device_*` (ports, connexion, état), `param_*` (liste, lecture, écriture, remise
+aux défauts), `telemetry_*`, `scope_capture`, `console_send`, `log_read`. Chacun appelle une
+méthode du `DeviceCore` que l'interface utilise déjà — aucun chemin dédié vers la carte.
+
+Ce qui n'est pas exposé : ni `ARM`, ni consigne, ni mouvement. Une écriture de paramètre reste
+refusée tant que l'humain n'a pas activé « Enable AI control » dans l'interface, et **aucun outil
+ne permet d'activer ce toggle**. La console est restreinte au diagnostic et à `STOP` ; une commande
+hors de cette liste est refusée bruyamment, pas filtrée en silence.
+
+`scope_capture` ne rend par défaut que des statistiques par signal. Une capture pleine fait
+8 192 flottants : la déverser dans un résultat d'outil noierait la fenêtre de l'agent sans que
+personne ne lise ces nombres. Les points bruts se demandent explicitement, décimés.
 
 ### Régénérer les vecteurs de protocole
 

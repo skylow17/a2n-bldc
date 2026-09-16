@@ -16,7 +16,7 @@
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "mcp": "electron-vite build && electron . --mcp",
-    "mcp:check": "electron-vite build && tsx src/cli/mcp-check.ts"
+    "mcp:check": "tsx src/cli/mcp-check.ts"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
