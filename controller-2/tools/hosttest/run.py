@@ -38,7 +38,12 @@ SUITES = [
     ("M1c — signaux et scope", "test_m1c.c", [
         "Core/Src/comm/signals.c",
         "Core/Src/comm/scope.c",
-    ]),
+    ], []),
+    # boot_shared.c se compile ici sans HAL ni zone SRAM partagee : le define ne laisse que
+    # la fonction de decision, qui est la seule partie qui tranche quoi que ce soit.
+    ("Bootloader — decision de probation", "test_boot_shared.c", [
+        "Core/Src/boot_shared.c",
+    ], ["BOOT_SHARED_HOSTTEST"]),
 ]
 
 INCLUDES = [os.path.join(HERE, "shim"), os.path.join(FW, "Core", "Inc")]
@@ -62,18 +67,20 @@ def find_compiler():
     return None, None
 
 
-def build_and_run(name, test_src, modules, compiler, prefix, outdir):
+def build_and_run(name, test_src, modules, defines, compiler, prefix, outdir):
     exe = os.path.join(outdir, os.path.splitext(test_src)[0] + (".exe" if os.name == "nt" else ""))
     sources = [os.path.join(HERE, test_src)] + [os.path.join(FW, m) for m in modules]
 
     if compiler == "cl":
         args = ["/nologo", "/W4", "/std:c11"]
+        args += ["/D" + d for d in defines]
         args += ["/I" + i for i in INCLUDES]
         args += ["/Fe:" + exe, "/Fo:" + outdir + os.sep]
         args += sources
     else:
         args = ["-std=c11", "-Wall", "-Wextra", "-Wshadow", "-Wundef",
                 "-Wdouble-promotion", "-Wno-unused-parameter", "-O1", "-g"]
+        args += ["-D" + d for d in defines]
         args += ["-I" + i for i in INCLUDES]
         args += sources + ["-o", exe, "-lm"]
 
@@ -125,8 +132,8 @@ def main():
 
     print("Tests hors cible du firmware (compilateur : %s)\n" % compiler)
     failed = 0
-    for name, test_src, modules in SUITES:
-        failed += build_and_run(name, test_src, modules, compiler, prefix, outdir)
+    for name, test_src, modules, defines in SUITES:
+        failed += build_and_run(name, test_src, modules, defines, compiler, prefix, outdir)
         print()
 
     if failed:

@@ -101,6 +101,23 @@ OWNED_PREFIXES = ("Core/", "Boot/", "USB_Device/", "startup/", "ld/")
 SOURCE_REF = re.compile(r"(?<![\w./$(-])((?:[\w.-]+/)+[\w.-]+\.(?:c|s|ld))")
 
 
+def block(text, var):
+    """Rend les chemins listes par une variable du Makefile, continuations comprises."""
+    out, collecting = [], False
+    for line in text.splitlines():
+        if not collecting:
+            if line.startswith(var):
+                collecting = True
+            else:
+                continue
+        for m in SOURCE_REF.finditer(line):
+            if m.group(1).startswith(OWNED_PREFIXES):
+                out.append(m.group(1))
+        if collecting and not line.rstrip().endswith("\\"):
+            break
+    return out
+
+
 def sources():
     """Verifie que tout fichier du depot cite par le Makefile existe reellement.
 
@@ -128,9 +145,21 @@ def sources():
     if not missing:
         print("  tous presents")
         return
-    print("  %d ABSENT(S) — le firmware ne peut pas etre construit :" % len(missing))
-    for r in missing:
-        print("    manquant : " + r)
+
+    # Distinguer ce qui bloque `make` de ce qui ne bloque que `make boot-images`. Une liste
+    # plate ne dit pas si le firmware de bring-up se construit, et c'est la seule question
+    # qui se pose au quotidien.
+    app = set(block(text, "APP_C_SOURCES")) | {"ld/stm32g473ce_standalone.ld"}
+    blocking = [r for r in missing if r in app]
+    boot_only = [r for r in missing if r not in app]
+
+    print("  %d ABSENT(S) :" % len(missing))
+    for r in blocking:
+        print("    manquant (bloque `make`) : " + r)
+    for r in boot_only:
+        print("    manquant (cibles bootloader seulement) : " + r)
+    if not blocking:
+        print("  l'image autonome a toutes ses sources ; `make` peut aboutir")
 
 
 def hosttest():

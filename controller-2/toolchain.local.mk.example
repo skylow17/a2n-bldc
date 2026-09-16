@@ -24,7 +24,9 @@
 # Utiliser des slash avant, meme sous Windows : make s'en accommode, et le
 # backslash y est un caractere d'echappement.
 
-CUBE := C:/Users/<utilisateur>/STM32Cube/Repository/STM32Cube_FW_G4_V1.6.1
+# Le numero de version du paquet suit ce que CubeMX a telecharge : verifier le nom
+# reel du dossier plutot que de recopier celui-ci.
+CUBE := C:/Users/<utilisateur>/STM32Cube/Repository/STM32Cube_FW_G4_V1.6.3
 IDE  := C:/ST/STM32CubeIDE_1.18.0/STM32CubeIDE/plugins
 
 # A decommenter seulement si les versions de plugins different de celles du

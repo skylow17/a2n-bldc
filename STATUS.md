@@ -25,7 +25,7 @@ Dernière revue : 2026-09-16.
 | **M0** | Squelette temps réel : PWM centré 20 kHz, TIM1 TRGO → ADC injecté, ISR | Validé sur une carte, **non reproductible depuis le dépôt** | Reconstruire, puis rejouer la recette |
 | **M1a** | Liaison USB CDC non bloquante, console texte | Validé sur une carte, **non reproductible depuis le dépôt** | Reconstruire, puis rejouer la recette |
 | **M1b** | Codec binaire COBS + CRC16, dictionnaire de paramètres | Validé sur une carte, **non reproductible depuis le dépôt** | Reconstruire, puis rejouer la recette |
-| **M1c** | Télémétrie souscrite + buffer scope | Code réécrit le 2026-09-16, **jamais compilé pour la cible** | Compiler avec la toolchain ARM ; rejouer `telem` et `scope` sur carte |
+| **M1c** | Télémétrie souscrite + buffer scope | Code réécrit le 2026-09-16, testé hors cible, **jamais compilé pour la cible** | Installer la toolchain ARM, compiler ; rejouer `telem` et `scope` sur carte |
 | **M1d** | CLI de bring-up | Validé sur simulateur | Export de capture (le tracé existe dans l'interface) ; `telem` et `scope` dépendent de M1c côté carte |
 | **M2** | Étage de puissance et capteurs (étapes 2 à 9) | Pas commencé | — |
 | **M3** | Asservissements (étapes 10 à 13) | Pas commencé | — |
@@ -58,30 +58,35 @@ vérifie que chaque fichier du dépôt qu'il cite existe — sans toolchain, don
 
 ### Ce qui manque encore au dépôt
 
-Restauré le 2026-09-16 : `Core/Src/comm/signals.c`, `Core/Inc/comm/signals.h`,
-`Core/Src/comm/scope.c`, `Core/Inc/comm/scope.h`.
+Écrits le 2026-09-16 : `comm/signals.{c,h}`, `comm/scope.{c,h}`, `boot_shared.{c,h}`.
 
-Toujours absent, et cité par le `Makefile` :
+**L'image autonome a désormais toutes ses sources** — `python tools/status.py sources` le vérifie
+et le dit. Les neuf fichiers restants ne servent qu'aux cibles `make boot-images` et
+`make install-bootloader` :
 
 | Fichier | Rôle |
 |---|---|
-| `Core/Src/boot_shared.c` + `.h` | Handshake SRAM avec le bootloader, confirmation de probation. Appelé par `main.c` et `proto.c` |
 | `Boot/Src/boot_main.c`, `boot_it.c`, `boot_flash.c`, `boot_proto.c`, `boot_rx.c` | Le bootloader lui-même |
 | `Boot/Test/trial_fail.s` | Image inerte du test négatif de rollback |
 | `ld/stm32g473ce_boot.ld`, `stm32g473ce_slotB.ld`, `stm32g473ce_trial_fail_A.ld` | Linkers bootloader, slot B, test négatif |
-
-**`boot_shared.c` est le seul qui bloque encore `make` tout court** : les autres ne servent qu'aux
-cibles `make boot-images` et `make install-bootloader`.
 
 ### Bootloader A/B
 
 Ce qui existe : la spécification (`docs/protocol.md` §8), `MSG_BOOT_ENTER` côté firmware dans
 `proto.c`, le linker du slot A, les cibles `make boot-images` / `make install-bootloader`, le codec
-et le client d'upload côté PC, et `npm run cli -- boot-check` qui passe sur simulateur.
+et le client d'upload côté PC, `npm run cli -- boot-check` qui passe sur simulateur, et depuis le
+2026-09-16 **`boot_shared.c`** — le côté application de la poignée de main SRAM : consommation du
+message laissé par le bootloader, confirmation de probation, demande d'entrée en bootloader. Sa
+décision de confirmation est testée hors cible.
 
-Ce qui n'existe pas : **le bootloader**. Ni son code, ni ses linkers, ni les métadonnées A/B, ni la
-probation IWDG. Rien n'a été installé sur une carte, et l'installation initiale — qui efface la
-flash applicative — n'a jamais été ni autorisée ni exécutée.
+Ce qui n'existe pas : **le bootloader lui-même**. Ni son code, ni ses linkers, ni les métadonnées
+A/B alternées, ni l'armement IWDG. Rien n'a été installé sur une carte, et l'installation initiale
+— qui efface la flash applicative — n'a jamais été ni autorisée ni exécutée.
+
+Il n'est volontairement pas écrit tant qu'aucune toolchain ARM n'est installée sur le poste : c'est
+du code de sûreté qu'on ne peut ni compiler ni tester ici, et dont l'installation efface la flash.
+Écrire à l'aveugle un module de cette nature est précisément ce qui a produit l'état trouvé le
+2026-09-16.
 
 ### Questions de protocole ouvertes
 
