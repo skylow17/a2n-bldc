@@ -11,7 +11,6 @@ import { join } from 'node:path';
 import { readFile, writeFile } from 'node:fs/promises';
 
 import { BrowserWindow, app, dialog, ipcMain, shell } from 'electron';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
 import type { TelemFrame } from '../shared/messages.js';
 import {
@@ -21,10 +20,9 @@ import {
   type LogSource,
   type ScopeRequest,
 } from './device/DeviceCore.js';
-import { startA2nMcpServer } from './mcp/server.js';
+import { A2N_MCP_DEFAULT_PORT, startA2nMcpHttpServer } from './mcp/http.js';
 
 const core = new DeviceCore();
-const mcpMode = process.argv.includes('--mcp');
 let mainWindow: BrowserWindow | null = null;
 
 function broadcast(channel: string, payload: unknown): void {
@@ -188,18 +186,22 @@ handle('device:setAiControl', (enabled: boolean) => {
 
 /* ------------------------------------------------------------------ cycle de vie */
 
-void app.whenReady().then(() => {
-  if (mcpMode) {
-    void startA2nMcpServer(core, new StdioServerTransport()).catch((error: unknown) => {
-      console.error(error instanceof Error ? error.message : String(error));
-      app.exit(1);
-    });
-  } else {
-    createWindow();
+void app.whenReady().then(async () => {
+  createWindow();
+
+  // Le serveur MCP vit ici, dans le processus de la fenêtre, et sert le même `DeviceCore` :
+  // c'est la fenêtre qui porte le seul chemin vers « Enable AI control », donc un agent ne
+  // peut être autorisé à écrire que si un humain a l'interface sous les yeux. Local
+  // seulement ; le port se lit dans la console commune, source `mcp`.
+  const port = Number(process.env['A2N_MCP_PORT'] ?? A2N_MCP_DEFAULT_PORT);
+  try {
+    await startA2nMcpHttpServer(core, { port });
+  } catch (error: unknown) {
+    core.log('error', 'mcp', `MCP server not started: ${error instanceof Error ? error.message : String(error)}`);
   }
 
   app.on('activate', () => {
-    if (!mcpMode && BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
 

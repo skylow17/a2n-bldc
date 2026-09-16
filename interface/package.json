@@ -15,7 +15,6 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "start": "electron-vite preview",
-    "mcp": "electron-vite build && electron . --mcp",
     "mcp:check": "tsx src/cli/mcp-check.ts"
   },
   "devDependencies": {
