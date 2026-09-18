@@ -454,8 +454,8 @@ Une ligne = une commande, réponse `OK ...` ou `ERR <code>`. Elle couvre l'essen
 `PARAM <name> <value>`, `MODE <mode>`, `TARGET <value>`.
 
 Implémentées à ce jour : `PING`, `INFO?`, `STATS?`, `STATS.RESET`, `LINK?`, `PROTO?`,
-`SELFTEST`, `PWM?`, `STOP`, et depuis M2 les commandes du driver de grille et de PWM à vide
-ci-dessous.
+`SELFTEST`, `PWM?`, `STOP`, et depuis M2 les commandes du driver de grille, de PWM à vide et de
+mesures lentes ci-dessous.
 Les autres arrivent avec la machine à états (M3).
 
 **Driver de grille DRV8304** (M2, étape 2) :
@@ -466,6 +466,15 @@ Les autres arrivent avec la machine à états (M3).
 | `DRV.PROBE` | `OK` / `ERR DRV` | Critère de l'étape 2 : bascule `COAST`, relit, restaure. Ne laisse rien dans le driver |
 | `DRV.REG <addr> [<value>]` | `OK reg=<a> value=<hex>` | Lecture, ou écriture puis relecture, d'un registre brut. Hexadécimal, 11 bits |
 | `DRV.CLR` | `OK` / `ERR SPI` | Pulse `CLR_FLT` |
+| `DRV.CAL ON` / `OFF` | `OK` | Broche `CAL` : haut = entrées des trois CSA court-circuitées, sortie à VREF/2 + offset |
+
+**Mesures lentes et diagnostic d'acquisition** (M2, étape 4) :
+
+| Commande | Réponse | Rôle |
+|---|---|---|
+| `SENS.ALL?` | `OK rounds=<n> vref_mv=<mV> vrefint_raw=<c> vin_mv=<mV> vmot_mv=<mV> v5_mv=<mV> v3v3_mv=<mV> csa_raw=<a>,<b>,<c> csa_mv=<a>,<b>,<c>` | Rails via ADC2, VREF+ **mesuré** par VREFINT, et relecture lente des trois entrées de courant. Un tourniquet d'une conversion par passage de superloop |
+| `ADC?` | `OK jsqr=… sqr1=… smpr1=… smpr2=… cfgr=… cr=… isr=… jdr=<a>,<b>,<c> ccr=…` | Registres d'ADC1 tels quels. `jsqr` dit combien de voies la séquence injectée convertit réellement |
+| `ADC.PROBE` | `OK pulldown=<a>,<b>,<c> pullup=<a>,<b>,<c>` | Les trois entrées de courant lues en numérique sous tirage bas puis haut. Une source qui impose son niveau lit pareil dans les deux cas ; un nœud flottant suit le tirage. Retour en analogique ensuite |
 
 Une faute matérielle (nFAULT bas) coupe `MOE` depuis l'interruption, sans dialogue SPI ; c'est
 `DRV?` qui dit ensuite pourquoi.

@@ -19,6 +19,7 @@
 #include "board.h"
 #include "ctrl.h"
 #include "drv8304.h"
+#include "sensors.h"
 #include "comm/param.h"
 #include "comm/proto.h"
 #include "comm/rx_router.h"
@@ -253,6 +254,43 @@ void Console_ExecuteLine(const char *line)
                   a, b, c, Link_HostAttached() ? 1U : 0U);
   } else if (Match(line, "PWM", &arg)) {
     CmdPwm(arg);
+  } else if (Match(line, "ADC.PROBE", NULL)) {
+    /* Les trois entrees de courant en entree numerique, tirees vers le bas puis vers le
+     * haut : une source basse impedance impose son niveau (0,85 V lit 0 dans les deux
+     * cas), un noeud flottant suit le tirage. Puis retour en analogique. */
+    GPIO_InitTypeDef g = {0};
+    uint32_t down = 0U, up = 0U;
+    g.Pin = PIN_IMOTA | PIN_IMOTB | PIN_IMOTC;
+    g.Mode = GPIO_MODE_INPUT; g.Pull = GPIO_PULLDOWN; HAL_GPIO_Init(GPIOA, &g);
+    HAL_Delay(2U); down = GPIOA->IDR & g.Pin;
+    g.Pull = GPIO_PULLUP; HAL_GPIO_Init(GPIOA, &g);
+    HAL_Delay(2U); up = GPIOA->IDR & g.Pin;
+    g.Mode = GPIO_MODE_ANALOG; g.Pull = GPIO_NOPULL; HAL_GPIO_Init(GPIOA, &g);
+    Link_TxPrintf("OK pulldown=%lu,%lu,%lu pullup=%lu,%lu,%lu\r\n",
+                  (unsigned long)((down & PIN_IMOTA) != 0U), (unsigned long)((down & PIN_IMOTB) != 0U),
+                  (unsigned long)((down & PIN_IMOTC) != 0U), (unsigned long)((up & PIN_IMOTA) != 0U),
+                  (unsigned long)((up & PIN_IMOTB) != 0U), (unsigned long)((up & PIN_IMOTC) != 0U));
+  } else if (Match(line, "ADC?", NULL)) {
+    /* Diagnostic brut d'ADC1 : ce que le convertisseur est configure pour faire, et ce
+     * qu'il a mis dans les registres injectes au dernier JEOS. */
+    Link_TxPrintf("OK jsqr=%08lX sqr1=%08lX smpr1=%08lX smpr2=%08lX cfgr=%08lX cr=%08lX "
+                  "isr=%08lX jdr=%lu,%lu,%lu ccr=%08lX\r\n",
+                  (unsigned long)ADC1->JSQR, (unsigned long)ADC1->SQR1,
+                  (unsigned long)ADC1->SMPR1, (unsigned long)ADC1->SMPR2,
+                  (unsigned long)ADC1->CFGR, (unsigned long)ADC1->CR, (unsigned long)ADC1->ISR,
+                  (unsigned long)ADC1->JDR1, (unsigned long)ADC1->JDR2, (unsigned long)ADC1->JDR3,
+                  (unsigned long)ADC12_COMMON->CCR);
+  } else if (Match(line, "SENS.ALL?", NULL)) {
+    Sensors_t sn;
+    Sensors_Get(&sn);
+    /* `vref` est mesuré, pas supposé ; les rails en millivolts en dépendent. Les entrées
+     * de courant sont données brutes et en mV : un zéro brut sur les trois, avec un vref
+     * plausible, désigne le signal et non l'ADC. */
+    Link_TxPrintf("OK rounds=%lu vref_mv=%u vrefint_raw=%u vin_mv=%u vmot_mv=%u v5_mv=%u "
+                  "v3v3_mv=%u csa_raw=%u,%u,%u csa_mv=%u,%u,%u\r\n",
+                  (unsigned long)sn.rounds, sn.vref_mv, sn.vrefint_raw, sn.vin_mv, sn.vmot_mv,
+                  sn.v5_mv, sn.v3v3_mv, sn.csa_raw[0], sn.csa_raw[1], sn.csa_raw[2],
+                  sn.csa_mv[0], sn.csa_mv[1], sn.csa_mv[2]);
   } else if (Match(line, "DRV?", NULL)) {
     CmdDrvStatus();
   } else if (Match(line, "DRV.PROBE", NULL)) {
@@ -260,6 +298,13 @@ void Console_ExecuteLine(const char *line)
     Reply(Drv8304_Probe() ? "OK" : "ERR DRV");
   } else if (Match(line, "DRV.REG", &arg)) {
     CmdDrvReg(arg);
+  } else if (Match(line, "DRV.CAL", &arg)) {
+    /* CAL haut : les trois CSA court-circuitent leurs entrees et sortent leur offset seul,
+     * autour de VREF/2. C'est la seule source stable tant que les transistors bas ne
+     * conduisent pas — sinon le shunt n'est relie qu'a une source de MOSFET ouverte. */
+    if (strcasecmp(arg, "ON") == 0)       { Drv8304_SetCal(true);  Reply("OK"); }
+    else if (strcasecmp(arg, "OFF") == 0) { Drv8304_SetCal(false); Reply("OK"); }
+    else                                  { Reply("ERR ARG"); }
   } else if (Match(line, "DRV.CLR", NULL)) {
     Reply(Drv8304_ClearFaults() ? "OK" : "ERR SPI");
   } else {

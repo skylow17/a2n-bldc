@@ -17,7 +17,13 @@ void AdcSync_Init(void)
   s_adc1.Init.Resolution            = ADC_RESOLUTION_12B;
   s_adc1.Init.DataAlign             = ADC_DATAALIGN_RIGHT;
   s_adc1.Init.GainCompensation      = 0U;
-  s_adc1.Init.ScanConvMode          = ADC_SCAN_DISABLE;  /* groupe régulier inutilisé  */
+  /* ADC_SCAN_ENABLE, et pas DISABLE : pour le HAL, « scan désactivé » veut dire « rang 1
+   * seulement », groupe injecté compris — `InjectedNbrOfConversion = 3` est alors ignoré
+   * en silence et JSQR ne porte qu'une voie. C'est resté invisible de M0 à M2 : la phase A
+   * convertissait, B et C lisaient zéro, et zéro ressemblait à un étage de puissance
+   * éteint. Trouvé en relisant JSQR sur la carte (`ADC?`). Le mot « scan » n'a aucun effet
+   * matériel sur cette famille ; c'est un alignement logiciel entre séries STM32. */
+  s_adc1.Init.ScanConvMode          = ADC_SCAN_ENABLE;
   s_adc1.Init.EOCSelection          = ADC_EOC_SINGLE_CONV;
   s_adc1.Init.LowPowerAutoWait      = DISABLE;
   /* Jamais de conversion continue : chaque salve est déclenchée par le timer. */
@@ -46,7 +52,7 @@ void AdcSync_Init(void)
    * bas vaut 25 µs à 50 % de rapport cyclique : confortable, mais elle se referme à
    * fort rapport cyclique. Le passage en double ADC simultané sera nécessaire plus
    * tard — c'est noté, pas fait. */
-  inj.InjectedSamplingTime           = ADC_SAMPLETIME_6CYCLES_5;
+  inj.InjectedSamplingTime           = ADC_IMOT_SAMPLETIME;
   inj.InjectedSingleDiff             = ADC_SINGLE_ENDED;
   inj.InjectedOffsetNumber           = ADC_OFFSET_NONE;
   inj.InjectedOffset                 = 0U;

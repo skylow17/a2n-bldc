@@ -18,6 +18,7 @@
 #include "ctrl.h"
 #include "dbg_pin.h"
 #include "drv8304.h"
+#include "sensors.h"
 #include "pwm.h"
 #include "adc_sync.h"
 #include "comm/param.h"
@@ -76,6 +77,7 @@ int main(void)
   Pwm_Init();       /* TIM1 démarre, MOE = 0 : sorties en haute impédance   */
   AdcSync_Init();   /* conversions injectées armées sur TIM1_TRGO, ISR 20 kHz */
   Drv8304_Init();   /* SPI2 + nFAULT ; ne configure rien dans le driver lui-même   */
+  Sensors_Init();   /* ADC2 : rails, VREFINT, relecture lente des courants          */
 
   /* La liaison arrive après l'étage de puissance : si l'énumération USB traîne ou échoue,
    * la boucle de contrôle tourne déjà et les sorties sont déjà sûres. */
@@ -101,6 +103,7 @@ int main(void)
     RxRouter_Process();  /* aiguille trames binaires et lignes de console   */
     Proto_Process();     /* streaming et transitions scope, jamais dans l'ISR */
     BootShared_Process(); /* confirmation d'un slot candidat, le cas échéant */
+    Sensors_Process();   /* une conversion lente par passage, jamais bloquant */
     Link_Pump();         /* écoule le tampon d'émission vers l'USB           */
 
     /* Sans hôte, personne ne peut plus envoyer STOP : le pont ne reste pas actif. Port

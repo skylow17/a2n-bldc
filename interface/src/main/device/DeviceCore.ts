@@ -386,7 +386,7 @@ export class DeviceCore {
   /** Console accessible aux agents : diagnostic en lecture et STOP uniquement. */
   async sendSafeConsole(line: string, source: LogSource = 'mcp'): Promise<string> {
     const verb = line.trim().split(/\s+/, 1)[0]?.toUpperCase() ?? '';
-    const allowed = new Set(['PING', 'INFO?', 'STATS?', 'LINK?', 'PROTO?', 'SELFTEST', 'PWM?', 'DRV?', 'STOP']);
+    const allowed = new Set(['PING', 'INFO?', 'STATS?', 'LINK?', 'PROTO?', 'SELFTEST', 'PWM?', 'DRV?', 'SENS.ALL?', 'STOP']);
     if (!allowed.has(verb)) {
       throw new Error(`console command not allowed through MCP: ${verb || '(empty)'}`);
     }

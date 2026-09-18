@@ -28,7 +28,7 @@ Dernière revue : 2026-09-16, seconde passe — **sur carte**.
 | **M1c** | Télémétrie souscrite + buffer scope | **Validé sur carte le 2026-09-16** : `telem` sans trou, `scope` 2048 points sur 4 signaux à la cadence de boucle | Coût de l'échantillonnage scope dans l'ISR, voir la piste plus bas |
 | **M1d** | CLI de bring-up | Validé sur simulateur **et sur carte** — toutes les commandes, `firmware-update` compris | — |
 | **Boot** | Bootloader A/B, probation et rollback | **Validé sur carte le 2026-09-16** : installation SWD, `BOOT_INFO`, mise à jour nominale promue, rollback sur image qui ne confirme jamais | Rien ; un défaut trouvé sur carte, corrigé, rejoué |
-| **M2** | Étage de puissance et capteurs (étapes 2 à 9) | **Étape 2 validée sur carte le 2026-09-16** : le DRV8304 répond en SPI, sept registres relus cohérents avec la fiche technique, écriture-relecture par `DRV.PROBE`, fautes lisibles | Étape 3 : le firmware est prêt (`PWM <a> <b> <c>`, `PWM ON/OFF`, coupure automatique sans hôte, éprouvée) ; **reste la mesure à l'oscilloscope** — front de `PC13` contre `PB0`, temps mort, aucune conduction croisée. Le chemin nFAULT → coupure de `MOE` est écrit mais **jamais déclenché** — rien ne permet de provoquer une faute sans matériel |
+| **M2** | Étage de puissance et capteurs (étapes 2 à 9) | **Étape 2 validée sur carte le 2026-09-16** : le DRV8304 répond en SPI, sept registres relus cohérents avec la fiche technique, écriture-relecture par `DRV.PROBE`, fautes lisibles. **Étape 4 entamée le 2026-09-18** : rails mesurés (`SENS.ALL?`), VREF+ mesuré, un défaut d'acquisition corrigé, et **un défaut matériel isolé** — voir plus bas | Étape 3 : firmware prêt, **reste la mesure à l'oscilloscope**. Étape 4 : **bloquée par le matériel** — les sorties CSA du DRV n'atteignent pas l'ADC ; au voltmètre avant tout. Le chemin nFAULT → coupure de `MOE` est écrit mais **jamais déclenché** |
 | **M3** | Asservissements (étapes 10 à 13) | Pas commencé | — |
 
 **Aucun moteur n'a encore tourné**, et les sorties restent en haute impédance.
@@ -184,6 +184,46 @@ confirme jamais → rollback, code de retour 1 comme sur simulateur. Le test né
 il n'a de valeur que si le chemin nominal a déjà marché. L'image de test est liée pour le slot A,
 donc le test négatif se joue quand **B** est actif.
 
+### Les courants « à zéro » : deux causes, pas une (2026-09-18)
+
+Le point ouvert depuis M1c — trois voies de courant à 0 — vient d'être démonté sans oscilloscope,
+et il cachait deux défauts indépendants.
+
+**Le premier était dans le firmware, depuis M0.** `adc_sync.c` initialisait ADC1 avec
+`ScanConvMode = ADC_SCAN_DISABLE` en croyant ne parler que du groupe régulier. Pour le HAL,
+« scan désactivé » veut dire « rang 1 seulement », **groupe injecté compris** :
+`InjectedNbrOfConversion = 3` était ignoré en silence et `JSQR` ne portait qu'une voie. Relu
+sur la carte avec `ADC?` : `JL = 0`, `JSQ1 = 1`. Seule la phase A a jamais été convertie ; B et
+C lisaient les `JDR` jamais écrits, donc zéro. Corrigé (`ADC_SCAN_ENABLE`), vérifié : `JL = 2`,
+trois voies, trois `JDR` vivants. Le mot « scan » n'a aucun effet matériel sur cette famille.
+
+**Le second est dans le matériel.** Une fois les trois voies converties, elles lisent des
+valeurs statiques, différentes par voie (0,9 / 0,8 / 0,06 V), qui ne réagissent à **rien** :
+ni la calibration des CSA par la broche `CAL`, ni par SPI (`CSA_CAL_x`), ni les transistors bas
+passants (vecteur nul, `PWM 0 0 0` + `MOE`), ni les hauts, ni `MOE` coupé. Un CSA alimenté sort
+VREF/2 ≈ 1,02 V dans tous ces cas. Puis `ADC.PROBE` a tranché : en entrée numérique, les trois
+broches **suivent la résistance de tirage interne** — un nœud flottant, pas une sortie
+d'amplificateur. Le schéma (lu, finalement : PyMuPDF ouvre le PDF « protégé ») relie
+`SOA/SOB/SOC` de U3 directement à `PA0/PA1/PA2`. Donc : les sorties CSA du DRV8304 ne pilotent
+pas ces nœuds. Le DRV est pourtant réveillé et sain (SPI, aucune faute, `CSA_CONTROL` à sa
+valeur de reset).
+
+Ce que le firmware ne peut pas faire, et qui prend cinq minutes au voltmètre : sur U3,
+**pin 24 (VREF)**, attendu 2,048 V — si elle est à zéro, les CSA n'ont pas de rail de sortie
+et tout s'explique ; **pins 21/22/23 (SOC/SOB/SOA)**, attendu ~1,02 V ; continuité de ces
+pins vers `PA0/PA1/PA2`. Dans le même geste : le monitoring 3V3 (`R10`/`R9` vers `PA7`) lit
+zéro aussi, alors que Vin, Vmot et 5 V lisent juste.
+
+Au passage, mesuré et non supposé : VREF+ du MCU vaut bien 2,0 V (MCP1501, lu par VREFINT),
+et les rails sont là — 15 V d'entrée, 14,4 V moteur, 4,9 V. La valeur de VREFINT oscille
+entre deux lectures (≈ 2,00 et 2,10 V calculés) d'une passe à l'autre : probablement la
+conversion régulière interrompue par la salve injectée pendant son échantillonnage long.
+À régler avec l'étape 4, quand les entrées de courant existeront.
+
+Le temps d'échantillonnage des voies injectées (6,5 cycles) est maintenant une constante
+de `board.h`, `ADC_IMOT_SAMPLETIME`, prête à être ajustée contre une relecture lente — ce
+réglage n'a de sens qu'avec une source réelle.
+
 ### Coût de l'ISR — mesuré, en partie réglé, le reste attend la FOC
 
 La télémétrie donne la durée de l'ISR de contrôle, et le scope la donne *pendant* qu'il
@@ -228,9 +268,10 @@ Relevées en écrivant M1c, à trancher dans `docs/protocol.md` avant d'y touche
 - **BOOT0 révision A** — `PB8/BOOT0` n'a pas de pull-down externe. La carte de bring-up a été
   provisionnée pour ignorer la broche et `make provision` rend l'opération reproductible. Ajouter
   un pull-down de 10 kΩ sur la prochaine révision matérielle.
-- **Courants bruts à zéro pendant la recette M1c** — les trois voies ont renvoyé 0 avec l'étage
-  de puissance non activé. Ce résultat est conservé tel quel ; distinguer alimentation/état du
-  DRV, configuration analogique et acquisition ADC fait partie de M2, avant toute conversion en A.
+- **Sorties CSA du DRV8304 absentes sur `PA0/PA1/PA2`** — nœuds flottants, mesuré par le
+  firmware le 2026-09-18 (voir « Les courants à zéro »). **Bloque l'étape 4 et tout ce qui
+  suit.** Voltmètre sur U3 pins 21–24, puis continuité vers le MCU. Le monitoring 3V3 (`PA7`)
+  lit zéro aussi.
 
 ---
 
@@ -350,6 +391,7 @@ utile que la liste de ce qui marche.
 | **`BOOT_REBOOT` se réinitialisait avant d'avoir répondu, sur les ticks pairs** — `HAL_GetTick() \| 1U` comme sentinelle, soustraction non signée qui déborde | `boot-check` rouge une fois sur deux ; les octets bruts ont montré le port disparaître à 8 ms au lieu de 50 |
 | `tools/status.py` ne trouvait pas le `make` de CubeIDE sans `toolchain.local.mk`, alors que le `Makefile` a des défauts valables | Sa sortie « build impossible » sur un poste qui venait de compiler |
 | **Le serveur MCP stdio ne pouvait ni être autorisé (pas de fenêtre) ni recevoir un octet (Electron ferme stdin sous Windows)** — deux défauts invisibles à `mcp:check`, qui instancie le serveur en mémoire | Première démo à un humain : le toggle activé dans la fenêtre n'atteignait rien, puis `initialize` restait sans réponse |
+| **`ADC_SCAN_DISABLE` tronquait la séquence injectée à une voie** — depuis M0, seule la phase A était convertie, B et C lisaient zéro, et zéro ressemblait à un étage de puissance éteint | La phase A s'est mise à lire *quelque chose* quand le groupe régulier a commencé à tourner à côté ; `JSQR` relu sur la carte : `JL = 0` |
 
 Le motif commun des deux premiers et du quatrième : **le code était juste de chaque côté, c'est la
 jonction qui ne l'était pas**. Un test unitaire ne les voyait pas.

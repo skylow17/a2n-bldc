@@ -95,6 +95,12 @@ void Board_FatalError(const char *what);
 #define ADC_CH_IMOTA        ADC_CHANNEL_1
 #define ADC_CH_IMOTB        ADC_CHANNEL_2
 #define ADC_CH_IMOTC        ADC_CHANNEL_3
+/* Temps d'échantillonnage des trois voies injectées. À 36 MHz, 6,5 cycles = 180 ns : trop
+ * court pour cette source, mesuré sur carte (lecture instable, sous la valeur lente).
+ * Valeur retenue après comparaison avec une relecture lente à 247,5 cycles — voir STATUS. */
+#ifndef ADC_IMOT_SAMPLETIME
+#define ADC_IMOT_SAMPLETIME ADC_SAMPLETIME_6CYCLES_5
+#endif
 
 /* Driver de grille DRV8304S — SPI2 + signaux discrets.
  * Le schéma étiquette PB13 = SPI2_MOSI et PB15 = SPI2_SCK, ce qui est électriquement
