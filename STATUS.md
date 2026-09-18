@@ -22,13 +22,13 @@ Dernière revue : 2026-09-16, seconde passe — **sur carte**.
 
 | Jalon | Étape | État | Ce qui reste |
 |---|---|---|---|
-| **M0** | Squelette temps réel : PWM centré 20 kHz, TIM1 TRGO → ADC injecté, ISR | **Rejoué sur carte le 2026-09-16, depuis un clone frais** | — |
+| **M0** | Squelette temps réel : PWM centré 20 kHz, TIM1 TRGO → ADC injecté, ISR | **Rejoué sur carte le 2026-09-16, depuis un clone frais.** Deux défauts d'origine trouvés depuis, à l'étape 3 et à l'étape 4 : les sorties basses n'étaient pas activées, et une seule voie de courant convertissait | — |
 | **M1a** | Liaison USB CDC non bloquante, console texte | **Rejoué sur carte le 2026-09-16, depuis un clone frais** | — |
 | **M1b** | Codec binaire COBS + CRC16, dictionnaire de paramètres | **Rejoué sur carte le 2026-09-16, depuis un clone frais** (`check` vert) | — |
 | **M1c** | Télémétrie souscrite + buffer scope | **Validé sur carte le 2026-09-16** : `telem` sans trou, `scope` 2048 points sur 4 signaux à la cadence de boucle | Coût de l'échantillonnage scope dans l'ISR, voir la piste plus bas |
 | **M1d** | CLI de bring-up | Validé sur simulateur **et sur carte** — toutes les commandes, `firmware-update` compris | — |
 | **Boot** | Bootloader A/B, probation et rollback | **Validé sur carte le 2026-09-16** : installation SWD, `BOOT_INFO`, mise à jour nominale promue, rollback sur image qui ne confirme jamais | Rien ; un défaut trouvé sur carte, corrigé, rejoué |
-| **M2** | Étage de puissance et capteurs (étapes 2 à 9) | **Étape 2 validée sur carte le 2026-09-16** : le DRV8304 répond en SPI, sept registres relus cohérents avec la fiche technique, écriture-relecture par `DRV.PROBE`, fautes lisibles. **Étape 4 entamée le 2026-09-18** : rails mesurés (`SENS.ALL?`), VREF+ mesuré, un défaut d'acquisition corrigé, et **un défaut matériel isolé** — voir plus bas | Étape 3 : firmware prêt, **reste la mesure à l'oscilloscope**. Étape 4 : **bloquée par le matériel** — les sorties CSA du DRV n'atteignent pas l'ADC ; au voltmètre avant tout. Le chemin nFAULT → coupure de `MOE` est écrit mais **jamais déclenché** |
+| **M2** | Étage de puissance et capteurs (étapes 2 à 9) | **Étape 2 validée sur carte le 2026-09-16** : le DRV8304 répond en SPI, sept registres relus cohérents avec la fiche technique, écriture-relecture par `DRV.PROBE`, fautes lisibles. **Étape 3 validée à l'oscilloscope le 2026-09-18** : trois bras complémentaires à 20 kHz, temps mort 500 ns aux deux fronts, rapports 20/50/80 % suivis, aucune conduction croisée — après avoir trouvé que les sorties basses n'avaient jamais été activées. **Étape 4 entamée le 2026-09-18** : rails mesurés (`SENS.ALL?`), VREF+ mesuré, un défaut d'acquisition corrigé, et **un défaut matériel isolé** — voir plus bas | Étape 4 : **bloquée par le matériel** — les sorties CSA du DRV n'atteignent pas l'ADC ; voltmètre sur U3 pins 21–23 (VREF pin 24 est bon). Ripple de 200 mV sur VREF à traiter. Le chemin nFAULT → coupure de `MOE` est écrit mais **jamais déclenché** |
 | **M3** | Asservissements (étapes 10 à 13) | Pas commencé | — |
 
 **Aucun moteur n'a encore tourné**, et les sorties restent en haute impédance.
@@ -184,6 +184,31 @@ confirme jamais → rollback, code de retour 1 comme sur simulateur. Le test né
 il n'a de valeur que si le chemin nominal a déjà marché. L'image de test est liée pour le slot A,
 donc le test négatif se joue quand **B** est actif.
 
+### Étape 3 : les sorties basses n'existaient pas (2026-09-18)
+
+Première mesure à l'oscilloscope du projet, et premier défaut qu'elle a trouvé en une minute :
+les trois sorties hautes propres à 20 kHz, 50 % ; les trois sorties basses muettes, avec un
+petit signal en dent de scie — la diaphonie du P sur une broche en l'air. `Pwm_Init` démarrait
+les canaux avec `HAL_TIM_PWM_Start`, qui n'active que `CCxE` ; les sorties complémentaires ont
+leur propre bit, `CCxNE`, et leur propre appel, `HAL_TIMEx_PWMN_Start`. Sans lui, le timer ne
+pilote pas `OCxN` du tout. Les GPIO étaient bons (AF6, AF4 sur `PC13`), le temps mort était
+configuré : tout était prêt sauf le bit qui rend le bas réel. Le squelette M0 « validé à
+l'oscilloscope » ne l'avait été que sur la broche d'instrumentation, jamais sur les six
+sorties.
+
+Après correction, mesuré sur les trois bras : complémentarité, **500 ns de temps mort aux deux
+transitions** (72 ticks à 144 MHz, comme calculé), rapports 20 / 50 / 80 % suivis avec le temps
+mort conservé, aucun recouvrement. Le front de `PC13` (domaine sauvegardé) n'a pas posé de
+problème visible à cette échelle. Le DRV8304 a vu ses six entrées commuter pour la première
+fois sans lever de faute.
+
+Relevé au passage sur U3 pin 24 : **VREF vaut 2 V avec 200 mV de ripple, période ~40 µs**.
+C'est 10 % sur la référence des CSA *et* de l'ADC du MCU, alors que rien ne commutait. La
+période est celle de la salve injectée ; l'hypothèse est le courant impulsionnel de `VREF+`
+à chaque conversion, que le MCP1501 n'encaisse pas avec 100 nF (C15, C9). À confirmer en
+coupant l'ADC, puis un condensateur de 1 à 10 µF sur VREF. Ça compte pour le bruit de
+l'étape 4, et pour toute mesure en A ensuite.
+
 ### Les courants « à zéro » : deux causes, pas une (2026-09-18)
 
 Le point ouvert depuis M1c — trois voies de courant à 0 — vient d'être démonté sans oscilloscope,
@@ -270,8 +295,11 @@ Relevées en écrivant M1c, à trancher dans `docs/protocol.md` avant d'y touche
   un pull-down de 10 kΩ sur la prochaine révision matérielle.
 - **Sorties CSA du DRV8304 absentes sur `PA0/PA1/PA2`** — nœuds flottants, mesuré par le
   firmware le 2026-09-18 (voir « Les courants à zéro »). **Bloque l'étape 4 et tout ce qui
-  suit.** Voltmètre sur U3 pins 21–24, puis continuité vers le MCU. Le monitoring 3V3 (`PA7`)
-  lit zéro aussi.
+  suit.** VREF est bon au chip (pin 24, 2 V) ; reste le voltmètre sur U3 pins 21–23, puis
+  continuité vers le MCU. Le monitoring 3V3 (`PA7`) lit zéro aussi.
+- **Ripple de 200 mV sur VREF (2,048 V)** — vu à l'oscilloscope sur U3 pin 24, période ~40 µs,
+  sans commutation de puissance. Référence commune aux CSA et à l'ADC. Découplage à revoir
+  (1–10 µF) après confirmation que l'ADC en est la cause.
 
 ---
 
@@ -391,6 +419,7 @@ utile que la liste de ce qui marche.
 | **`BOOT_REBOOT` se réinitialisait avant d'avoir répondu, sur les ticks pairs** — `HAL_GetTick() \| 1U` comme sentinelle, soustraction non signée qui déborde | `boot-check` rouge une fois sur deux ; les octets bruts ont montré le port disparaître à 8 ms au lieu de 50 |
 | `tools/status.py` ne trouvait pas le `make` de CubeIDE sans `toolchain.local.mk`, alors que le `Makefile` a des défauts valables | Sa sortie « build impossible » sur un poste qui venait de compiler |
 | **Le serveur MCP stdio ne pouvait ni être autorisé (pas de fenêtre) ni recevoir un octet (Electron ferme stdin sous Windows)** — deux défauts invisibles à `mcp:check`, qui instancie le serveur en mémoire | Première démo à un humain : le toggle activé dans la fenêtre n'atteignait rien, puis `initialize` restait sans réponse |
+| **Les sorties PWM basses n'étaient jamais activées** — `HAL_TIM_PWM_Start` sans `HAL_TIMEx_PWMN_Start`, donc `CCxNE = 0` sur les trois canaux, broches en l'air | Première sonde sur `PC13` : dent de scie de diaphonie au lieu d'un carré. Étape 3, à l'oscilloscope |
 | **`ADC_SCAN_DISABLE` tronquait la séquence injectée à une voie** — depuis M0, seule la phase A était convertie, B et C lisaient zéro, et zéro ressemblait à un étage de puissance éteint | La phase A s'est mise à lire *quelque chose* quand le groupe régulier a commencé à tourner à côté ; `JSQR` relu sur la carte : `JL = 0` |
 
 Le motif commun des deux premiers et du quatrième : **le code était juste de chaque côté, c'est la

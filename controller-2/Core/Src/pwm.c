@@ -104,6 +104,15 @@ void Pwm_Init(void)
       Board_FatalError("pwm");
     }
   }
+  /* Les sorties complémentaires ont leur propre bit d'activation (CCxNE), que
+   * HAL_TIM_PWM_Start ne touche pas. Sans lui, OCxN n'est pas piloté du tout — la broche
+   * reste en l'air et ne montre que la diaphonie du P. Vu à l'oscilloscope à l'étape 3 :
+   * les trois P propres à 20 kHz, les trois N muets. Le squelette M0 n'a jamais eu de bas. */
+  for (uint32_t ch = TIM_CHANNEL_1; ch <= TIM_CHANNEL_3; ch += 4U) {
+    if (HAL_TIMEx_PWMN_Start(&s_tim1, ch) != HAL_OK) {
+      Board_FatalError("pwm");
+    }
+  }
   PWM_TIM->BDTR &= ~TIM_BDTR_MOE;
 }
 
