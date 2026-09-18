@@ -233,11 +233,28 @@ d'amplificateur. Le schéma (lu, finalement : PyMuPDF ouvre le PDF « protégé 
 pas ces nœuds. Le DRV est pourtant réveillé et sain (SPI, aucune faute, `CSA_CONTROL` à sa
 valeur de reset).
 
-Ce que le firmware ne peut pas faire, et qui prend cinq minutes au voltmètre : sur U3,
-**pin 24 (VREF)**, attendu 2,048 V — si elle est à zéro, les CSA n'ont pas de rail de sortie
-et tout s'explique ; **pins 21/22/23 (SOC/SOB/SOA)**, attendu ~1,02 V ; continuité de ces
-pins vers `PA0/PA1/PA2`. Dans le même geste : le monitoring 3V3 (`R10`/`R9` vers `PA7`) lit
-zéro aussi, alors que Vin, Vmot et 5 V lisent juste.
+Mesuré ensuite à l'oscilloscope, le même jour :
+
+- **U3 pin 24 (VREF)** : 2 V présents (avec le ripple décrit à l'étape 3). Les CSA ont leur
+  référence.
+- **U3 pins 23/22/21 (SOA/SOB/SOC)** : SOA « carré » entre 0,5 et 1 V, SOB pareil plus bas,
+  SOC à 0 V — **identiques côté U4 (MCU)**. La piste est bonne ; le carré est le condensateur
+  d'échantillonnage de l'ADC qui fait sauter un nœud en haute impédance à chaque conversion,
+  ce qu'une sortie d'amplificateur (< 1 kΩ) ne laisserait jamais voir.
+- `CAL` haut par la broche pendant 5 s, puis `CSA_CAL_A/B/C` par SPI pendant 5 s, deux fois :
+  **SOA n'a pas bougé d'un millivolt.**
+
+Conclusion : la section analogique de U3 ne pilote pas ses sorties, alors que sa section
+numérique répond au SPI, ne signale aucune faute et a piloté six grilles proprement à
+l'étape 3. Deux causes restent qui tuent l'analogique en laissant le numérique vivant, à
+vérifier au voltmètre : **AGND (U3 pin 32) et le pad thermique** non soudés — même famille que
+la résistance du monitoring 3V3, trouvée mal soudée le même jour ; et une entrée **SPx/SNx**
+(pins 9-12, 19-20) qui ne serait pas à 0 V. Si les deux sont propres, U3 est endommagé côté
+analogique et se remplace — après avoir traité le ripple VREF, seule anomalie électrique
+connue sur cette section.
+
+Le monitoring 3V3 (`R10`/`R9` vers `PA7`) lisait zéro : **résistance mal soudée, corrigée le
+2026-09-18**, lit 3,1 V depuis.
 
 Au passage, mesuré et non supposé : VREF+ du MCU vaut bien 2,0 V (MCP1501, lu par VREFINT),
 et les rails sont là — 15 V d'entrée, 14,4 V moteur, 4,9 V. La valeur de VREFINT oscille
@@ -293,10 +310,10 @@ Relevées en écrivant M1c, à trancher dans `docs/protocol.md` avant d'y touche
 - **BOOT0 révision A** — `PB8/BOOT0` n'a pas de pull-down externe. La carte de bring-up a été
   provisionnée pour ignorer la broche et `make provision` rend l'opération reproductible. Ajouter
   un pull-down de 10 kΩ sur la prochaine révision matérielle.
-- **Sorties CSA du DRV8304 absentes sur `PA0/PA1/PA2`** — nœuds flottants, mesuré par le
-  firmware le 2026-09-18 (voir « Les courants à zéro »). **Bloque l'étape 4 et tout ce qui
-  suit.** VREF est bon au chip (pin 24, 2 V) ; reste le voltmètre sur U3 pins 21–23, puis
-  continuité vers le MCU. Le monitoring 3V3 (`PA7`) lit zéro aussi.
+- **Sorties CSA du DRV8304 mortes** — nœuds flottants jusqu'au chip, insensibles à `CAL`
+  broche et SPI, mesuré les 2026-09-18 (voir « Les courants à zéro »). **Bloque l'étape 4 et
+  tout ce qui suit.** Reste à vérifier AGND (pin 32) et le pad thermique, puis SPx/SNx ; sinon
+  U3 à remplacer.
 - **Ripple de 200 mV sur VREF (2,048 V)** — vu à l'oscilloscope sur U3 pin 24, période ~40 µs,
   sans commutation de puissance. Référence commune aux CSA et à l'ADC. Découplage à revoir
   (1–10 µF) après confirmation que l'ADC en est la cause.
