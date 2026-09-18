@@ -8,7 +8,15 @@ Ce fichier ne contient **aucun chiffre volatil** (nombre de tests, occupation fl
 Ces valeurs se mesurent, elles ne se recopient pas : `python tools/status.py` les relève sur le
 dépôt réel. Une valeur écrite à la main est fausse le lendemain.
 
-Dernière revue : 2026-09-16, seconde passe — **sur carte**.
+Dernière revue : 2026-09-18, à l'oscilloscope et au voltmètre, avec la carte.
+
+> **Reprise suivante — par où commencer.** La carte attend un **nouveau DRV8304 (U3)** : ses
+> amplificateurs de courant sont morts, diagnostic clos (voir « Les courants à zéro »). Avant
+> de le souder : traiter le ripple de VREF, inspecter le pad thermique. Sans courants, ce qui
+> peut avancer : une commande `ADC.HOLD` pour prouver que l'ADC est la source du ripple, le
+> driver AS5600 en I2C4 DMA (l'aimant n'est pas monté — statut seulement), le watchdog de
+> flux de commandes, la lecture VREFINT bimodale. L'étape 3 est validée ; l'étape 4 reprend
+> avec le nouveau chip.
 
 > **Cette revue a repris des états faux.** La passe du 2026-09-15 a marqué « validé sur carte » des
 > jalons dont le code n'a jamais été commité. Le détail est plus bas, section
