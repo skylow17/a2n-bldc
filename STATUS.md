@@ -310,10 +310,11 @@ Relevées en écrivant M1c, à trancher dans `docs/protocol.md` avant d'y touche
 - **BOOT0 révision A** — `PB8/BOOT0` n'a pas de pull-down externe. La carte de bring-up a été
   provisionnée pour ignorer la broche et `make provision` rend l'opération reproductible. Ajouter
   un pull-down de 10 kΩ sur la prochaine révision matérielle.
-- **Sorties CSA du DRV8304 mortes** — nœuds flottants jusqu'au chip, insensibles à `CAL`
-  broche et SPI, mesuré les 2026-09-18 (voir « Les courants à zéro »). **Bloque l'étape 4 et
-  tout ce qui suit.** Reste à vérifier AGND (pin 32) et le pad thermique, puis SPx/SNx ; sinon
-  U3 à remplacer.
+- **U3 (DRV8304) à remplacer : section analogique morte.** Sorties CSA flottantes jusqu'au
+  chip, insensibles à `CAL` broche et SPI ; AGND à 0 V, SPx/SNx à 0 V, VREF présent, soudures
+  vues bonnes — diagnostic clos le 2026-09-18. **Bloque l'étape 4 et tout ce qui suit.**
+  Avant de souder le suivant : traiter le ripple VREF, et inspecter le pad thermique au
+  dessoudage.
 - **Ripple de 200 mV sur VREF (2,048 V)** — vu à l'oscilloscope sur U3 pin 24, période ~40 µs,
   sans commutation de puissance. Référence commune aux CSA et à l'ADC. Découplage à revoir
   (1–10 µF) après confirmation que l'ADC en est la cause.
