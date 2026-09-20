@@ -288,6 +288,78 @@ static void ScanStats(const uint16_t *raw, uint16_t *lo, uint16_t *hi, uint16_t 
  * bien attachée au réseau VREF et à ses condensateurs, la mettre en basse impédance ne
  * changera pas grand-chose au balayage. Si le balayage s'arrête net, c'est que la broche
  * n'était tenue par personne — et donc qu'elle n'est reliée ni à `U5` ni aux condensateurs. */
+/* Fréquence de ce qui bouge sur `VREF+`, mesurée de l'intérieur.
+ *
+ * L'ADC échantillonne VREFINT à cadence régulière — cadencée au compteur de cycles, pas au
+ * hasard de la boucle — et on compte les passages par la moyenne. Pour une oscillation
+ * propre, deux passages font une période. Le seuil d'hystérésis écarte le bruit de
+ * conversion : seul un écart franc arme le passage suivant.
+ *
+ * Un repliement reste possible au-dessus de la moitié de la cadence. C'est pourquoi la
+ * cadence est un argument : deux mesures à deux cadences qui donnent la même fréquence la
+ * désignent comme réelle, deux résultats différents disent qu'on est au-dessus de Nyquist.
+ *
+ * Ce que ça décide : le courant qu'il faut pour faire bouger le réseau VREF de son amplitude
+ * mesurée vaut C·2πf·V/2. À 25 kHz avec 4,7 µF il serait absurde, à quelques centaines de
+ * hertz il est banal. La fréquence dit donc si le condensateur est réellement en place. */
+static void CmdVrefFreq(const char *arg)
+{
+  enum { N = 512U };
+  static uint16_t raw[N];          /* 1 Ko : statique, la pile de la superloop est étroite */
+
+  uint32_t iv = (*arg != '\0') ? strtoul(arg, NULL, 10) : 10UL;
+  if (iv < 8U)    { iv = 8U; }     /* sous le temps de conversion, la boucle court libre  */
+  if (iv > 5000U) { iv = 5000U; }
+  const uint32_t ticks = iv * (BOARD_SYSCLK_HZ / 1000000U);
+
+  while ((ADC1->CR & ADC_CR_ADSTART) != 0U) { }
+  MODIFY_REG(ADC1->SMPR2, 0x7UL << (3U * 8U), 6UL << (3U * 8U));   /* VREFINT, 247,5 cycles */
+  ADC1->SQR1 = (18UL << ADC_SQR1_SQ1_Pos);
+
+  const uint32_t t0 = DWT->CYCCNT;
+  uint32_t next = t0;
+  for (uint32_t i = 0U; i < N; i++) {
+    while ((int32_t)(DWT->CYCCNT - next) < 0) { }
+    next += ticks;
+    ADC1->ISR = ADC_ISR_EOC;
+    ADC1->CR |= ADC_CR_ADSTART;
+    while ((ADC1->ISR & ADC_ISR_EOC) == 0U) { }
+    raw[i] = (uint16_t)ADC1->DR;
+  }
+  const uint32_t window_us = (DWT->CYCCNT - t0) / (BOARD_SYSCLK_HZ / 1000000U);
+
+  uint32_t sum = 0U;
+  uint16_t lo = 0xFFFFU, hi = 0U;
+  for (uint32_t i = 0U; i < N; i++) {
+    sum += raw[i];
+    if (raw[i] < lo) { lo = raw[i]; }
+    if (raw[i] > hi) { hi = raw[i]; }
+  }
+  const uint16_t mean = (uint16_t)(sum / N);
+  const uint16_t hyst = (uint16_t)((hi - lo) / 8U);
+
+  uint32_t crossings = 0U;
+  int8_t   side = 0;
+  for (uint32_t i = 0U; i < N; i++) {
+    int8_t now = side;
+    if (raw[i] > (mean + hyst))      { now = 1; }
+    else if (raw[i] < (mean - hyst)) { now = -1; }
+    if ((now != 0) && (side != 0) && (now != side)) { crossings++; }
+    side = now;
+  }
+  /* Deux passages par période ; en hertz, avec une fenêtre en microsecondes. */
+  const uint32_t freq_hz = (window_us != 0U) ? (crossings * 500000UL / window_us) : 0UL;
+
+  Link_TxPrintf("OK n=%u interval_us=%lu window_us=%lu raw_min=%u raw_max=%u raw_mean=%u "
+                "crossings=%lu freq_hz=%lu seq=",
+                (unsigned)N, (unsigned long)iv, (unsigned long)window_us, lo, hi, mean,
+                (unsigned long)crossings, (unsigned long)freq_hz);
+  for (uint32_t i = 0U; i < 16U; i++) {
+    Link_TxPrintf("%u%s", raw[i], (i == 15U) ? "\r\n" : ",");
+  }
+  Sensors_Restart();
+}
+
 static void CmdVrefBuf(const char *arg)
 {
   if (strcasecmp(arg, "ON") == 0) {
@@ -477,6 +549,8 @@ void Console_ExecuteLine(const char *line)
     if (strcasecmp(arg, "ON") == 0)       { Pwm_Disable(); AdcSync_SetHold(true);  Reply("OK"); }
     else if (strcasecmp(arg, "OFF") == 0) { AdcSync_SetHold(false); Reply("OK"); }
     else                                  { Reply("ERR ARG"); }
+  } else if (Match(line, "VREF.FREQ", &arg)) {
+    CmdVrefFreq(arg);
   } else if (Match(line, "VREF.BUF", &arg)) {
     CmdVrefBuf(arg);
   } else if (Match(line, "VREF.RATIO", NULL)) {
