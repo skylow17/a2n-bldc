@@ -443,3 +443,115 @@ describe('mise à jour de firmware', () => {
     expect(logs.some((l) => l.text.includes('committed on slot B'))).toBe(true);
   });
 });
+
+describe('sécurité — battement et faute verrouillée', () => {
+  /**
+   * Le firmware coupe le couple si le flux de commandes s'arrête. L'hôte prouve qu'il est
+   * vivant en interrogeant `SAFETY?` périodiquement, donc le battement et la lecture d'état
+   * sont le même geste. On attend un battement plutôt que d'en déclencher un à la main : ce
+   * qui est testé ici, c'est qu'il ait bien lieu tout seul.
+   */
+  const beat = async (): Promise<void> => {
+    await new Promise((r) => setTimeout(r, 200));
+  };
+
+  it('publie l état de sécurité sans qu on le demande', async () => {
+    const { core } = await connected();
+    await beat();
+    const s = core.snapshot().safety;
+    expect(s).not.toBeNull();
+    expect(s!.reason).toBe('ok');
+    expect(s!.latched).toBe(false);
+    await core.disconnect();
+  });
+
+  it('remonte une coupure et ne la journalise qu une fois', async () => {
+    const { core, logs } = await connected();
+    await beat();
+    core.simulator!.tripSafety('cmd_timeout');
+    await beat();
+    await beat();
+
+    const s = core.snapshot().safety!;
+    expect(s.latched).toBe(true);
+    expect(s.reason).toBe('cmd_timeout');
+    expect(s.trips).toBe(1);
+
+    const cuts = logs.filter((e) => e.text.includes('torque cut by the firmware'));
+    expect(cuts).toHaveLength(1);
+    expect(cuts[0]!.text).toContain('cmd_timeout');
+    await core.disconnect();
+  });
+
+  it('acquitte la faute, et le snapshot suit sans attendre le battement', async () => {
+    const { core } = await connected();
+    core.simulator!.tripSafety('drv_fault');
+    await beat();
+    expect(core.snapshot().safety!.latched).toBe(true);
+
+    expect(await core.clearFault()).toBe(true);
+    expect(core.snapshot().safety!.latched).toBe(false);
+    await core.disconnect();
+  });
+
+  it('refuse l acquittement à un agent tant que le pilotage par IA est coupé', async () => {
+    const { core } = await connected();
+    core.simulator!.tripSafety('drv_fault');
+    await beat();
+
+    await expect(core.clearFault('mcp')).rejects.toThrow(/AI control is off/);
+    expect(core.snapshot().safety!.latched).toBe(true);
+
+    core.setAiControl(true);
+    expect(await core.clearFault('mcp')).toBe(true);
+    await core.disconnect();
+  });
+
+  it('laisse un agent lire SAFETY? mais pas acquitter par la console', async () => {
+    const { core } = await connected();
+    await expect(core.sendSafeConsole('SAFETY?')).resolves.toContain('reason=');
+    await expect(core.sendSafeConsole('FAULTCLR')).rejects.toThrow(/not allowed/);
+    await core.disconnect();
+  });
+
+  it('arrête de battre une fois déconnecté', async () => {
+    const { core } = await connected();
+    await beat();
+    expect(core.snapshot().safety).not.toBeNull();
+    await core.disconnect();
+    expect(core.snapshot().safety).toBeNull();
+    // Rien ne doit repartir tout seul : le battement suivant n'aurait plus de client.
+    await beat();
+    expect(core.snapshot().safety).toBeNull();
+  });
+});
+
+describe('console — accès sérialisé', () => {
+  /**
+   * `DeviceClient.console()` se résout sur la prochaine ligne reçue, quelle qu'elle soit.
+   * Deux appels en vol en même temps échangeraient donc leurs réponses. Le battement de
+   * sécurité interroge la carte en permanence, ce qui rend la collision certaine plutôt que
+   * théorique : chaque réponse doit revenir à qui l'a demandée.
+   */
+  it('rend à chaque appel sa propre réponse, même lancés ensemble', async () => {
+    const { core } = await connected();
+    const replies = await Promise.all([
+      core.sendConsole('PING alpha'),
+      core.sendConsole('PING bravo'),
+      core.sendConsole('PING charlie'),
+    ]);
+    expect(replies).toEqual(['OK alpha', 'OK bravo', 'OK charlie']);
+    await core.disconnect();
+  });
+
+  it('ne rompt pas la file quand une commande échoue', async () => {
+    const { core } = await connected();
+    const [bad, good] = await Promise.all([
+      core.sendConsole('NOPE'),
+      core.sendConsole('PING after'),
+    ]);
+    expect(bad).toBe('ERR CMD');
+    expect(good).toBe('OK after');
+    await core.disconnect();
+  });
+});

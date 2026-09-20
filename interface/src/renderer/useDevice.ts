@@ -32,6 +32,7 @@ const EMPTY: DeviceSnapshot = {
   params: [],
   aiControl: false,
   telemetry: null,
+  safety: null,
   lastError: null,
 };
 

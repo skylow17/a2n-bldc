@@ -184,6 +184,8 @@ handle('device:setAiControl', (enabled: boolean) => {
   core.setAiControl(enabled);
 });
 
+handle('device:clearFault', () => core.clearFault('gui'));
+
 /* ------------------------------------------------------------------ cycle de vie */
 
 void app.whenReady().then(async () => {

@@ -15,6 +15,7 @@
 
 #include "board.h"
 #include "pwm.h"
+#include "safety.h"
 
 /* PCLK1 = 144 MHz ; /128 → 1,125 MHz. Le DRV accepte 10 MHz, mais la carte a été retouchée
  * à la main sur ces trois lignes (voir board.h) : on ne cherche pas la vitesse. */
@@ -203,6 +204,6 @@ void Drv8304_OnFaultIrq(void)
    * empêche le pont de repartir tout seul quand le DRV se remettra — la reprise doit être
    * une décision, pas un effet de bord. Pas de SPI ici : bloquant, et sans intérêt tant
    * que la boucle principale n'a pas de quoi le journaliser. */
-  Pwm_Disable();
+  Safety_Cut(SAFETY_DRV_FAULT);
   s_fault_events++;
 }

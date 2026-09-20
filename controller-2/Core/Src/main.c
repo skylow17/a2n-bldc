@@ -20,6 +20,7 @@
 #include "drv8304.h"
 #include "sensors.h"
 #include "pwm.h"
+#include "safety.h"
 #include "adc_sync.h"
 #include "comm/param.h"
 #include "comm/proto.h"
@@ -73,6 +74,7 @@ int main(void)
 
   DbgPin_Init();
   Ctrl_Init();
+  Safety_Init();
 
   Pwm_Init();       /* TIM1 démarre, MOE = 0 : sorties en haute impédance   */
   AdcSync_Init();   /* conversions injectées armées sur TIM1_TRGO, ISR 20 kHz */
@@ -106,11 +108,8 @@ int main(void)
     Sensors_Process();   /* une conversion lente par passage, jamais bloquant */
     Link_Pump();         /* écoule le tampon d'émission vers l'USB           */
 
-    /* Sans hôte, personne ne peut plus envoyer STOP : le pont ne reste pas actif. Port
-     * fermé, câble parti, bus suspendu — même réponse. Le watchdog de flux de commandes
-     * (M3) viendra en plus, pas à la place. */
-    if (Pwm_IsEnabled() && !Link_HostAttached()) {
-      Pwm_Disable();
-    }
+    /* Les deux moitiés de la règle §4.3, dans un seul module : l'hôte qui disparaît —
+     * port refermé, câble parti, bus suspendu — et l'hôte qui reste là sans rien dire. */
+    Safety_Process();
   }
 }

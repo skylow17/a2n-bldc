@@ -454,9 +454,29 @@ Une ligne = une commande, réponse `OK ...` ou `ERR <code>`. Elle couvre l'essen
 `PARAM <name> <value>`, `MODE <mode>`, `TARGET <value>`.
 
 Implémentées à ce jour : `PING`, `INFO?`, `STATS?`, `STATS.RESET`, `LINK?`, `PROTO?`,
-`SELFTEST`, `PWM?`, `STOP`, et depuis M2 les commandes du driver de grille, de PWM à vide et de
-mesures lentes ci-dessous.
+`SELFTEST`, `PWM?`, `STOP`, `SAFETY?`, `FAULTCLR`, et depuis M2 les commandes du driver de
+grille, de PWM à vide et de mesures lentes ci-dessous.
 Les autres arrivent avec la machine à états (M3).
+
+**Barrière de sécurité** — `AGENTS.md` §4. Ces deux commandes ne dépendent d'aucun jalon : une
+commande d'arrêt et ses raisons doivent préexister au danger.
+
+| Commande | Réponse | Rôle |
+|---|---|---|
+| `SAFETY?` | `OK reason=<nom> latched=<0\|1> outputs=<0\|1> since_cmd_ms=<ms> trips=<n> host=<0\|1>` | État de la barrière. `reason` vaut `ok`, `host_gone`, `cmd_timeout`, `drv_fault` ou `requested`. `trips` compte les coupures du watchdog depuis le reset |
+| `FAULTCLR` | `OK` / `ERR CAUSE` | Acquitte la faute verrouillée. Échoue tant que la cause est encore là — un acquittement qui réussit alors que rien n'a changé n'acquitte rien |
+
+**Watchdog de flux de commandes.** Dès que les sorties de puissance sont actives, le firmware
+exige un message — n'importe lequel, trame binaire ou ligne ASCII, et même une trame au CRC
+cassé : ce qui est prouvé, c'est qu'un hôte émet. Passé **250 ms** sans rien, le couple tombe et
+la faute est verrouillée. Un hôte présent mais figé garde `DTR` haut et ne peut plus envoyer
+`STOP` : c'est ce cas-là que ce délai couvre, l'hôte franchement parti étant déjà traité par la
+présence de `DTR` et l'état du bus.
+
+Côté hôte, la conséquence est une obligation : **qui active les sorties doit entretenir le
+flux.** L'interface interroge `SAFETY?` toutes les 80 ms — le même message entretient le flux et
+rapporte l'état, donc l'état rapporté est toujours celui de l'instant où l'hôte a prouvé qu'il
+était vivant. Un script qui pilote la carte à la main doit faire de même.
 
 **Driver de grille DRV8304** (M2, étape 2) :
 

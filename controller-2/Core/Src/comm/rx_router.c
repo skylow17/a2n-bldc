@@ -4,6 +4,8 @@
  */
 #include "comm/rx_router.h"
 
+#include "safety.h"
+
 #include <string.h>
 
 #include "comm/frame.h"
@@ -43,6 +45,10 @@ uint32_t RxRouter_Overflows(void) { return s_overflows; }
 static void OnBinaryFrame(void)
 {
   Frame_t f;
+
+  /* Avant le decodage : ce qui prouve qu'un hote est vivant, c'est qu'il emette, pas
+   * qu'il emette juste. Une trame au CRC casse compte donc aussi. */
+  Safety_NoteCommand();
   const FrameStatus_t st = Frame_Decode(s_acc, s_len, s_scratch, sizeof(s_scratch), &f);
 
   switch (st) {
@@ -129,6 +135,7 @@ void RxRouter_Process(void)
               Console_ReplyOverflow();
             } else {
               s_acc[s_len] = 0U;
+              Safety_NoteCommand();
               Console_ExecuteLine((const char *)s_acc);
             }
             Reset();

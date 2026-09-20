@@ -18,6 +18,9 @@ Dernière revue : 2026-09-20, sur carte, après remplacement de U3.
 > cause**, remplacé sans effet, et la référence du sachet est bien `DRV8304SRHAR`. En
 > attendant, `VREF.BUF ON` rend la carte mesurable : le tampon interne du MCU tient `VREF+`
 > à 2,048 V et tous les rails se lisent juste.
+>
+> Côté logiciel, rien n'attend : le **watchdog de flux de commandes** est en place des deux
+> côtés et éprouvé sur carte — c'était le dernier prérequis de M3 (`AGENTS.md` §4.3).
 
 > **Cette revue a repris des états faux.** La passe du 2026-09-15 a marqué « validé sur carte » des
 > jalons dont le code n'a jamais été commité. Le détail est plus bas, section
@@ -349,6 +352,41 @@ Ce qui n'a jamais été mesuré, et qui doit l'être maintenant, à l'ohmmètre 
 La piste « mauvaise pièce » — `DRV8320S` partage le brochage `RHA` et n'a aucun amplificateur
 de courant — est **écartée** : la référence du sachet est bien `DRV8304SRHAR`.
 
+### Watchdog de flux de commandes — les deux moitiés, et la carte le prouve (2026-09-20)
+
+`AGENTS.md` §4.3 demande que le couple tombe si le flux de commandes s'interrompt pendant qu'un
+mouvement est en cours. La première moitié existait depuis le 2026-09-16 : le firmware suit `DTR`
+et la suspension du bus, et coupe `MOE` dès que l'hôte disparaît. Restait le cas plus vicieux —
+**l'hôte présent mais figé**. Le port reste ouvert, `DTR` reste haut, et plus personne ne peut
+envoyer `STOP`.
+
+Un module `safety.c` porte maintenant les deux, et devient le seul chemin qui met de la puissance
+sur les sorties. Dès que les sorties sont actives, il exige un message tous les 250 ms — n'importe
+lequel, trame binaire ou ligne ASCII, et même une trame au CRC cassé : ce qui est prouvé, c'est
+qu'un hôte émet, pas qu'il émette juste. Passé le délai, le couple tombe et **la faute est
+verrouillée** : `PWM ON` répond `ERR LATCHED` jusqu'à un `FAULTCLR` explicite, qui échoue lui-même
+si la cause tient encore. La faute `nFAULT` du DRV passe par le même chemin, donc elle latche
+aussi — avant, elle coupait sans laisser de trace.
+
+Éprouvé sur la carte, les six cas d'affilée : état au repos, coupure après 250 ms de silence,
+réactivation refusée, acquittement, réactivation, tenue pendant deux secondes sous flux entretenu,
+puis arrêt demandé — qui ne latche pas, parce qu'un arrêt voulu n'est pas une faute.
+
+Le délai est une limite, pas un réglage. Il deviendra un paramètre avec M3, avec un plafond dur :
+élargir une limite pour faire passer un essai est interdit.
+
+**La contrepartie est côté hôte, et elle est structurelle** : qui active les sorties doit
+entretenir le flux. L'interface interroge `SAFETY?` toutes les 80 ms — un tiers du délai, deux
+battements peuvent se perdre. Le même message entretient le flux *et* rapporte l'état de la
+barrière, donc l'état affiché est toujours celui de l'instant où l'hôte a prouvé qu'il était
+vivant ; deux commandes séparées ne pourraient pas le garantir. Si le processus principal se fige,
+le minuteur s'arrête avec lui et la carte coupe : c'est exactement l'effet recherché.
+
+Une coupure se voit dans la barre haute, avec sa cause et un bouton d'acquittement, et ne se
+journalise qu'une fois. Un agent dispose de `safety_status` en lecture libre — refuser cette
+lecture le pousserait à deviner — et de `safety_clear_fault`, qui exige « AI control » : lever un
+verrou rouvre la possibilité de remettre du couple.
+
 ### Coût de l'ISR — mesuré, en partie réglé, le reste attend la FOC
 
 La télémétrie donne la durée de l'ISR de contrôle, et le scope la donne *pendant* qu'il
@@ -381,12 +419,6 @@ Relevées en écrivant M1c, à trancher dans `docs/protocol.md` avant d'y touche
 
 ### Bloquants identifiés, à ne pas perdre de vue
 
-- **Watchdog de liaison** — limite dure firmware qui coupe le couple si le flux de commandes
-  s'interrompt. **Première moitié en place depuis le 2026-09-16** : le firmware suit DTR et la
-  suspension du bus, et coupe `MOE` de lui-même dès que l'hôte disparaît — port fermé, câble
-  parti. Éprouvé sur carte : un `PWM ON` envoyé par un outil qui referme le port est coupé
-  dans la foulée. La seconde moitié, sur le *flux* de commandes (un hôte présent mais figé),
-  reste **à implémenter avant M3, pas pendant.**
 - **Schéma KiCad** — les affectations SPI2 sont électriquement impossibles (`AGENTS.md` §2). La
   carte a été retouchée à la main et fonctionne ; le schéma reste faux. **À corriger avant toute
   nouvelle fabrication**, sinon le défaut revient.
@@ -523,6 +555,8 @@ utile que la liste de ce qui marche.
 | **`BOOT_REBOOT` se réinitialisait avant d'avoir répondu, sur les ticks pairs** — `HAL_GetTick() \| 1U` comme sentinelle, soustraction non signée qui déborde | `boot-check` rouge une fois sur deux ; les octets bruts ont montré le port disparaître à 8 ms au lieu de 50 |
 | `tools/status.py` ne trouvait pas le `make` de CubeIDE sans `toolchain.local.mk`, alors que le `Makefile` a des défauts valables | Sa sortie « build impossible » sur un poste qui venait de compiler |
 | **Le serveur MCP stdio ne pouvait ni être autorisé (pas de fenêtre) ni recevoir un octet (Electron ferme stdin sous Windows)** — deux défauts invisibles à `mcp:check`, qui instancie le serveur en mémoire | Première démo à un humain : le toggle activé dans la fenêtre n'atteignait rien, puis `initialize` restait sans réponse |
+| **Deux commandes console simultanées échangeaient leurs réponses** — `DeviceClient.console()` se résout sur la *prochaine* ligne reçue, sans regarder laquelle. Inoffensif tant qu'une seule main tapait des commandes ; le battement de sécurité, à huit interrogations par seconde, rend la collision certaine. `DeviceCore` sérialise désormais tout accès à la console | Trouvé en branchant le battement, avant qu'il ne morde, 2026-09-20. Deux tests le couvrent |
+| **La faute `nFAULT` du DRV coupait sans rien verrouiller** — `Pwm_Disable()` direct depuis l'interruption, donc une reprise silencieuse restait possible alors que §4.5 l'interdit | Vu en écrivant `safety.c`, 2026-09-20. Passe maintenant par `Safety_Cut(SAFETY_DRV_FAULT)` |
 | **Le tourniquet de `sensors.c` se figeait dès qu'une commande de diagnostic convertissait** — lire `DR` efface `EOC`, donc la conversion volée laissait le tourniquet attendre un drapeau perdu, et `SENS.ALL?` republiait indéfiniment le même tour | `rounds` immobile entre deux appels espacés de plusieurs secondes, 2026-09-20. Corrigé par `Sensors_Restart()` |
 | **`INFO?` annonçait un temps mort de 22 ns au lieu de 500** — `DTG * 1000000000UL` déborde un `uint32_t`. La valeur affichée n'avait jamais servi à rien, ce qui l'a gardée fausse | Relevé en relisant `INFO?` à côté d'une trace d'oscilloscope, 2026-09-20 |
 | **Les sorties PWM basses n'étaient jamais activées** — `HAL_TIM_PWM_Start` sans `HAL_TIMEx_PWMN_Start`, donc `CCxNE = 0` sur les trois canaux, broches en l'air | Première sonde sur `PC13` : dent de scie de diaphonie au lieu d'un carré. Étape 3, à l'oscilloscope |

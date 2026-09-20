@@ -63,7 +63,28 @@ export interface DeviceSnapshot {
   aiControl: boolean;
   /** Abonnement télémétrie en cours, `null` si le flux est coupé. */
   telemetry: TelemetryState | null;
+  /** Dernier état de sécurité lu sur la carte, `null` tant que rien n'a été lu. */
+  safety: SafetyState | null;
   lastError: string | null;
+}
+
+/**
+ * État de la barrière de sécurité du firmware, relu à chaque battement.
+ *
+ * Il figure dans le snapshot pour une raison précise : le firmware coupe le couple de
+ * lui-même si le flux de commandes s'interrompt, et une interface qui n'afficherait pas
+ * cette coupure laisserait croire à une panne. `latched` gouverne aussi ce qui est
+ * possible — tant qu'il est vrai, la carte refuse toute réactivation.
+ */
+export interface SafetyState {
+  /** Cause de la dernière coupure, telle que le firmware la nomme. */
+  reason: string;
+  /** Faute verrouillée : il faut un acquittement explicite avant de réactiver. */
+  latched: boolean;
+  /** Sorties de puissance actives. */
+  outputsLive: boolean;
+  /** Coupures par le watchdog depuis le reset de la carte. */
+  trips: number;
 }
 
 /**
@@ -137,6 +158,31 @@ export interface ScopeRequest {
   signalNames?: readonly string[];
 }
 
+/** Période du battement, en millisecondes — voir `startHeartbeat`. */
+const HEARTBEAT_MS = 80;
+
+/**
+ * Lit la réponse de `SAFETY?`. Tolère les champs inconnus et l'ordre : la console du
+ * firmware est un format `clé=valeur`, et une interface qui casserait sur un champ ajouté
+ * obligerait à publier les deux côtés ensemble.
+ */
+function parseSafety(reply: string): SafetyState | null {
+  if (!reply.startsWith('OK')) return null;
+  const f = new Map<string, string>();
+  for (const tok of reply.slice(2).trim().split(/\s+/)) {
+    const eq = tok.indexOf('=');
+    if (eq > 0) f.set(tok.slice(0, eq), tok.slice(eq + 1));
+  }
+  const reason = f.get('reason');
+  if (reason === undefined) return null;
+  return {
+    reason,
+    latched: f.get('latched') === '1',
+    outputsLive: f.get('outputs') === '1',
+    trips: Number(f.get('trips') ?? 0),
+  };
+}
+
 export class DeviceCore {
   private transport: Transport | null = null;
   private client: DeviceClient | null = null;
@@ -146,6 +192,10 @@ export class DeviceCore {
   private connection: ConnectionState = 'disconnected';
   private dictIntegrity: boolean | null = null;
   private aiControl = false;
+  private safety: SafetyState | null = null;
+  private heartbeat: ReturnType<typeof setInterval> | null = null;
+  private heartbeatBusy = false;
+  private consoleChain: Promise<unknown> = Promise.resolve();
   private lastError: string | null = null;
   private logSeq = 0;
   private telemetry: TelemetryState | null = null;
@@ -205,6 +255,7 @@ export class DeviceCore {
           };
         }) ?? [],
       aiControl: this.aiControl,
+      safety: this.safety,
       telemetry: this.telemetry,
       lastError: this.lastError,
     };
@@ -231,7 +282,11 @@ export class DeviceCore {
           : await SerialTransport.open(target.path ?? '');
 
       this.client = new DeviceClient(this.transport, { timeoutMs: 1500 });
-      this.client.onLine((text) => this.log('info', 'device', text));
+      // Le battement interroge la carte huit fois par seconde : sa réponse descend en
+      // `debug`, sinon elle noie le journal. La sérialisation de `askConsole` garantit
+      // qu'aucune autre réponse ne passe pendant qu'un battement est en vol.
+      this.client.onLine((text) =>
+        this.log(this.heartbeatBusy ? 'debug' : 'info', 'device', text));
       this.client.onLinkError((e) => this.onLinkLost(e));
 
       this.log('info', 'gui', `connecting to ${this.transport.description}`);
@@ -262,6 +317,7 @@ export class DeviceCore {
 
       await this.refreshValues();
       this.connection = 'connected';
+      this.startHeartbeat();
       this.emitChange();
     } catch (e) {
       this.lastError = describe(e);
@@ -286,6 +342,7 @@ export class DeviceCore {
   }
 
   async disconnect(quiet = false): Promise<void> {
+    this.stopHeartbeat();
     this.detachTelemetry();
     if (this.client !== null) {
       await this.client.close().catch(() => undefined);
@@ -296,6 +353,7 @@ export class DeviceCore {
     this.dict = null;
     this.values.clear();
     this.dictIntegrity = null;
+    this.safety = null;
     this.connection = 'disconnected';
     if (!quiet) {
       this.log('info', 'gui', 'disconnected');
@@ -332,6 +390,104 @@ export class DeviceCore {
    * ce qui a été demandé plutôt que ce qui a été retenu est précisément le genre de mensonge
    * qui fait régler un régulateur à l'aveugle.
    */
+  /**
+   * Le device simulé, quand c'est lui qui est branché — sinon `null`.
+   *
+   * Ce n'est pas une porte dérobée : le simulateur est déjà entièrement accessible à
+   * l'appelant, qui a choisi de s'y connecter. L'exposer permet aux tests de provoquer
+   * côté device ce que seule la carte sait produire — une coupure de sécurité, par
+   * exemple — au lieu de tester le `DeviceCore` contre lui-même.
+   */
+  get simulator(): SimulatedDevice | null {
+    return this.transport instanceof SimulatedDevice ? this.transport : null;
+  }
+
+  /* ---------------------------------------------------------------- sécurité */
+
+  /**
+   * Le firmware coupe le couple si plus aucun message ne lui parvient pendant un court
+   * délai (`safety.c`, règle §4.3 d'`AGENTS.md`). Ce battement est la moitié hôte de cette
+   * règle : tant que l'interface est en vie, elle le prouve en parlant.
+   *
+   * Il interroge `SAFETY?` plutôt qu'un `PING` nu, pour deux raisons. Le message entretient
+   * le flux dans les deux cas ; celui-ci rapporte en plus l'état de la barrière, donc une
+   * coupure se voit dans l'interface au lieu de se deviner. Et une seule commande vaut mieux
+   * que deux : elle ne peut pas rapporter un état pris à un autre instant que celui où elle
+   * a prouvé que l'hôte était vivant.
+   *
+   * La période est un tiers du délai du firmware : deux battements peuvent se perdre sans
+   * qu'une coupure survienne, et le troisième coupe. Si le processus principal se fige, le
+   * minuteur s'arrête avec lui et la carte coupe — c'est exactement l'effet recherché.
+   */
+  private startHeartbeat(): void {
+    this.stopHeartbeat();
+    this.heartbeat = setInterval(() => { void this.beat(); }, HEARTBEAT_MS);
+    // Le battement ne doit pas retenir le processus au moment de quitter.
+    this.heartbeat.unref?.();
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeat !== null) {
+      clearInterval(this.heartbeat);
+      this.heartbeat = null;
+    }
+    this.heartbeatBusy = false;
+  }
+
+  /**
+   * Interroge la carte et met l'état à jour. Toujours une lecture réelle : répondre depuis
+   * le cache à qui demande explicitement l'état de sécurité reviendrait à rapporter un
+   * souvenir au moment précis où seule la situation présente compte.
+   */
+  async readSafety(): Promise<SafetyState> {
+    const reply = await this.askConsole('SAFETY?');
+    const next = parseSafety(reply);
+    if (next === null) throw new Error(`unreadable safety status: ${reply}`);
+
+    const prev = this.safety;
+    this.safety = next;
+    // Une coupure se dit une fois, au moment où elle arrive. Répéter la ligne à chaque
+    // battement noierait le journal pendant que l'opérateur cherche la cause.
+    if (next.latched && (prev === null || !prev.latched)) {
+      this.log('error', 'device', `torque cut by the firmware: ${next.reason}`);
+    }
+    if (prev === null || prev.latched !== next.latched ||
+        prev.reason !== next.reason || prev.outputsLive !== next.outputsLive) {
+      this.emitChange();
+    }
+    return next;
+  }
+
+  private async beat(): Promise<void> {
+    // Un battement en retard ne doit pas en empiler un second : c'est la liaison qui est
+    // lente, et l'empilement la rendrait plus lente encore.
+    if (this.heartbeatBusy || this.client === null || this.connection !== 'connected') return;
+    this.heartbeatBusy = true;
+    try {
+      await this.readSafety();
+    } catch {
+      // Silencieux : `onLinkError` porte déjà la perte de liaison, et un battement raté
+      // pendant une reconnexion n'est pas une information.
+    } finally {
+      this.heartbeatBusy = false;
+    }
+  }
+
+  /**
+   * Acquitte la faute verrouillée sur la carte. Le firmware refuse si la cause est encore
+   * présente : l'échec est une réponse, pas une erreur de transport.
+   */
+  async clearFault(source: LogSource = 'gui'): Promise<boolean> {
+    this.require();
+    this.requireAiControl(source);
+    const reply = await this.askConsole('FAULTCLR');
+    const ok = reply.startsWith('OK');
+    this.log(ok ? 'info' : 'warn', source,
+      ok ? 'fault cleared' : `fault not cleared: ${reply}`);
+    await this.beat();
+    return ok;
+  }
+
   /**
    * Barrière de pilotage par agent. Toute écriture d'origine `mcp` passe par ici, et par
    * ici seulement : la règle vaut pour n'importe quelle commande future, pas seulement
@@ -377,16 +533,36 @@ export class DeviceCore {
     await this.refreshValues();
   }
 
+  /**
+   * Accès sérialisé à la console.
+   *
+   * `DeviceClient.console()` se résout sur la **prochaine** ligne reçue, sans regarder
+   * laquelle : deux appels en vol en même temps échangeraient leurs réponses. Tant que
+   * seule une main tapait des commandes, le cas ne se présentait pas ; le battement de
+   * sécurité interroge la carte huit fois par seconde, et le rend certain. Tout passe donc
+   * par une file — y compris le battement, qui n'a aucun privilège.
+   */
+  private askConsole(line: string): Promise<string> {
+    const run = this.consoleChain.then(async () => {
+      const { client } = this.require();
+      return client.console(line);
+    });
+    // La chaîne ne doit pas se rompre sur un échec : le suivant a le droit d'essayer.
+    this.consoleChain = run.catch(() => undefined);
+    return run;
+  }
+
   async sendConsole(line: string, source: LogSource = 'gui'): Promise<string> {
-    const { client } = this.require();
+    this.require();
     this.log('debug', source, `> ${line}`);
-    return client.console(line);
+    return this.askConsole(line);
   }
 
   /** Console accessible aux agents : diagnostic en lecture et STOP uniquement. */
   async sendSafeConsole(line: string, source: LogSource = 'mcp'): Promise<string> {
     const verb = line.trim().split(/\s+/, 1)[0]?.toUpperCase() ?? '';
-    const allowed = new Set(['PING', 'INFO?', 'STATS?', 'LINK?', 'PROTO?', 'SELFTEST', 'PWM?', 'DRV?', 'SENS.ALL?', 'STOP']);
+    const allowed = new Set(['PING', 'INFO?', 'STATS?', 'LINK?', 'PROTO?', 'SELFTEST', 'PWM?',
+      'DRV?', 'SENS.ALL?', 'SAFETY?', 'STOP']);
     if (!allowed.has(verb)) {
       throw new Error(`console command not allowed through MCP: ${verb || '(empty)'}`);
     }

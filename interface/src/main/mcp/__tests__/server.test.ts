@@ -93,6 +93,8 @@ describe('surface publiée', () => {
       'param_list',
       'param_reset_defaults',
       'param_set',
+      'safety_clear_fault',
+      'safety_status',
       'scope_capture',
       'telemetry_sample',
       'telemetry_signals',
@@ -193,6 +195,24 @@ describe('paramètres', () => {
     const res = await call(h, 'param_reset_defaults');
     expect(res.isError).toBe(true);
     expect(res.text).toContain('AI control is off');
+  });
+
+  it("refuse d'acquitter une faute tant que « AI control » est coupé", async () => {
+    const h = await harness();
+    // Lever un verrou de sécurité est une action sur le banc, pas une lecture : elle
+    // rouvre la possibilité de remettre du couple.
+    const res = await call(h, 'safety_clear_fault');
+    expect(res.isError).toBe(true);
+    expect(res.text).toContain('AI control is off');
+  });
+
+  it("laisse lire l'état de la barrière sans « AI control »", async () => {
+    const h = await harness();
+    // Savoir pourquoi le banc s'est coupé ne demande aucune permission : refuser cette
+    // lecture pousserait un agent à deviner, ce qui est exactement ce qu'on veut éviter.
+    const res = await call(h, 'safety_status');
+    expect(res.isError).toBeFalsy();
+    expect(res.text).toContain('reason');
   });
 
   it('écrit une fois « AI control » activé, et rend la valeur réellement retenue', async () => {

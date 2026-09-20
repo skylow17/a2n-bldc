@@ -29,6 +29,7 @@
 #include "comm/selftest.h"
 #include "link_usb.h"
 #include "pwm.h"
+#include "safety.h"
 #include "version.h"
 
 void Console_Init(void)
@@ -146,16 +147,19 @@ static void CmdPwm(const char *arg)
       Reply("ERR FAULT");
       return;
     }
-    if (!Link_HostAttached()) {
-      Reply("ERR LINK");
+    /* Seule voie d'activation : la barrière connaît l'hôte et la faute latchée, et
+     * repart d'un délai de watchdog neuf. */
+    if (!Safety_EnableOutputs()) {
+      SafetyStatus_t sf;
+      Safety_GetStatus(&sf);
+      Link_TxPrintf("ERR %s\r\n", sf.latched ? "LATCHED" : "LINK");
       return;
     }
-    Pwm_Enable();
     Reply("OK");
     return;
   }
   if (strcasecmp(arg, "OFF") == 0) {
-    Pwm_Disable();
+    Safety_Cut(SAFETY_REQUESTED);
     Reply("OK");
     return;
   }
@@ -353,7 +357,7 @@ static void CmdVrefScan(const char *arg)
   uint16_t raw[SCAN_N];
   uint16_t lo, hi, mean;
 
-  s_scan_gap_us = (*arg != ' ') ? strtoul(arg, NULL, 10) : 0UL;
+  s_scan_gap_us = (*arg != '\0') ? strtoul(arg, NULL, 10) : 0UL;
   Link_TxPrintf("OK held=%u gap_us=%lu", AdcSync_IsHeld() ? 1U : 0U,
                 (unsigned long)s_scan_gap_us);
   for (uint32_t s = 0U; s < (sizeof(k) / sizeof(k[0])); s++) {
@@ -449,8 +453,17 @@ void Console_ExecuteLine(const char *line)
      * ne peut plus conduire. C'est aujourd'hui deja l'etat au repos — la commande
      * existe quand meme, et des maintenant : une commande d'arret doit preexister au
      * danger, pas arriver avec lui. L'interface s'appuie dessus. */
-    Pwm_Disable();
+    Safety_Cut(SAFETY_REQUESTED);
     Reply("OK");
+  } else if (Match(line, "SAFETY?", NULL)) {
+    SafetyStatus_t sf;
+    Safety_GetStatus(&sf);
+    Link_TxPrintf("OK reason=%s latched=%u outputs=%u since_cmd_ms=%lu trips=%lu host=%u\r\n",
+                  Safety_ReasonName(sf.reason), sf.latched ? 1U : 0U,
+                  sf.outputs_live ? 1U : 0U, (unsigned long)sf.since_cmd_ms,
+                  (unsigned long)sf.trips, Link_HostAttached() ? 1U : 0U);
+  } else if (Match(line, "FAULTCLR", NULL)) {
+    Reply(Safety_ClearFault() ? "OK" : "ERR CAUSE");
   } else if (Match(line, "PWM?", NULL)) {
     uint16_t a, b, c;
     Pwm_GetDutyPermille(&a, &b, &c);

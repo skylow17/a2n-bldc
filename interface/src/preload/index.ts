@@ -49,6 +49,8 @@ const api = {
   saveText: (suggestedName: string, contents: string) =>
     call<string | null>('device:saveText', suggestedName, contents),
   setAiControl: (enabled: boolean) => call<void>('device:setAiControl', enabled),
+  /** Acquitte la faute verrouillee. Faux si le firmware refuse : la cause tient encore. */
+  clearFault: () => call<boolean>('device:clearFault'),
 
   /** Boîte de dialogue native. `null` si l'utilisateur annule. */
   pickFirmware: () => call<{ path: string; size: number } | null>('device:pickFirmware'),

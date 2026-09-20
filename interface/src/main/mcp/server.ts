@@ -346,6 +346,40 @@ export function createA2nMcpServer(core: DeviceCore): { server: McpServer; dispo
       }),
   );
 
+  /* ------------------------------------------------------------------ sécurité */
+
+  server.registerTool(
+    'safety_status',
+    {
+      title: 'Read the safety barrier',
+      description:
+        'What the firmware barrier is doing right now: the cause of the last cut, whether ' +
+        'a fault is latched, whether the outputs are live, and how many times the ' +
+        'command-flow watchdog has tripped since reset. Read this before assuming a ' +
+        'silent bench is a broken one — the firmware cuts torque on its own when the ' +
+        'command flow stops.',
+      annotations: { readOnlyHint: true },
+    },
+    async () =>
+      invoke(core, 'safety_status', undefined, async () => core.readSafety()),
+  );
+
+  server.registerTool(
+    'safety_clear_fault',
+    {
+      title: 'Acknowledge a latched fault',
+      description:
+        'Clears the latched fault so the outputs can be enabled again. Requires AI ' +
+        'control. The firmware refuses while the cause is still present, and reports ' +
+        'that refusal as cleared: false — it is an answer, not an error.',
+      annotations: { readOnlyHint: false, destructiveHint: false },
+    },
+    async () =>
+      invoke(core, 'safety_clear_fault', undefined, async () => ({
+        cleared: await core.clearFault('mcp'),
+      })),
+  );
+
   /* ------------------------------------------------------------------ télémétrie */
 
   server.registerTool(

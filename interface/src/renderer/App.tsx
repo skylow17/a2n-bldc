@@ -153,6 +153,48 @@ function StatusBadge({ state }: { state: DeviceSnapshot }): ReactNode {
   );
 }
 
+/**
+ * État de la barrière de sécurité du firmware.
+ *
+ * Trois états, et un seul demande une action. Au repos, rien n'est affiché : une pastille
+ * verte permanente n'apprend rien et finit par ne plus être lue. Sorties actives, un point
+ * suffit — c'est une information de danger, elle doit se voir sans se lire. Faute
+ * verrouillée, la cause est nommée et l'acquittement est là, parce qu'à ce moment précis
+ * c'est la seule chose que l'opérateur veut faire.
+ */
+function SafetyBadge({ state }: { state: DeviceSnapshot }): ReactNode {
+  const clear = useAction();
+  const sf = state.safety;
+  if (sf === null || state.connection !== 'connected') return null;
+
+  if (sf.latched) {
+    return (
+      <span className="flex items-center gap-2 rounded-[3px] border border-fault bg-raise px-2.5 py-1 font-mono text-[11px] tracking-wider text-fault">
+        <Dot tone="fault" />
+        TORQUE CUT — {sf.reason.toUpperCase().replace(/_/g, ' ')}
+        <Button
+          disabled={clear.busy}
+          title="Acknowledges the latched fault. The firmware refuses while the cause is still present."
+          onClick={() => void clear.run(async () => { await api().clearFault(); })}
+        >
+          CLEAR
+        </Button>
+      </span>
+    );
+  }
+
+  if (sf.outputsLive) {
+    return (
+      <span className="flex items-center gap-2 rounded-[3px] border border-line bg-raise px-2.5 py-1 font-mono text-[11px] tracking-wider text-accent">
+        <Dot tone="warn" />
+        OUTPUTS LIVE
+      </span>
+    );
+  }
+
+  return null;
+}
+
 /* ------------------------------------------------------------------ application */
 
 export function App(): ReactNode {
@@ -188,6 +230,7 @@ export function App(): ReactNode {
         <ConnectionBar state={state} />
         <div className="flex-1" />
         <StatusBadge state={state} />
+        <SafetyBadge state={state} />
 
         {/* La bascule de theme ne touche qu'a un attribut de la racine. Placee avant les
             deux commandes critiques pour ne pas s'intercaler entre elles et la main. */}

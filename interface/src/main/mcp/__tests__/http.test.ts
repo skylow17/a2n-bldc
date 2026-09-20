@@ -54,7 +54,7 @@ describe('MCP over local HTTP', () => {
     const client = await connect(http.url);
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name)).toContain('device_status');
-    expect(tools.length).toBe(13);
+    expect(tools.length).toBe(15);
   });
 
   it('shares one DeviceCore between two sessions', async () => {

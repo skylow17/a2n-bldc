@@ -141,6 +141,9 @@ export class SimulatedDevice implements Transport {
   private rxFrames = 0;
   private rxErrors = 0;
   private pwmEnabled = false;
+  private safetyReason: string = 'ok';
+  private safetyLatched = false;
+  private safetyTrips = 0;
   private pushSeq = 0;
   private telemSeq = 0;
   private telemTimer: ReturnType<typeof setInterval> | null = null;
@@ -806,6 +809,18 @@ export class SimulatedDevice implements Transport {
     );
   }
 
+  /**
+   * Coupure de securite, comme le firmware la produirait. Le simulateur n'a pas d'horloge
+   * de watchdog : declencher la coupure est un geste explicite, sinon le test attendrait un
+   * delai reel pour verifier un chemin qui n'a rien de temporel.
+   */
+  tripSafety(reason: 'host_gone' | 'cmd_timeout' | 'drv_fault'): void {
+    this.pwmEnabled = false;
+    this.safetyReason = reason;
+    this.safetyLatched = true;
+    this.safetyTrips += 1;
+  }
+
   private onLine(line: string): void {
     const [verb = ''] = line.trim().split(/\s+/);
     const upper = verb.toUpperCase();
@@ -835,6 +850,18 @@ export class SimulatedDevice implements Transport {
         // Le simulateur n'a pas d'etage de puissance ; il repond comme la carte pour
         // que le chemin complet du bouton STOP soit reellement exerce.
         this.pwmEnabled = false;
+        this.safetyReason = 'requested';
+        this.replyLine('OK');
+        break;
+      case 'SAFETY?':
+        this.replyLine(
+          `OK reason=${this.safetyReason} latched=${this.safetyLatched ? 1 : 0} ` +
+            `outputs=${this.pwmEnabled ? 1 : 0} since_cmd_ms=0 trips=${this.safetyTrips} host=1`,
+        );
+        break;
+      case 'FAULTCLR':
+        this.safetyLatched = false;
+        this.safetyReason = 'ok';
         this.replyLine('OK');
         break;
       case 'PWM?':
