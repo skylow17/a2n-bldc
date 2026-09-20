@@ -519,6 +519,19 @@ Il manquait une mesure du mockup que le firmware ne produisait pas : la tempéra
 Ajoutée au tourniquet de `sensors.c` — capteur interne sur ADC1 voie 16, étalonnage d'usine, et
 le `VREF+` **mesuré** passé au calcul, sinon l'erreur de la référence ressortirait en degrés.
 
+**Premier usage, premier enseignement.** Mise en service, la vue a immédiatement montré des rails
+qui oscillent alors qu'ils sont parfaitement stables : toutes ces tensions sont ratiométriques de
+`VREF+`, qui balaie de 43 %, donc chacune hérite de son agitation. Le défaut n'était pas dans la
+vue, mais la vue avait tort de présenter ces chiffres comme fiables.
+
+Deux réponses possibles, et une seule est honnête. Amortir l'affichage rendrait le tableau de bord
+agréable et **masquerait un défaut matériel réel** — c'est exactement ce qu'il ne faut pas faire.
+`DeviceCore` mesure donc l'étendue de `VREF+` sur les vingt-quatre derniers relevés : chacun tombe
+à une phase quelconque de l'oscillation, donc l'étendue en mesure l'enveloppe. Au-delà de 2 %,
+un bandeau dit que la référence n'en est plus une, que les rails eux-mêmes sont sains, et donne le
+contournement — `VREF.BUF ON`. Le seuil est large à dessein : un avertissement qui se lève sur une
+carte saine cesse d'être lu.
+
 ### Verrouillage des vues par capacité annoncée
 
 Une vue n'est plus grisée par un jalon écrit en dur mais par le **bit de capacité que le device

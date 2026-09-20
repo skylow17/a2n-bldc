@@ -85,14 +85,51 @@ function tempTone(c: number | null): Health {
   return 'ok';
 }
 
+/** Au-delà de ce pour mille d'étendue, la référence rend toutes les tensions douteuses. */
+const VREF_UNSTABLE_PERMILLE = 20;
+
+/**
+ * Bandeau d'avertissement quand la référence analogique bouge.
+ *
+ * Sans lui, le tableau de bord affiche des rails qui oscillent alors qu'ils sont parfaitement
+ * stables, et l'utilisateur cherche un défaut d'alimentation qui n'existe pas — c'est
+ * exactement ce qui vient d'arriver. Rien n'est lissé : amortir l'affichage rendrait la vue
+ * agréable et masquerait un vrai défaut matériel. On mesure l'agitation, et on la dit.
+ */
+function ReferenceWarning({ spread }: { spread: number }): ReactNode {
+  return (
+    <section className="rounded-[4px] border border-fault/50 bg-panel px-3 py-2 lg:col-span-2 xl:col-span-4">
+      <div className="flex items-baseline gap-2">
+        <Dot tone="fault" />
+        <h3 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-fault">
+          Analog reference unstable
+        </h3>
+        <span className="font-mono text-[11px] text-fg-3">
+          VREF+ spans {(spread / 10).toFixed(1)} % of its own mean
+        </span>
+      </div>
+      <p className="mt-1 text-[11px] leading-relaxed text-fg-3">
+        Every voltage below is measured against VREF+, so every one of them carries that swing.
+        The rails themselves are steady — this is the reference moving, not the supply. Until the
+        hardware is fixed, <span className="font-mono text-fg-2">VREF.BUF ON</span> in the console
+        hands VREF+ to the MCU&rsquo;s internal 2.048 V buffer and the readings become true.
+      </p>
+    </section>
+  );
+}
+
 function Live({ state, mon }: { state: DeviceSnapshot; mon: MonitorState }): ReactNode {
   const sf = state.safety;
+  const refUnstable =
+    mon.vrefSpreadPermille !== null && mon.vrefSpreadPermille > VREF_UNSTABLE_PERMILLE;
   // Le tourniquet de mesure doit avancer. Figé, toutes les valeurs ci-dessous sont celles
   // du dernier tour publié, et les montrer comme vivantes serait un mensonge.
   const stalled = mon.rounds === 0;
 
   return (
     <>
+      {refUnstable && <ReferenceWarning spread={mon.vrefSpreadPermille!} />}
+
       <Metric
         label="Input voltage"
         value={mon.vinMv / 1000}
@@ -127,7 +164,23 @@ function Live({ state, mon }: { state: DeviceSnapshot; mon: MonitorState }): Rea
       <Panel title="Rails and protection" className="lg:col-span-2">
         <Rail label="5 V rail" mv={mon.v5Mv} nominalMv={5000} />
         <Rail label="3V3 rail" mv={mon.v3v3Mv} nominalMv={3300} />
-        <Rail label="Analog reference VREF+" mv={mon.vrefMv} nominalMv={2048} />
+        <Row
+          label="Analog reference VREF+"
+          right={
+            <>
+              <span className="font-mono text-[12px] text-fg">
+                {(mon.vrefMv / 1000).toFixed(3)} V
+              </span>
+              <Pill tone={refUnstable ? 'fault' : railHealth(mon.vrefMv, 2048)}>
+                {refUnstable
+                  ? `unstable ±${(mon.vrefSpreadPermille! / 20).toFixed(1)} %`
+                  : railHealth(mon.vrefMv, 2048) === 'ok'
+                    ? 'ok'
+                    : 'off nominal'}
+              </Pill>
+            </>
+          }
+        />
         <Row
           label="DRV8304 nFAULT"
           right={

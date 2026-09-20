@@ -90,6 +90,16 @@ export interface MonitorState {
   rounds: number;
   /** `VREF+` réellement mesuré par VREFINT, en millivolts. */
   vrefMv: number;
+  /**
+   * Étendue de `VREF+` sur les derniers relevés, en pour mille de sa moyenne.
+   *
+   * Chaque relevé tombe à une phase quelconque de ce qui agite éventuellement la
+   * référence, donc l'étendue sur une vingtaine de relevés en mesure l'enveloppe. Une
+   * référence saine tient sous quelques pour mille ; au-delà, **toutes** les tensions de
+   * cette carte sont fausses dans la même proportion, puisqu'elles sont toutes
+   * ratiométriques d'elle. `null` tant qu'il n'y a pas assez de relevés pour conclure.
+   */
+  vrefSpreadPermille: number | null;
   vinMv: number;
   vmotMv: number;
   v5Mv: number;
@@ -198,6 +208,18 @@ const HEARTBEAT_MS = 80;
 /** Période du relevé de supervision — voir `readMonitor`. */
 const MONITOR_MS = 500;
 
+/** Relevés gardés pour juger la référence : une douzaine de secondes. */
+const VREF_WINDOW = 24;
+
+/**
+ * Au-delà de cette étendue, en pour mille, la référence n'en est plus une.
+ *
+ * Deux pour cent est large : un `VREF+` sain tient sous le pour mille, et le bruit de
+ * conversion sur VREFINT en ajoute quelques-uns. Le seuil doit rester silencieux sur une
+ * carte saine, parce qu'un avertissement qui se déclenche pour rien cesse d'être lu.
+ */
+const VREF_UNSTABLE_PERMILLE = 20;
+
 /**
  * Lit la réponse de `SAFETY?`. Tolère les champs inconnus et l'ordre : la console du
  * firmware est un format `clé=valeur`, et une interface qui casserait sur un champ ajouté
@@ -239,6 +261,7 @@ export class DeviceCore {
   private monitor: MonitorState | null = null;
   private monitorTimer: ReturnType<typeof setInterval> | null = null;
   private monitorBusy = false;
+  private vrefWindow: number[] = [];
   private heartbeat: ReturnType<typeof setInterval> | null = null;
   private heartbeatBusy = false;
   private consoleChain: Promise<unknown> = Promise.resolve();
@@ -402,6 +425,7 @@ export class DeviceCore {
     this.dictIntegrity = null;
     this.safety = null;
     this.monitor = null;
+    this.vrefWindow = [];
     this.connection = 'disconnected';
     if (!quiet) {
       this.log('info', 'gui', 'disconnected');
@@ -528,9 +552,22 @@ export class DeviceCore {
 
     const csa = (sens.get('csa_mv') ?? '').split(',').map(Number);
     const num = (m: Map<string, string>, k: string): number => Number(m.get(k) ?? 0);
+
+    // Fenêtre glissante sur la référence. On ne moyenne rien pour l'affichage : lisser
+    // rendrait le tableau de bord agréable et masquerait le défaut. On mesure l'agitation
+    // et on la dit.
+    const vref = num(sens, 'vref_mv');
+    if (vref > 0) {
+      this.vrefWindow = [...this.vrefWindow, vref].slice(-VREF_WINDOW);
+    }
+    const w = this.vrefWindow;
+    const spread = w.length < VREF_WINDOW
+      ? null
+      : Math.round(((Math.max(...w) - Math.min(...w)) * 1000) / (w.reduce((a, b) => a + b, 0) / w.length));
     const next: MonitorState = {
       rounds: num(sens, 'rounds'),
-      vrefMv: num(sens, 'vref_mv'),
+      vrefMv: vref,
+      vrefSpreadPermille: spread,
       vinMv: num(sens, 'vin_mv'),
       vmotMv: num(sens, 'vmot_mv'),
       v5Mv: num(sens, 'v5_mv'),
@@ -550,6 +587,15 @@ export class DeviceCore {
     this.monitor = next;
     if (next.drvFault && (prev === null || !prev.drvFault)) {
       this.log('error', 'device', 'DRV8304 nFAULT asserted');
+    }
+    // Dit une fois, à la bascule : c'est un défaut matériel, pas un événement récurrent.
+    const wasUnstable = prev?.vrefSpreadPermille !== null
+      && prev !== null && prev.vrefSpreadPermille! > VREF_UNSTABLE_PERMILLE;
+    const isUnstable = spread !== null && spread > VREF_UNSTABLE_PERMILLE;
+    if (isUnstable && !wasUnstable) {
+      this.log('warn', 'device',
+        `analog reference unstable: VREF+ spans ${(spread / 10).toFixed(1)} % — every voltage ` +
+        'this board reports is scaled by it');
     }
     this.emitChange();
     return next;

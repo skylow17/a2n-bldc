@@ -593,3 +593,40 @@ describe('supervision de la carte', () => {
     expect(core.snapshot().monitor).toBeNull();
   });
 });
+
+describe('référence analogique — ne pas lisser un défaut', () => {
+  /**
+   * Quand `VREF+` bouge, toutes les tensions de la carte bougent avec lui alors que les
+   * rails sont stables. Le tableau de bord ne doit ni amortir ni moyenner : il doit mesurer
+   * l'agitation et la déclarer, sinon l'opérateur cherche une panne d'alimentation qui
+   * n'existe pas. C'est exactement ce qui s'est produit le 2026-09-20.
+   */
+  it('reste silencieux tant qu il n y a pas assez de relevés pour conclure', async () => {
+    const { core } = await connected();
+    const m = await core.readMonitor();
+    expect(m.vrefSpreadPermille).toBeNull();
+    await core.disconnect();
+  });
+
+  it('conclut à une référence saine sur un device stable', async () => {
+    const { core } = await connected();
+    // Le simulateur publie un VREF+ fixe : l'étendue doit tomber à zéro, et surtout pas
+    // déclencher un avertissement. Un avertissement qui se lève pour rien cesse d'être lu.
+    let m = await core.readMonitor();
+    for (let i = 0; i < 30; i++) m = await core.readMonitor();
+    expect(m.vrefSpreadPermille).toBe(0);
+    await core.disconnect();
+  });
+
+  it('oublie la fenêtre à la déconnexion', async () => {
+    const { core } = await connected();
+    for (let i = 0; i < 26; i++) await core.readMonitor();
+    expect(core.snapshot().monitor!.vrefSpreadPermille).not.toBeNull();
+    await core.disconnect();
+    await core.connect({ kind: 'simulator' });
+    // Une reconnexion repart d'une fenêtre vide : mélanger les relevés de deux sessions
+    // ferait passer un changement de carte pour une instabilité.
+    expect((await core.readMonitor()).vrefSpreadPermille).toBeNull();
+    await core.disconnect();
+  });
+});
