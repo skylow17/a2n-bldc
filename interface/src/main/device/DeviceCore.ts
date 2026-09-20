@@ -265,6 +265,7 @@ export class DeviceCore {
   private heartbeat: ReturnType<typeof setInterval> | null = null;
   private heartbeatBusy = false;
   private consoleChain: Promise<unknown> = Promise.resolve();
+  private internalRequest = false;
   private lastError: string | null = null;
   private logSeq = 0;
   private telemetry: TelemetryState | null = null;
@@ -352,11 +353,14 @@ export class DeviceCore {
           : await SerialTransport.open(target.path ?? '');
 
       this.client = new DeviceClient(this.transport, { timeoutMs: 1500 });
-      // Le battement interroge la carte huit fois par seconde : sa réponse descend en
-      // `debug`, sinon elle noie le journal. La sérialisation de `askConsole` garantit
-      // qu'aucune autre réponse ne passe pendant qu'un battement est en vol.
+      // L'interface interroge la carte en permanence pour son propre compte — battement de
+      // sécurité huit fois par seconde, relevé de supervision deux fois. Ces réponses-là
+      // descendent en `debug` : au niveau `info` elles noient ce que l'opérateur a demandé,
+      // et c'est exactement ce qui est arrivé. La sérialisation de `askConsole` rend le
+      // drapeau exact — aucune autre réponse ne circule pendant qu'une requête interne est
+      // en vol.
       this.client.onLine((text) =>
-        this.log(this.heartbeatBusy ? 'debug' : 'info', 'device', text));
+        this.log(this.internalRequest ? 'debug' : 'info', 'device', text));
       this.client.onLinkError((e) => this.onLinkLost(e));
 
       this.log('info', 'gui', `connecting to ${this.transport.description}`);
@@ -519,7 +523,7 @@ export class DeviceCore {
    * souvenir au moment précis où seule la situation présente compte.
    */
   async readSafety(): Promise<SafetyState> {
-    const reply = await this.askConsole('SAFETY?');
+    const reply = await this.askConsole('SAFETY?', true);
     const next = parseSafety(reply);
     if (next === null) throw new Error(`unreadable safety status: ${reply}`);
 
@@ -543,9 +547,9 @@ export class DeviceCore {
    * bruit de conversion et volerait de la bande au battement de sécurité.
    */
   async readMonitor(): Promise<MonitorState> {
-    const sens = parseFields(await this.askConsole('SENS.ALL?'));
-    const stats = parseFields(await this.askConsole('STATS?'));
-    const drv = parseFields(await this.askConsole('DRV?'));
+    const sens = parseFields(await this.askConsole('SENS.ALL?', true));
+    const stats = parseFields(await this.askConsole('STATS?', true));
+    const drv = parseFields(await this.askConsole('DRV?', true));
     if (sens === null || stats === null || drv === null) {
       throw new Error('unreadable monitor reply');
     }
@@ -697,10 +701,15 @@ export class DeviceCore {
    * sécurité interroge la carte huit fois par seconde, et le rend certain. Tout passe donc
    * par une file — y compris le battement, qui n'a aucun privilège.
    */
-  private askConsole(line: string): Promise<string> {
+  private askConsole(line: string, internal = false): Promise<string> {
     const run = this.consoleChain.then(async () => {
       const { client } = this.require();
-      return client.console(line);
+      this.internalRequest = internal;
+      try {
+        return await client.console(line);
+      } finally {
+        this.internalRequest = false;
+      }
     });
     // La chaîne ne doit pas se rompre sur un échec : le suivant a le droit d'essayer.
     this.consoleChain = run.catch(() => undefined);

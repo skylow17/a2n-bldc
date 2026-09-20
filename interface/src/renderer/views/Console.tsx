@@ -11,8 +11,53 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { DeviceSnapshot, LogEntry } from '../../main/device/DeviceCore.js';
 import { Button, Empty } from '../components/ui.js';
 import { api, useAction } from '../useDevice.js';
+import {
+  DEFAULT_FILTER,
+  LEVELS,
+  SOURCES,
+  applyFilter,
+  load,
+  save,
+  showsEverything,
+  toggle,
+  type ConsoleFilter,
+} from '../consoleFilter.js';
 
-const SUGGESTIONS = ['PING', 'INFO?', 'STATS?', 'LINK?', 'PWM?', 'PROTO?', 'SELFTEST'];
+const SUGGESTIONS = ['PING', 'INFO?', 'STATS?', 'SAFETY?', 'SENS.ALL?', 'DRV?', 'SELFTEST'];
+
+/**
+ * Bouton de filtre. Actif = la catégorie est affichée ; éteint = elle est masquée.
+ *
+ * Le libellé ne change jamais et la couleur porte l'état : un bouton dont le texte bascule
+ * entre « masquer » et « afficher » oblige à relire pour savoir ce qui se passe.
+ */
+function FilterChip({
+  label,
+  on,
+  onClick,
+  title,
+}: {
+  label: string;
+  on: boolean;
+  onClick: () => void;
+  title: string;
+}): ReactNode {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      aria-pressed={on}
+      className={`rounded-[3px] border px-2 py-0.5 font-mono text-[11px] tracking-wide transition-colors ${
+        on
+          ? 'border-line bg-raise text-fg'
+          : 'border-line-soft bg-transparent text-fg-3 line-through decoration-fg-3/60'
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
 
 const LEVEL_COLOR: Record<LogEntry['level'], string> = {
   debug: 'text-fg-3',
@@ -42,10 +87,19 @@ export function Console({
   const { busy, run } = useAction();
   const endRef = useRef<HTMLDivElement>(null);
   const [follow, setFollow] = useState(true);
+  const [filter, setFilter] = useState<ConsoleFilter>(load);
+
+  const update = (next: ConsoleFilter): void => {
+    setFilter(next);
+    save(next);
+  };
+
+  const visible = applyFilter(entries, filter);
+  const hidden = entries.length - visible.length;
 
   useEffect(() => {
     if (follow) endRef.current?.scrollIntoView({ block: 'end' });
-  }, [entries, follow]);
+  }, [visible.length, follow]);
 
   const connected = state.connection === 'connected';
 
@@ -69,10 +123,17 @@ export function Console({
           setFollow(el.scrollHeight - el.scrollTop - el.clientHeight < 24);
         }}
       >
-        {entries.length === 0 ? (
-          <Empty title="Log is empty" hint="Exchanges with the device appear here." />
+        {visible.length === 0 ? (
+          <Empty
+            title={entries.length === 0 ? 'Log is empty' : 'Everything is filtered out'}
+            hint={
+              entries.length === 0
+                ? 'Exchanges with the device appear here.'
+                : `${entries.length} lines are hidden by the filters above.`
+            }
+          />
         ) : (
-          entries.map((e) => (
+          visible.map((e) => (
             <div key={e.id} className="selectable flex gap-2 leading-relaxed">
               <span className="shrink-0 text-fg-3">
                 {new Date(e.at).toISOString().slice(11, 23)}
@@ -83,6 +144,53 @@ export function Console({
           ))
         )}
         <div ref={endRef} />
+      </div>
+
+      {/* Les filtres au-dessus des raccourcis : on règle ce qu'on voit avant de parler. */}
+      <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+        <span className="font-mono text-[11px] uppercase tracking-wider text-fg-3">show</span>
+        {LEVELS.map((l) => (
+          <FilterChip
+            key={l}
+            label={l}
+            on={filter.levels.includes(l)}
+            title={
+              l === 'debug'
+                ? 'Traffic the interface generates for itself: the safety heartbeat and the monitoring poll. Hidden by default.'
+                : `Show ${l} lines`
+            }
+            onClick={() => update({ ...filter, levels: toggle(filter.levels, l) })}
+          />
+        ))}
+        <span className="mx-1 h-3 w-px bg-line" />
+        {SOURCES.map((src) => (
+          <FilterChip
+            key={src}
+            label={src}
+            on={filter.sources.includes(src)}
+            title={`Show lines from ${src}`}
+            onClick={() => update({ ...filter, sources: toggle(filter.sources, src) })}
+          />
+        ))}
+        <input
+          className="w-40 rounded-[3px] border border-line bg-raise px-2 py-0.5 font-mono text-[11px] text-fg outline-none focus:border-fg-3"
+          placeholder="contains…"
+          value={filter.match}
+          onChange={(e) => update({ ...filter, match: e.target.value })}
+        />
+        <div className="flex-1" />
+        {/* Un filtre qui masque doit le dire, toujours : un journal amputé en silence est
+            un mensonge par omission, et c'est précisément ce qu'on vient chercher ici. */}
+        {!showsEverything(filter) && (
+          <button
+            type="button"
+            onClick={() => update(DEFAULT_FILTER)}
+            title="Reset the filters to their defaults"
+            className="font-mono text-[11px] text-accent hover:underline"
+          >
+            {hidden} hidden
+          </button>
+        )}
       </div>
 
       <div className="flex shrink-0 flex-wrap items-center gap-1.5">

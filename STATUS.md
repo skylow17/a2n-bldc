@@ -532,6 +532,25 @@ un bandeau dit que la référence n'en est plus une, que les rails eux-mêmes so
 contournement — `VREF.BUF ON`. Le seuil est large à dessein : un avertissement qui se lève sur une
 carte saine cesse d'être lu.
 
+### La console noyée par l'interface elle-même (2026-09-20)
+
+Le relevé de supervision ajouté le même jour journalisait ses réponses au niveau `info` :
+**six lignes par seconde** de `SENS.ALL?`, `STATS?` et `DRV?`, plus le battement de sécurité.
+Le journal ne montrait plus ce que l'opérateur avait demandé. Régression introduite à midi,
+remarquée le soir.
+
+Corrigé à la source d'abord : `askConsole` porte maintenant un drapeau « requête interne », et
+les réponses aux interrogations que l'interface se fait à elle-même descendent en `debug`. La
+sérialisation de la console rend ce drapeau exact — aucune autre réponse ne circule pendant
+qu'une requête interne est en vol.
+
+Puis des filtres, parce que ce trafic doit rester consultable sans être imposé : niveau,
+source, et recherche dans le texte, retenus d'une session à l'autre. `debug` est éteint par
+défaut, tout le reste allumé — un filtre par défaut qui cache un avertissement est pire que pas
+de filtre, il donne la sensation d'un banc calme. Et **le nombre de lignes masquées est
+toujours affiché**, cliquable pour tout remettre : un journal amputé en silence est un mensonge
+par omission, et c'est précisément ce qu'on vient y chercher.
+
 ### Verrouillage des vues par capacité annoncée
 
 Une vue n'est plus grisée par un jalon écrit en dur mais par le **bit de capacité que le device
