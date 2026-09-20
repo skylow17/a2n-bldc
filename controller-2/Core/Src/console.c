@@ -242,10 +242,21 @@ static uint16_t ConvertOnce(ADC_TypeDef *adc, uint32_t channel, uint32_t smp)
  * proportion ; si seule la voie interne l'est, c'est la lecture qui est mauvaise et non
  * la référence. La séquence brute est donnée telle quelle : une alternance régulière et
  * un nuage aléatoire ne racontent pas la même histoire. */
+/* Écart imposé entre deux conversions d'une rafale, en microsecondes. Ce réglage est le
+ * seul moyen de distinguer deux causes qui donnent la même dispersion : une oscillation
+ * extérieure entretenue, que l'on échantillonne trop lentement — l'écart change le motif
+ * mais pas les extrêmes — et un nœud à haute impédance que les conversions pompent
+ * elles-mêmes — laisser le nœud se rétablir entre deux fait fondre la dispersion. */
+static uint32_t s_scan_gap_us;
+
 static void ScanChannel(ADC_TypeDef *adc, uint32_t ch, uint32_t smp, uint16_t *out)
 {
   for (uint32_t i = 0U; i < SCAN_N; i++) {
     out[i] = ConvertOnce(adc, ch, smp);
+    if (s_scan_gap_us != 0U) {
+      const uint32_t t0 = DWT->CYCCNT;
+      while ((DWT->CYCCNT - t0) < (s_scan_gap_us * (BOARD_SYSCLK_HZ / 1000000U))) { }
+    }
   }
 }
 
@@ -262,27 +273,104 @@ static void ScanStats(const uint16_t *raw, uint16_t *lo, uint16_t *hi, uint16_t 
   *mean = (uint16_t)(sum / SCAN_N);
 }
 
-static void CmdVrefScan(void)
+/* Le rapport de deux voies converties au même instant ne dépend pas de VREF+ : il s'y
+ * simplifie. ADC1 et ADC2 sont une paire, on peut donc les lancer côte à côte et lire un
+ * rail *en unités de VREFINT*, c'est-à-dire absolument. Si ce rapport est stable alors que
+ * chaque voie prise seule balaie de 43 %, c'est VREF+ qui bouge et les rails sont sains.
+ * S'il balaie lui aussi, c'est le rail qui bouge, et VREF+ ne fait que le suivre. */
+/* Le tampon de référence interne du MCU, branché sur la *même* broche `VREF+`, et réglé sur
+ * la *même* tension que le MCP1501 — 2,048 V — pour qu'aucune des deux sources ne tire
+ * contre l'autre si elles sont effectivement reliées. Ce que ce test dit : si la broche est
+ * bien attachée au réseau VREF et à ses condensateurs, la mettre en basse impédance ne
+ * changera pas grand-chose au balayage. Si le balayage s'arrête net, c'est que la broche
+ * n'était tenue par personne — et donc qu'elle n'est reliée ni à `U5` ni aux condensateurs. */
+static void CmdVrefBuf(const char *arg)
 {
+  if (strcasecmp(arg, "ON") == 0) {
+    __HAL_RCC_SYSCFG_CLK_ENABLE();
+    MODIFY_REG(VREFBUF->CSR, VREFBUF_CSR_VRS | VREFBUF_CSR_HIZ, 0U);   /* 2,048 V, pilote */
+    SET_BIT(VREFBUF->CSR, VREFBUF_CSR_ENVR);
+    uint32_t guard = 0U;
+    while (((VREFBUF->CSR & VREFBUF_CSR_VRR) == 0U) && (guard < 100000U)) { guard++; }
+    Link_TxPrintf("OK csr=%08lX ready=%u\r\n", (unsigned long)VREFBUF->CSR,
+                  ((VREFBUF->CSR & VREFBUF_CSR_VRR) != 0U) ? 1U : 0U);
+  } else if (strcasecmp(arg, "OFF") == 0) {
+    VREFBUF->CSR = VREFBUF_CSR_HIZ;     /* tampon coupé, broche rendue à l'extérieur */
+    Link_TxPrintf("OK csr=%08lX ready=0\r\n", (unsigned long)VREFBUF->CSR);
+  } else {
+    Reply("ERR ARG");
+  }
+}
+
+static void CmdVrefRatio(void)
+{
+  static const struct { uint8_t ch; const char *name; } k[] = {
+    { 4U, "v3v3" }, { 3U, "v5" }, { 13U, "vin" }, { 12U, "vmot" },
+  };
+  Link_TxPrintf("OK held=%u", AdcSync_IsHeld() ? 1U : 0U);
+  for (uint32_t s = 0U; s < (sizeof(k) / sizeof(k[0])); s++) {
+    uint32_t lo = 0xFFFFFFFFUL, hi = 0U, sum = 0U;
+
+    while (((ADC1->CR | ADC2->CR) & ADC_CR_ADSTART) != 0U) { }
+    MODIFY_REG(ADC1->SMPR2, 0x7UL << (3U * 8U), 6UL << (3U * 8U));   /* VREFINT, 247,5 */
+    MODIFY_REG(ADC2->SMPR1, 0x7UL << (3U * k[s].ch), 6UL << (3U * k[s].ch));
+    ADC1->SQR1 = (18UL << ADC_SQR1_SQ1_Pos);
+    ADC2->SQR1 = ((uint32_t)k[s].ch << ADC_SQR1_SQ1_Pos);
+
+    for (uint32_t i = 0U; i < SCAN_N; i++) {
+      ADC1->ISR = ADC_ISR_EOC;
+      ADC2->ISR = ADC_ISR_EOC;
+      ADC1->CR |= ADC_CR_ADSTART;      /* deux cycles d'écart, sur 247,5 d'échantillonnage */
+      ADC2->CR |= ADC_CR_ADSTART;
+      while (((ADC1->ISR & ADC_ISR_EOC) == 0U) || ((ADC2->ISR & ADC_ISR_EOC) == 0U)) { }
+      const uint32_t ref = ADC1->DR;
+      const uint32_t rail = ADC2->DR;
+      const uint32_t r = (ref != 0U) ? (rail * 1000UL / ref) : 0UL;
+      sum += r;
+      if (r < lo) { lo = r; }
+      if (r > hi) { hi = r; }
+    }
+    Link_TxPrintf(" %s/vrefint=%lu/%lu/%lu", k[s].name, (unsigned long)lo,
+                  (unsigned long)hi, (unsigned long)(sum / SCAN_N));
+  }
+  Link_TxPrintf("\r\n");
+  Sensors_Restart();
+}
+
+static void CmdVrefScan(const char *arg)
+{
+  /* Quatre voies, deux convertisseurs. `Vin` est la seule qui ne sature à aucun moment de
+   * l'oscillation : c'est elle qui dit si VREF+ bouge vraiment. Si VREF+ balaie, toutes
+   * les voies se dispersent dans le *même* rapport, puisqu'elles sont toutes ratiométriques
+   * de lui. Si seule VREFINT est dispersée, c'est sa lecture qui est mauvaise, pas la
+   * référence — et la carte n'a alors qu'un problème de mesure, pas d'alimentation. */
+  static const struct { ADC_TypeDef *adc; uint8_t ch; uint8_t smp; const char *name; } k[] = {
+    { ADC1, 18U, 7U, "vrefint" },   /* référence interne, source à haute impédance */
+    { ADC2, 13U, 6U, "vin"     },   /* PA5, diviseur ×13 — ne sature pas            */
+    { ADC2, 12U, 6U, "vmot"    },   /* PB2, diviseur ×16                            */
+    { ADC2,  4U, 6U, "v3v3"    },   /* PA7, diviseur ×1,68 — sature en haut         */
+  };
   uint16_t raw[SCAN_N];
   uint16_t lo, hi, mean;
 
-  ScanChannel(ADC1, 18U, 7U, raw);        /* VREFINT, 640,5 cycles */
-  ScanStats(raw, &lo, &hi, &mean);
-  /* Un brut élevé veut dire un VREF+ bas : les extrêmes se croisent. */
-  Link_TxPrintf("OK held=%u vrefint_min=%u vrefint_max=%u vrefint_mean=%u "
-                "vref_min_mv=%u vref_max_mv=%u vref_mean_mv=%u seq=",
-                AdcSync_IsHeld() ? 1U : 0U, lo, hi, mean,
-                (unsigned)__LL_ADC_CALC_VREFANALOG_VOLTAGE(hi, LL_ADC_RESOLUTION_12B),
-                (unsigned)__LL_ADC_CALC_VREFANALOG_VOLTAGE(lo, LL_ADC_RESOLUTION_12B),
-                (unsigned)__LL_ADC_CALC_VREFANALOG_VOLTAGE(mean, LL_ADC_RESOLUTION_12B));
-  for (uint32_t i = 0U; i < 12U; i++) {
-    Link_TxPrintf("%u%s", raw[i], (i == 11U) ? "" : ",");
+  s_scan_gap_us = (*arg != ' ') ? strtoul(arg, NULL, 10) : 0UL;
+  Link_TxPrintf("OK held=%u gap_us=%lu", AdcSync_IsHeld() ? 1U : 0U,
+                (unsigned long)s_scan_gap_us);
+  for (uint32_t s = 0U; s < (sizeof(k) / sizeof(k[0])); s++) {
+    ScanChannel(k[s].adc, k[s].ch, k[s].smp, raw);
+    ScanStats(raw, &lo, &hi, &mean);
+    /* Le rapport max/min en millièmes : c'est lui qui se compare d'une voie à l'autre. */
+    Link_TxPrintf(" %s=%u/%u/%u:%lu", k[s].name, lo, hi, mean,
+                  (unsigned long)((lo != 0U) ? ((uint32_t)hi * 1000UL / lo) : 0UL));
   }
-
-  ScanChannel(ADC2, 4U, 6U, raw);         /* diviseur 3V3 sur PA7, 247,5 cycles */
-  ScanStats(raw, &lo, &hi, &mean);
-  Link_TxPrintf(" v3v3_min=%u v3v3_max=%u v3v3_mean=%u\r\n", lo, hi, mean);
+  /* La séquence de VREFINT en clair : une sinusoïde repliée et un nuage aléatoire ne
+   * racontent pas la même histoire. */
+  ScanChannel(ADC1, 18U, 7U, raw);
+  Link_TxPrintf(" seq=");
+  for (uint32_t i = 0U; i < 12U; i++) {
+    Link_TxPrintf("%u%s", raw[i], (i == 11U) ? "\r\n" : ",");
+  }
+  Sensors_Restart();
 }
 
 /* Impédance des trois entrées de courant, sans oscilloscope. Chaque broche est forcée en
@@ -320,6 +408,7 @@ static void CmdImotZ(void)
                 r[0][0][0], r[0][0][1], r[0][1][0], r[0][1][1],
                 r[1][0][0], r[1][0][1], r[1][1][0], r[1][1][1],
                 r[2][0][0], r[2][0][1], r[2][1][0], r[2][1][1]);
+  Sensors_Restart();
 }
 
 void Console_ExecuteLine(const char *line)
@@ -375,8 +464,12 @@ void Console_ExecuteLine(const char *line)
     if (strcasecmp(arg, "ON") == 0)       { Pwm_Disable(); AdcSync_SetHold(true);  Reply("OK"); }
     else if (strcasecmp(arg, "OFF") == 0) { AdcSync_SetHold(false); Reply("OK"); }
     else                                  { Reply("ERR ARG"); }
-  } else if (Match(line, "VREF.SCAN", NULL)) {
-    CmdVrefScan();
+  } else if (Match(line, "VREF.BUF", &arg)) {
+    CmdVrefBuf(arg);
+  } else if (Match(line, "VREF.RATIO", NULL)) {
+    CmdVrefRatio();
+  } else if (Match(line, "VREF.SCAN", &arg)) {
+    CmdVrefScan(arg);
   } else if (Match(line, "IMOT.Z", NULL)) {
     CmdImotZ();
   } else if (Match(line, "ADC.PROBE", NULL)) {

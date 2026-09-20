@@ -170,6 +170,12 @@ void Sensors_Process(void)
   }
 }
 
+void Sensors_Restart(void)
+{
+  s_index = 0U;
+  s_busy  = false;
+}
+
 void Sensors_Get(Sensors_t *out)
 {
   __disable_irq();

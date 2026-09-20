@@ -38,4 +38,12 @@ void Sensors_Process(void);
 /** Dernier tour complet. Cohérent : copié sous masquage. */
 void Sensors_Get(Sensors_t *out);
 
+/**
+ * Repart d'un tour neuf. À appeler par tout code qui a lancé une conversion régulière de
+ * son côté : lire `DR` efface `EOC`, donc une conversion volée au tourniquet le laisse
+ * attendre un drapeau qui ne reviendra jamais, et les mesures se figent sur le dernier
+ * tour publié. Le diagnostic de `console.c` est le seul cas aujourd'hui.
+ */
+void Sensors_Restart(void);
+
 #endif /* SENSORS_H */
