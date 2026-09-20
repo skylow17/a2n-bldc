@@ -9,6 +9,7 @@
 #ifndef ADC_SYNC_H
 #define ADC_SYNC_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -17,6 +18,17 @@ extern "C" {
 
 /** Calibre puis arme l'ADC1. À appeler après Pwm_Init(), avant de lancer la boucle. */
 void AdcSync_Init(void);
+
+/**
+ * Fige ou relance le groupe injecté. Gelé, TIM1 continue à déclencher mais l'ADC ne
+ * convertit plus : c'est la seule façon d'observer VREF+ ou une sortie de CSA sans que
+ * le condensateur d'échantillonnage de l'ADC ne vienne secouer le nœud mesuré. La
+ * boucle de contrôle n'est plus servie : réservé au diagnostic, MOE coupé.
+ */
+void AdcSync_SetHold(bool hold);
+
+/** Vrai si le groupe injecté est figé. */
+bool AdcSync_IsHeld(void);
 
 /** Lecture des trois résultats injectés. Appelé depuis l'ISR, doit rester trivial. */
 static inline void AdcSync_Read(uint16_t *ia, uint16_t *ib, uint16_t *ic);

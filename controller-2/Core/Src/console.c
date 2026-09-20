@@ -16,6 +16,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "stm32g4xx_ll_adc.h"
+
+#include "adc_sync.h"
 #include "board.h"
 #include "ctrl.h"
 #include "drv8304.h"
@@ -207,6 +210,118 @@ static void CmdDrvReg(const char *arg)
   Link_TxPrintf("OK reg=%lX value=%03X\r\n", addr, readback);
 }
 
+/* ------------------------------------------------------------------ diagnostic analogique */
+
+/* Une conversion régulière isolée, sur le convertisseur et la voie demandés. Le tourniquet
+ * de `sensors.c` utilise les mêmes registres depuis la superloop : on attend qu'il ait
+ * fini, et lui repartira de zéro au prochain passage. */
+static uint16_t ConvertOnce(ADC_TypeDef *adc, uint32_t channel, uint32_t smp)
+{
+  while ((adc->CR & ADC_CR_ADSTART) != 0U) { }
+  if (channel < 10U) {
+    MODIFY_REG(adc->SMPR1, 0x7UL << (3U * channel), smp << (3U * channel));
+  } else {
+    MODIFY_REG(adc->SMPR2, 0x7UL << (3U * (channel - 10U)), smp << (3U * (channel - 10U)));
+  }
+  adc->SQR1 = (channel << ADC_SQR1_SQ1_Pos);
+  adc->ISR  = ADC_ISR_EOC | ADC_ISR_EOS | ADC_ISR_OVR;
+  adc->CR  |= ADC_CR_ADSTART;
+  while ((adc->ISR & ADC_ISR_EOC) == 0U) { }
+  return (uint16_t)adc->DR;
+}
+
+/* Rafale de conversions de VREFINT aussi serrees que possible. Un VREF+ stable donne une
+ * poignee de LSB d'ecart entre le minimum et le maximum ; un ecart de plusieurs centaines
+ * dit que la reference bouge d'une conversion a l'autre, et alors *toutes* les mesures de
+ * la carte sont fausses, pas seulement celle-la. */
+#define SCAN_N  64U
+
+/* Rafale sur une voie, puis min/max/moyenne. Sert deux fois : sur VREFINT, dont la source
+ * est interne et à haute impédance, et sur un diviseur de rail, source externe et basse
+ * impédance. Si VREF+ bougeait vraiment, les deux seraient dispersées dans la même
+ * proportion ; si seule la voie interne l'est, c'est la lecture qui est mauvaise et non
+ * la référence. La séquence brute est donnée telle quelle : une alternance régulière et
+ * un nuage aléatoire ne racontent pas la même histoire. */
+static void ScanChannel(ADC_TypeDef *adc, uint32_t ch, uint32_t smp, uint16_t *out)
+{
+  for (uint32_t i = 0U; i < SCAN_N; i++) {
+    out[i] = ConvertOnce(adc, ch, smp);
+  }
+}
+
+static void ScanStats(const uint16_t *raw, uint16_t *lo, uint16_t *hi, uint16_t *mean)
+{
+  uint32_t sum = 0U;
+  *lo = 0xFFFFU;
+  *hi = 0U;
+  for (uint32_t i = 0U; i < SCAN_N; i++) {
+    sum += raw[i];
+    if (raw[i] < *lo) { *lo = raw[i]; }
+    if (raw[i] > *hi) { *hi = raw[i]; }
+  }
+  *mean = (uint16_t)(sum / SCAN_N);
+}
+
+static void CmdVrefScan(void)
+{
+  uint16_t raw[SCAN_N];
+  uint16_t lo, hi, mean;
+
+  ScanChannel(ADC1, 18U, 7U, raw);        /* VREFINT, 640,5 cycles */
+  ScanStats(raw, &lo, &hi, &mean);
+  /* Un brut élevé veut dire un VREF+ bas : les extrêmes se croisent. */
+  Link_TxPrintf("OK held=%u vrefint_min=%u vrefint_max=%u vrefint_mean=%u "
+                "vref_min_mv=%u vref_max_mv=%u vref_mean_mv=%u seq=",
+                AdcSync_IsHeld() ? 1U : 0U, lo, hi, mean,
+                (unsigned)__LL_ADC_CALC_VREFANALOG_VOLTAGE(hi, LL_ADC_RESOLUTION_12B),
+                (unsigned)__LL_ADC_CALC_VREFANALOG_VOLTAGE(lo, LL_ADC_RESOLUTION_12B),
+                (unsigned)__LL_ADC_CALC_VREFANALOG_VOLTAGE(mean, LL_ADC_RESOLUTION_12B));
+  for (uint32_t i = 0U; i < 12U; i++) {
+    Link_TxPrintf("%u%s", raw[i], (i == 11U) ? "" : ",");
+  }
+
+  ScanChannel(ADC2, 4U, 6U, raw);         /* diviseur 3V3 sur PA7, 247,5 cycles */
+  ScanStats(raw, &lo, &hi, &mean);
+  Link_TxPrintf(" v3v3_min=%u v3v3_max=%u v3v3_mean=%u\r\n", lo, hi, mean);
+}
+
+/* Impédance des trois entrées de courant, sans oscilloscope. Chaque broche est forcée en
+ * sortie pendant 20 µs, puis relâchée en analogique et convertie tout de suite, puis 2 ms
+ * plus tard. Une sortie d'amplificateur (quelques centaines d'ohms) a déjà repris la main
+ * à la première conversion : les deux valeurs se ressemblent, et ne dépendent pas du sens
+ * du forçage. Un nœud flottant garde la charge : première valeur collée au rail forcé,
+ * seconde qui a dérivé. C'est la seule mesure ici qui ne dépend ni de VREF+ ni du DRV. */
+static void CmdImotZ(void)
+{
+  static const struct { uint16_t pin; ADC_TypeDef *adc; uint8_t ch; } k[3] = {
+    { PIN_IMOTA, ADC2, 1U }, { PIN_IMOTB, ADC2, 2U }, { PIN_IMOTC, ADC1, 3U },
+  };
+  uint16_t r[3][2][2];   /* [voie][0 = forcé bas, 1 = forcé haut][instant] */
+
+  for (uint32_t i = 0U; i < 3U; i++) {
+    for (uint32_t lvl = 0U; lvl < 2U; lvl++) {
+      GPIO_InitTypeDef g = {0};
+      g.Pin   = k[i].pin;
+      g.Mode  = GPIO_MODE_OUTPUT_PP;
+      g.Pull  = GPIO_NOPULL;
+      g.Speed = GPIO_SPEED_FREQ_LOW;
+      HAL_GPIO_Init(GPIOA, &g);
+      HAL_GPIO_WritePin(GPIOA, k[i].pin, (lvl != 0U) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+      const uint32_t t0 = DWT->CYCCNT;
+      while ((DWT->CYCCNT - t0) < (20U * (BOARD_SYSCLK_HZ / 1000000U))) { }
+      g.Mode = GPIO_MODE_ANALOG;
+      HAL_GPIO_Init(GPIOA, &g);
+      r[i][lvl][0] = ConvertOnce(k[i].adc, k[i].ch, 6U);   /* 247,5 cycles */
+      HAL_Delay(2U);
+      r[i][lvl][1] = ConvertOnce(k[i].adc, k[i].ch, 6U);
+    }
+  }
+  Link_TxPrintf("OK a_lo=%u,%u a_hi=%u,%u b_lo=%u,%u b_hi=%u,%u c_lo=%u,%u c_hi=%u,%u\r\n",
+                r[0][0][0], r[0][0][1], r[0][1][0], r[0][1][1],
+                r[1][0][0], r[1][0][1], r[1][1][0], r[1][1][1],
+                r[2][0][0], r[2][0][1], r[2][1][0], r[2][1][1]);
+}
+
 void Console_ExecuteLine(const char *line)
 {
   const char *arg = NULL;
@@ -221,7 +336,7 @@ void Console_ExecuteLine(const char *line)
                   FW_PRODUCT, FW_VERSION, FW_PROTO_MAJOR, FW_PROTO_MINOR,
                   (unsigned long)BOARD_SYSCLK_HZ, (unsigned long)PWM_FREQ_HZ,
                   (unsigned long)PWM_ARR,
-                  (unsigned long)(PWM_DEADTIME_DTG * 1000000000UL / BOARD_SYSCLK_HZ),
+                  (unsigned long)(PWM_DEADTIME_DTG * 1000UL / (BOARD_SYSCLK_HZ / 1000000UL)),
                   BOARD_VREF_MV);
   } else if (Match(line, "STATS?", NULL)) {
     CmdStats();
@@ -254,6 +369,16 @@ void Console_ExecuteLine(const char *line)
                   a, b, c, Link_HostAttached() ? 1U : 0U);
   } else if (Match(line, "PWM", &arg)) {
     CmdPwm(arg);
+  } else if (Match(line, "ADC.HOLD", &arg)) {
+    /* Fige le groupe injecté : plus aucune conversion synchrone, donc plus aucun appel de
+     * courant sur VREF+ à 20 kHz. Coupe MOE d'abord — la boucle n'est plus servie. */
+    if (strcasecmp(arg, "ON") == 0)       { Pwm_Disable(); AdcSync_SetHold(true);  Reply("OK"); }
+    else if (strcasecmp(arg, "OFF") == 0) { AdcSync_SetHold(false); Reply("OK"); }
+    else                                  { Reply("ERR ARG"); }
+  } else if (Match(line, "VREF.SCAN", NULL)) {
+    CmdVrefScan();
+  } else if (Match(line, "IMOT.Z", NULL)) {
+    CmdImotZ();
   } else if (Match(line, "ADC.PROBE", NULL)) {
     /* Les trois entrees de courant en entree numerique, tirees vers le bas puis vers le
      * haut : une source basse impedance impose son niveau (0,85 V lit 0 dans les deux

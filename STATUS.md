@@ -8,15 +8,17 @@ Ce fichier ne contient **aucun chiffre volatil** (nombre de tests, occupation fl
 Ces valeurs se mesurent, elles ne se recopient pas : `python tools/status.py` les relève sur le
 dépôt réel. Une valeur écrite à la main est fausse le lendemain.
 
-Dernière revue : 2026-09-18, à l'oscilloscope et au voltmètre, avec la carte.
+Dernière revue : 2026-09-20, sur carte, après remplacement de U3.
 
-> **Reprise suivante — par où commencer.** La carte attend un **nouveau DRV8304 (U3)** : ses
-> amplificateurs de courant sont morts, diagnostic clos (voir « Les courants à zéro »). Avant
-> de le souder : traiter le ripple de VREF, inspecter le pad thermique. Sans courants, ce qui
-> peut avancer : une commande `ADC.HOLD` pour prouver que l'ADC est la source du ripple, le
-> driver AS5600 en I2C4 DMA (l'aimant n'est pas monté — statut seulement), le watchdog de
-> flux de commandes, la lecture VREFINT bimodale. L'étape 3 est validée ; l'étape 4 reprend
-> avec le nouveau chip.
+> **Reprise suivante — par où commencer.** Le DRV8304 a été remplacé et **rien n'a changé** :
+> le diagnostic « U3 mort » du 2026-09-18 est **infirmé**, la puce est hors de cause. Deux
+> défauts restent, et le premier invalide toutes les mesures analogiques de la carte :
+> **VREF oscille de ±370 mV autour de 2,048 V**, ni l'ADC ni le DRV n'en sont la cause (voir
+> « VREF n'est pas une référence »). À faire, dans l'ordre : un condensateur de 1 µF au plus
+> près de `U5` broche 1, et `100 nF + 1 µF` sur `VREF+` du MCU (broche 20) qui n'a **aucun
+> découplage**. Ensuite seulement, à l'ohmmètre carte éteinte : continuité `U3` 23/22/21 vers
+> `U4` 8/9/10, résistance de `U3` broche 32 et du pad thermique vers la masse, et la
+> **sérigraphie du boîtier** (un DRV8320 est brochage-compatible et n'a aucun amplificateur).
 
 > **Cette revue a repris des états faux.** La passe du 2026-09-15 a marqué « validé sur carte » des
 > jalons dont le code n'a jamais été commité. Le détail est plus bas, section
@@ -36,7 +38,7 @@ Dernière revue : 2026-09-18, à l'oscilloscope et au voltmètre, avec la carte.
 | **M1c** | Télémétrie souscrite + buffer scope | **Validé sur carte le 2026-09-16** : `telem` sans trou, `scope` 2048 points sur 4 signaux à la cadence de boucle | Coût de l'échantillonnage scope dans l'ISR, voir la piste plus bas |
 | **M1d** | CLI de bring-up | Validé sur simulateur **et sur carte** — toutes les commandes, `firmware-update` compris | — |
 | **Boot** | Bootloader A/B, probation et rollback | **Validé sur carte le 2026-09-16** : installation SWD, `BOOT_INFO`, mise à jour nominale promue, rollback sur image qui ne confirme jamais | Rien ; un défaut trouvé sur carte, corrigé, rejoué |
-| **M2** | Étage de puissance et capteurs (étapes 2 à 9) | **Étape 2 validée sur carte le 2026-09-16** : le DRV8304 répond en SPI, sept registres relus cohérents avec la fiche technique, écriture-relecture par `DRV.PROBE`, fautes lisibles. **Étape 3 validée à l'oscilloscope le 2026-09-18** : trois bras complémentaires à 20 kHz, temps mort 500 ns aux deux fronts, rapports 20/50/80 % suivis, aucune conduction croisée — après avoir trouvé que les sorties basses n'avaient jamais été activées. **Étape 4 entamée le 2026-09-18** : rails mesurés (`SENS.ALL?`), VREF+ mesuré, un défaut d'acquisition corrigé, et **un défaut matériel isolé** — voir plus bas | Étape 4 : **bloquée par le matériel** — les sorties CSA du DRV n'atteignent pas l'ADC ; voltmètre sur U3 pins 21–23 (VREF pin 24 est bon). Ripple de 200 mV sur VREF à traiter. Le chemin nFAULT → coupure de `MOE` est écrit mais **jamais déclenché** |
+| **M2** | Étage de puissance et capteurs (étapes 2 à 9) | **Étape 2 validée sur carte le 2026-09-16** : le DRV8304 répond en SPI, sept registres relus cohérents avec la fiche technique, écriture-relecture par `DRV.PROBE`, fautes lisibles. **Étape 3 validée à l'oscilloscope le 2026-09-18** : trois bras complémentaires à 20 kHz, temps mort 500 ns aux deux fronts, rapports 20/50/80 % suivis, aucune conduction croisée — après avoir trouvé que les sorties basses n'avaient jamais été activées. **Étape 4 entamée le 2026-09-18**, puis reprise le 2026-09-20 après remplacement de U3 : un défaut d'acquisition corrigé, et **deux défauts matériels isolés** — voir plus bas | Étape 4 : **bloquée par le matériel**. D'abord `VREF` qui oscille de ±370 mV, ce qui fausse toute mesure de tension de la carte ; ensuite les trois entrées de courant flottantes, que le remplacement du DRV n'a pas corrigées — continuité et masse à vérifier à l'ohmmètre. Le chemin nFAULT → coupure de `MOE` est écrit mais **jamais déclenché** |
 | **M3** | Asservissements (étapes 10 à 13) | Pas commencé | — |
 
 **Aucun moteur n'a encore tourné**, et les sorties restent en haute impédance.
@@ -252,14 +254,9 @@ Mesuré ensuite à l'oscilloscope, le même jour :
 - `CAL` haut par la broche pendant 5 s, puis `CSA_CAL_A/B/C` par SPI pendant 5 s, deux fois :
   **SOA n'a pas bougé d'un millivolt.**
 
-Conclusion : la section analogique de U3 ne pilote pas ses sorties, alors que sa section
-numérique répond au SPI, ne signale aucune faute et a piloté six grilles proprement à
-l'étape 3. Deux causes restent qui tuent l'analogique en laissant le numérique vivant, à
-vérifier au voltmètre : **AGND (U3 pin 32) et le pad thermique** non soudés — même famille que
-la résistance du monitoring 3V3, trouvée mal soudée le même jour ; et une entrée **SPx/SNx**
-(pins 9-12, 19-20) qui ne serait pas à 0 V. Si les deux sont propres, U3 est endommagé côté
-analogique et se remplace — après avoir traité le ripple VREF, seule anomalie électrique
-connue sur cette section.
+Conclusion tirée ce jour-là, et **infirmée depuis** : la section analogique de U3 serait morte.
+L'utilisateur a dessoudé U3 et soudé un DRV8304 neuf le 2026-09-20. **Rien n'a changé.** La
+suite est plus bas, « Le DRV n'y est pour rien » et « VREF n'est pas une référence ».
 
 Le monitoring 3V3 (`R10`/`R9` vers `PA7`) lisait zéro : **résistance mal soudée, corrigée le
 2026-09-18**, lit 3,1 V depuis.
@@ -273,6 +270,72 @@ conversion régulière interrompue par la salve injectée pendant son échantill
 Le temps d'échantillonnage des voies injectées (6,5 cycles) est maintenant une constante
 de `board.h`, `ADC_IMOT_SAMPLETIME`, prête à être ajustée contre une relecture lente — ce
 réglage n'a de sens qu'avec une source réelle.
+
+### VREF n'est pas une référence (2026-09-20)
+
+Le « ripple de 200 mV » noté à l'étape 3 n'était pas un défaut de découplage à traiter un jour :
+c'est **le** défaut de la carte. Deux commandes neuves l'établissent sans oscilloscope.
+
+`VREF.SCAN` enchaîne 64 conversions serrées de VREFINT, puis 64 du diviseur 3V3. Sur cette
+carte, VREFINT va de 2048 à 2935 counts d'une conversion à l'autre, soit un **VREF+ qui balaie
+1,69 V à 2,43 V** — ±18 % autour de 2,048 V. Trois faits enlèvent toute ambiguïté :
+
+- **La séquence brute est une sinusoïde repliée**, pas un nuage : `2063, 2787, 2915, 2213, 2048,
+  2647, 2928, 2312, …`. Une oscillation entretenue, échantillonnée trop lentement pour elle.
+- **La voie 3V3 est dispersée dans la même proportion** (3316 à 4095, saturée en haut). Une
+  source externe basse impédance et la référence interne du MCU bougent ensemble : c'est donc
+  `VREF+` qui bouge, pas la lecture de VREFINT. Le chiffre boucle, d'ailleurs : à VREF+ = 2,43 V,
+  3,3 V après diviseur donne 3314 counts, et la mesure dit 3316.
+- **Ni l'ADC ni le DRV n'y sont pour quelque chose.** `ADC.HOLD ON` fige le groupe injecté :
+  résultat identique au count près. Broche `CAL` haute, `CSA_CAL` par SPI, `VREF_DIV`, `COAST` :
+  onze balayages, tous superposables. L'hypothèse du 2026-09-18 — la salve injectée à 20 kHz
+  qui tire sur `VREF+` — est **fausse**.
+
+Reste la topologie, et le schéma la donne : le réseau VREF porte **un seul condensateur**, `C9`
+(100 nF), posé à côté du DRV, à l'autre bout de la carte. `U5` (MCP1501) n'a **rien** sur sa
+sortie, et `VREF+` du MCU (broche 20) n'a **aucun découplage** — alors que la datasheet du
+STM32G4 en demande. Une référence tamponnée qui attaque une piste longue terminée par 100 nF
+lointains voit une charge RLC série : c'est la façon classique de faire osciller un étage de
+sortie. La datasheet du MCP1501 dit qu'aucun condensateur n'est nécessaire *à la stabilité* —
+elle ne dit pas qu'on peut en mettre un à dix centimètres.
+
+Conséquence à retenir : **toutes les tensions publiées par la carte jusqu'ici sont fausses**, y
+compris les rails de `SENS.ALL?` et les 2,0 V de VREF+ relevés le 2026-09-18. La « lecture
+VREFINT bimodale » de cette date est le même phénomène, vu à travers deux échantillons.
+
+Correctif matériel : 1 µF céramique au plus près de `U5` broche 1, et `100 nF + 1 µF` sur
+`VREF+`. À faire avant toute autre mesure analogique. À reporter au schéma avant refabrication.
+
+### Le DRV n'y est pour rien (2026-09-20)
+
+U3 remplacé par un DRV8304 neuf, la carte répond exactement comme avant. La commande `IMOT.Z`
+le montre sans oscilloscope : chaque entrée de courant est forcée 20 µs en sortie, relâchée en
+analogique, convertie tout de suite puis 2 ms plus tard, vers le bas puis vers le haut.
+
+| Voie | forcée bas → 0 µs, 2 ms | forcée haut → 0 µs, 2 ms |
+|---|---|---|
+| A | 2304, 1656 | 3300, 3511 |
+| B | 2048, 1397 | 3543, 3915 |
+| C | 1370, 986 | 4095, 4095 |
+
+Le nœud **garde la charge du forçage deux millisecondes**, et le signe du forçage décide encore
+du résultat. Une sortie d'amplificateur — quelques centaines d'ohms — aurait repris la main bien
+avant la première conversion, et les deux colonnes se ressembleraient. Identique avec `CAL`
+haut. Ces trois broches ne sont reliées à aucune source, et le chip n'est pas en cause.
+
+Ce qui n'a jamais été mesuré, et qui doit l'être maintenant, à l'ohmmètre et carte éteinte :
+
+1. **Continuité `U3` 23/22/21 → `U4` 8/9/10.** Le 2026-09-18, « SOA identique en U3 et en U4 »
+   avait été pris pour une preuve de continuité. C'en était une mauvaise : deux nœuds flottants
+   voisins de l'ADC montrent le même carré d'échantillonnage. Une piste coupée expliquerait
+   tout, et survivrait évidemment à un changement de puce.
+2. **`U3` broche 32 (AGND) et pad thermique vers la masse.** Lire 0 V au voltmètre ne distingue
+   pas « à la masse » de « en l'air » : il faut une résistance. AGND en l'air tue l'analogique
+   en laissant le numérique vivre — ce qui est exactement le tableau observé.
+3. **La sérigraphie du boîtier.** `DRV8320S` et `DRV8304S` partagent le brochage `RHA` ; le
+   8320 n'a simplement aucun amplificateur de courant, et ses broches `SOx`/`SPx`/`SNx`/`VREF`
+   ne sont reliées à rien à l'intérieur. Deux puces du même sachet donneraient deux fois ce
+   résultat. Le registre `0x06` se lit et s'écrit dans les deux cas, il ne tranche pas.
 
 ### Coût de l'ISR — mesuré, en partie réglé, le reste attend la FOC
 
@@ -318,14 +381,17 @@ Relevées en écrivant M1c, à trancher dans `docs/protocol.md` avant d'y touche
 - **BOOT0 révision A** — `PB8/BOOT0` n'a pas de pull-down externe. La carte de bring-up a été
   provisionnée pour ignorer la broche et `make provision` rend l'opération reproductible. Ajouter
   un pull-down de 10 kΩ sur la prochaine révision matérielle.
-- **U3 (DRV8304) à remplacer : section analogique morte.** Sorties CSA flottantes jusqu'au
-  chip, insensibles à `CAL` broche et SPI ; AGND à 0 V, SPx/SNx à 0 V, VREF présent, soudures
-  vues bonnes — diagnostic clos le 2026-09-18. **Bloque l'étape 4 et tout ce qui suit.**
-  Avant de souder le suivant : traiter le ripple VREF, et inspecter le pad thermique au
-  dessoudage.
-- **Ripple de 200 mV sur VREF (2,048 V)** — vu à l'oscilloscope sur U3 pin 24, période ~40 µs,
-  sans commutation de puissance. Référence commune aux CSA et à l'ADC. Découplage à revoir
-  (1–10 µF) après confirmation que l'ADC en est la cause.
+- **VREF oscille — la référence de toute la chaîne analogique.** ±370 mV autour de 2,048 V,
+  entretenue, indépendante de l'ADC et du DRV (2026-09-20, voir « VREF n'est pas une
+  référence »). `U5` n'a aucun condensateur de sortie et `VREF+` du MCU aucun découplage ;
+  le seul du réseau, `C9`, est à l'autre bout de la carte. **Tant que ce n'est pas corrigé,
+  aucune mesure de tension de cette carte n'a de sens.** 1 µF sur `U5` broche 1, `100 nF +
+  1 µF` sur `VREF+`, puis reporter au schéma.
+- **Entrées de courant flottantes — cause inconnue, le DRV est hors de cause.** Remplacer U3
+  n'a rien changé (2026-09-20). Restent trois vérifications à l'ohmmètre, carte éteinte :
+  continuité `U3` 23/22/21 → `U4` 8/9/10, masse sur `U3` broche 32 et pad thermique, et la
+  sérigraphie du boîtier (`DRV8320` est brochage-compatible et sans amplificateurs).
+  **Bloque l'étape 4 et tout ce qui suit.**
 
 ---
 
@@ -445,6 +511,7 @@ utile que la liste de ce qui marche.
 | **`BOOT_REBOOT` se réinitialisait avant d'avoir répondu, sur les ticks pairs** — `HAL_GetTick() \| 1U` comme sentinelle, soustraction non signée qui déborde | `boot-check` rouge une fois sur deux ; les octets bruts ont montré le port disparaître à 8 ms au lieu de 50 |
 | `tools/status.py` ne trouvait pas le `make` de CubeIDE sans `toolchain.local.mk`, alors que le `Makefile` a des défauts valables | Sa sortie « build impossible » sur un poste qui venait de compiler |
 | **Le serveur MCP stdio ne pouvait ni être autorisé (pas de fenêtre) ni recevoir un octet (Electron ferme stdin sous Windows)** — deux défauts invisibles à `mcp:check`, qui instancie le serveur en mémoire | Première démo à un humain : le toggle activé dans la fenêtre n'atteignait rien, puis `initialize` restait sans réponse |
+| **`INFO?` annonçait un temps mort de 22 ns au lieu de 500** — `DTG * 1000000000UL` déborde un `uint32_t`. La valeur affichée n'avait jamais servi à rien, ce qui l'a gardée fausse | Relevé en relisant `INFO?` à côté d'une trace d'oscilloscope, 2026-09-20 |
 | **Les sorties PWM basses n'étaient jamais activées** — `HAL_TIM_PWM_Start` sans `HAL_TIMEx_PWMN_Start`, donc `CCxNE = 0` sur les trois canaux, broches en l'air | Première sonde sur `PC13` : dent de scie de diaphonie au lieu d'un carré. Étape 3, à l'oscilloscope |
 | **`ADC_SCAN_DISABLE` tronquait la séquence injectée à une voie** — depuis M0, seule la phase A était convertie, B et C lisaient zéro, et zéro ressemblait à un étage de puissance éteint | La phase A s'est mise à lire *quelque chose* quand le groupe régulier a commencé à tourner à côté ; `JSQR` relu sur la carte : `JL = 0` |
 

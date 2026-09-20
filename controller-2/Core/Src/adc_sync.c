@@ -85,3 +85,30 @@ void AdcSync_Init(void)
   HAL_NVIC_SetPriority(ADC1_2_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(ADC1_2_IRQn);
 }
+
+/* ------------------------------------------------------------------ gel de diagnostic */
+
+static bool s_held;
+
+void AdcSync_SetHold(bool hold)
+{
+  if (hold == s_held) {
+    return;
+  }
+  if (hold) {
+    ADC1->IER &= ~ADC_IER_JEOSIE;
+    ADC1->CR  |= ADC_CR_JADSTP;
+    while ((ADC1->CR & ADC_CR_JADSTP) != 0U) { }
+    s_held = true;
+  } else {
+    ADC1->ISR  = ADC_ISR_JEOS;
+    ADC1->CR  |= ADC_CR_JADSTART;
+    ADC1->IER |= ADC_IER_JEOSIE;
+    s_held = false;
+  }
+}
+
+bool AdcSync_IsHeld(void)
+{
+  return s_held;
+}
