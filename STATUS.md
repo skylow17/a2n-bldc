@@ -487,6 +487,38 @@ par le PC — tout dans la console commune.
 les outils s'appellent `device_connect`, `param_set`. Les clients MCP courants n'acceptent que
 `[a-zA-Z0-9_-]` dans un nom d'outil. Les familles sont inchangées, seul le séparateur diffère.
 
+### Le dashboard avait dérivé du mockup, et on sait quand (2026-09-20)
+
+Remarque de l'utilisateur, juste : le tableau de bord n'affiche rien de ce que la carte mesure,
+alors que le mockup d'origine (`interface/docs/mockup/mockup.html`) en avait fait son sujet.
+
+Le mockup montrait huit cartes tournées vers *ce que la machine fait* : tension d'entrée, rail
+moteur, température du MCU, charge de boucle — quatre gros chiffres avec leur trace — puis
+« Rails & protection » et les compteurs de fautes. La vue livrée en montrait cinq, dont quatre
+tournées vers *ce que la machine est* : identité, hash du dictionnaire, intégrité du transfert,
+bits de capacité, constantes compilées. Des choses qu'on lit une fois.
+
+La dérive a une date, et ce n'est pas un oubli de conception : cette vue a été écrite à M1,
+quand le firmware ne savait dire que son identité et son dictionnaire. Le module `sensors` est
+arrivé le 2026-09-18, et personne n'est revenu sur la vue. Les données existaient depuis deux
+jours sans que rien ne les remonte.
+
+Corrigé. `DeviceCore` relève `SENS.ALL?`, `STATS?` et `DRV?` toutes les 500 ms — cadence lente
+assumée : ces grandeurs sont thermiques ou continues, les rafraîchir plus vite ne montrerait que
+du bruit de conversion et volerait de la bande au battement de sécurité, qui tourne à 80 ms. La
+vue retrouve les quatre gros chiffres avec leur trace, « Rails and protection » — où le watchdog
+de flux et l'état des sorties ont maintenant leur ligne — et une carte pour les trois entrées de
+courant. L'identification n'a pas disparu : elle tient en un panneau, en bas.
+
+Deux règles d'affichage qui ne sont pas cosmétiques. **Une absence de mesure s'écrit `—`, jamais
+zéro** : un rail à 0,00 V est une panne, et confondre les deux fait chercher un problème qui
+n'existe pas. **Une trace plate se dessine plate** : sans étendue minimale, la normalisation
+remplirait la hauteur avec du bruit d'arrondi et ferait passer un rail stable pour un rail agité.
+
+Il manquait une mesure du mockup que le firmware ne produisait pas : la température de jonction.
+Ajoutée au tourniquet de `sensors.c` — capteur interne sur ADC1 voie 16, étalonnage d'usine, et
+le `VREF+` **mesuré** passé au calcul, sinon l'erreur de la référence ressortirait en degrés.
+
 ### Verrouillage des vues par capacité annoncée
 
 Une vue n'est plus grisée par un jalon écrit en dur mais par le **bit de capacité que le device

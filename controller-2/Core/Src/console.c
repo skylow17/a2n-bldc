@@ -592,10 +592,10 @@ void Console_ExecuteLine(const char *line)
      * de courant sont données brutes et en mV : un zéro brut sur les trois, avec un vref
      * plausible, désigne le signal et non l'ADC. */
     Link_TxPrintf("OK rounds=%lu vref_mv=%u vrefint_raw=%u vin_mv=%u vmot_mv=%u v5_mv=%u "
-                  "v3v3_mv=%u csa_raw=%u,%u,%u csa_mv=%u,%u,%u\r\n",
+                  "v3v3_mv=%u csa_raw=%u,%u,%u csa_mv=%u,%u,%u mcu_temp_c=%d\r\n",
                   (unsigned long)sn.rounds, sn.vref_mv, sn.vrefint_raw, sn.vin_mv, sn.vmot_mv,
                   sn.v5_mv, sn.v3v3_mv, sn.csa_raw[0], sn.csa_raw[1], sn.csa_raw[2],
-                  sn.csa_mv[0], sn.csa_mv[1], sn.csa_mv[2]);
+                  sn.csa_mv[0], sn.csa_mv[1], sn.csa_mv[2], sn.mcu_temp_c);
   } else if (Match(line, "DRV?", NULL)) {
     CmdDrvStatus();
   } else if (Match(line, "DRV.PROBE", NULL)) {

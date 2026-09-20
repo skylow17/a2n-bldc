@@ -33,6 +33,7 @@ const EMPTY: DeviceSnapshot = {
   aiControl: false,
   telemetry: null,
   safety: null,
+  monitor: null,
   lastError: null,
 };
 

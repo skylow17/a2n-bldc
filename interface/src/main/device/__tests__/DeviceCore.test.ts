@@ -555,3 +555,41 @@ describe('console — accès sérialisé', () => {
     await core.disconnect();
   });
 });
+
+describe('supervision de la carte', () => {
+  const settle = async (): Promise<void> => {
+    await new Promise((r) => setTimeout(r, 700));
+  };
+
+  it('relève rails, référence, température et coût de boucle sans qu on le demande', async () => {
+    const { core } = await connected();
+    await settle();
+    const m = core.snapshot().monitor;
+    expect(m).not.toBeNull();
+    expect(m!.vrefMv).toBe(2048);
+    expect(m!.vinMv).toBeGreaterThan(14_000);
+    expect(m!.v3v3Mv).toBeGreaterThan(3_000);
+    expect(m!.mcuTempC).not.toBeNull();
+    expect(m!.rounds).toBeGreaterThan(0);
+    expect(m!.drvFault).toBe(false);
+    await core.disconnect();
+  });
+
+  it('distingue une température absente d un zéro', async () => {
+    const { core } = await connected();
+    // Un firmware antérieur au capteur ne publie pas le champ. `null` doit traverser
+    // jusqu'à l'UI, qui affiche un tiret : 0 °C serait une mesure, et une fausse.
+    const m = await core.readMonitor();
+    expect(m.mcuTempC).not.toBe(0);
+    expect(typeof m.mcuTempC).toBe('number');
+    await core.disconnect();
+  });
+
+  it('oublie le relevé à la déconnexion', async () => {
+    const { core } = await connected();
+    await settle();
+    expect(core.snapshot().monitor).not.toBeNull();
+    await core.disconnect();
+    expect(core.snapshot().monitor).toBeNull();
+  });
+});

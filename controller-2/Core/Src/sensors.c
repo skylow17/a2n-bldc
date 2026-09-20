@@ -43,6 +43,7 @@ static const Slot_t s_slots[] = {
   { ADC2,  1U, SMP_247_5 },   /* CSA A PA0, relecture lente                         */
   { ADC2,  2U, SMP_247_5 },   /* CSA B PA1, relecture lente                         */
   { ADC1,  3U, 0xFFU     },   /* CSA C PA2 : ADC1 seul, au temps du groupe injecté  */
+  { ADC1, 16U, SMP_640_5 },   /* Température de jonction, capteur interne           */
 };
 #define SLOT_COUNT  (sizeof(s_slots) / sizeof(s_slots[0]))
 
@@ -95,7 +96,8 @@ void Sensors_Init(void)
   while (!LL_ADC_IsActiveFlag_ADRDY(ADC2)) { }
 
   /* VREFINT est un canal interne : à activer dans le bloc commun. */
-  LL_ADC_SetCommonPathInternalCh(ADC12_COMMON, LL_ADC_PATH_INTERNAL_VREFINT);
+  LL_ADC_SetCommonPathInternalCh(ADC12_COMMON,
+                                 LL_ADC_PATH_INTERNAL_VREFINT | LL_ADC_PATH_INTERNAL_TEMPSENSOR);
 
   s_index = 0U;
   s_busy  = false;
@@ -142,6 +144,10 @@ static void Publish(void)
     v.csa_mv[i]  = (uint16_t)TO_MV(s_raw[5U + i]);
   }
   #undef TO_MV
+  /* La température passe par les deux points d'étalonnage d'usine, relevés sous 3,0 V :
+   * il faut donc lui donner le VREF+ réellement mesuré, sinon l'erreur de la référence
+   * se retrouve en degrés. */
+  v.mcu_temp_c = (int16_t)__LL_ADC_CALC_TEMPERATURE(vref, s_raw[8], LL_ADC_RESOLUTION_12B);
   v.rounds = s_public.rounds + 1U;
 
   __disable_irq();

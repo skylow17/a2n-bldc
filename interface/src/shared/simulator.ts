@@ -144,6 +144,7 @@ export class SimulatedDevice implements Transport {
   private safetyReason: string = 'ok';
   private safetyLatched = false;
   private safetyTrips = 0;
+  private sensRounds = 0;
   private pushSeq = 0;
   private telemSeq = 0;
   private telemTimer: ReturnType<typeof setInterval> | null = null;
@@ -866,6 +867,26 @@ export class SimulatedDevice implements Transport {
         break;
       case 'PWM?':
         this.replyLine(`OK enabled=${this.pwmEnabled ? 1 : 0}`);
+        break;
+      case 'SENS.ALL?': {
+        // Des valeurs plausibles et lentement variables : un tableau de bord figé ne
+        // permet pas de voir qu'il est vivant, et des valeurs aleatoires empecheraient
+        // un test de conclure. Une derive douce fait les deux.
+        const t = (Date.now() % 60_000) / 60_000;
+        const wobble = (amp: number): number => Math.round(amp * Math.sin(t * 2 * Math.PI));
+        this.replyLine(
+          `OK rounds=${++this.sensRounds} vref_mv=2048 vrefint_raw=2420 ` +
+            `vin_mv=${15000 + wobble(120)} vmot_mv=${14950 + wobble(140)} ` +
+            `v5_mv=${4920 + wobble(25)} v3v3_mv=${3300 + wobble(12)} ` +
+            `csa_raw=2048,2048,2048 csa_mv=1024,1024,1024 ` +
+            `mcu_temp_c=${38 + wobble(3)}`,
+        );
+        break;
+      }
+      case 'DRV?':
+        this.replyLine(
+          'OK spi=1 nfault=0 events=0 fs1=000 fs2=000 ctrl=000 hs=377 ls=377 ocp=145 csa=283',
+        );
         break;
       case 'LINK?':
         this.replyLine('OK tx_dropped=0 rx_dropped=0');

@@ -65,6 +65,8 @@ export interface DeviceSnapshot {
   telemetry: TelemetryState | null;
   /** Dernier état de sécurité lu sur la carte, `null` tant que rien n'a été lu. */
   safety: SafetyState | null;
+  /** Dernier relevé de supervision, `null` tant que rien n'a été lu. */
+  monitor: MonitorState | null;
   lastError: string | null;
 }
 
@@ -76,6 +78,38 @@ export interface DeviceSnapshot {
  * cette coupure laisserait croire à une panne. `latched` gouverne aussi ce qui est
  * possible — tant qu'il est vrai, la carte refuse toute réactivation.
  */
+/**
+ * Ce que la carte mesure sur elle-même — rails, référence, température, coût de la boucle.
+ *
+ * Rien ici n'est calculé par l'hôte : le firmware mesure `VREF+` au lieu de le supposer, et
+ * tous les millivolts en dépendent. Une valeur absente vaut `null` plutôt que zéro, parce
+ * qu'un zéro affiché sur un rail est une panne et non une absence de mesure.
+ */
+export interface MonitorState {
+  /** Tours complets du tourniquet de mesure depuis le reset : dit que la carte vit. */
+  rounds: number;
+  /** `VREF+` réellement mesuré par VREFINT, en millivolts. */
+  vrefMv: number;
+  vinMv: number;
+  vmotMv: number;
+  v5Mv: number;
+  v3v3Mv: number;
+  /** Entrées de courant en millivolts, relecture lente. */
+  csaMv: [number, number, number];
+  /** Jonction du MCU, en degrés. `null` si le firmware ne la publie pas encore. */
+  mcuTempC: number | null;
+  /** Coût de l'ISR en pour mille du budget d'une période PWM, et sa pire valeur. */
+  loadPermille: number;
+  isrLastNs: number;
+  isrMaxNs: number;
+  /** Passages de la boucle de contrôle depuis le reset. */
+  ticks: number;
+  /** Broche `nFAULT` du DRV8304 basse — une faute matérielle est présente. */
+  drvFault: boolean;
+  /** Fronts `nFAULT` comptés depuis le reset. */
+  drvEvents: number;
+}
+
 export interface SafetyState {
   /** Cause de la dernière coupure, telle que le firmware la nomme. */
   reason: string;
@@ -161,18 +195,27 @@ export interface ScopeRequest {
 /** Période du battement, en millisecondes — voir `startHeartbeat`. */
 const HEARTBEAT_MS = 80;
 
+/** Période du relevé de supervision — voir `readMonitor`. */
+const MONITOR_MS = 500;
+
 /**
  * Lit la réponse de `SAFETY?`. Tolère les champs inconnus et l'ordre : la console du
  * firmware est un format `clé=valeur`, et une interface qui casserait sur un champ ajouté
  * obligerait à publier les deux côtés ensemble.
  */
-function parseSafety(reply: string): SafetyState | null {
+function parseFields(reply: string): Map<string, string> | null {
   if (!reply.startsWith('OK')) return null;
   const f = new Map<string, string>();
   for (const tok of reply.slice(2).trim().split(/\s+/)) {
     const eq = tok.indexOf('=');
     if (eq > 0) f.set(tok.slice(0, eq), tok.slice(eq + 1));
   }
+  return f;
+}
+
+function parseSafety(reply: string): SafetyState | null {
+  const f = parseFields(reply);
+  if (f === null) return null;
   const reason = f.get('reason');
   if (reason === undefined) return null;
   return {
@@ -193,6 +236,9 @@ export class DeviceCore {
   private dictIntegrity: boolean | null = null;
   private aiControl = false;
   private safety: SafetyState | null = null;
+  private monitor: MonitorState | null = null;
+  private monitorTimer: ReturnType<typeof setInterval> | null = null;
+  private monitorBusy = false;
   private heartbeat: ReturnType<typeof setInterval> | null = null;
   private heartbeatBusy = false;
   private consoleChain: Promise<unknown> = Promise.resolve();
@@ -256,6 +302,7 @@ export class DeviceCore {
         }) ?? [],
       aiControl: this.aiControl,
       safety: this.safety,
+      monitor: this.monitor,
       telemetry: this.telemetry,
       lastError: this.lastError,
     };
@@ -354,6 +401,7 @@ export class DeviceCore {
     this.values.clear();
     this.dictIntegrity = null;
     this.safety = null;
+    this.monitor = null;
     this.connection = 'disconnected';
     if (!quiet) {
       this.log('info', 'gui', 'disconnected');
@@ -424,6 +472,8 @@ export class DeviceCore {
     this.heartbeat = setInterval(() => { void this.beat(); }, HEARTBEAT_MS);
     // Le battement ne doit pas retenir le processus au moment de quitter.
     this.heartbeat.unref?.();
+    this.monitorTimer = setInterval(() => { void this.pollMonitor(); }, MONITOR_MS);
+    this.monitorTimer.unref?.();
   }
 
   private stopHeartbeat(): void {
@@ -431,7 +481,12 @@ export class DeviceCore {
       clearInterval(this.heartbeat);
       this.heartbeat = null;
     }
+    if (this.monitorTimer !== null) {
+      clearInterval(this.monitorTimer);
+      this.monitorTimer = null;
+    }
     this.heartbeatBusy = false;
+    this.monitorBusy = false;
   }
 
   /**
@@ -456,6 +511,60 @@ export class DeviceCore {
       this.emitChange();
     }
     return next;
+  }
+
+  /**
+   * Relève ce que la carte mesure sur elle-même. Trois commandes, à cadence lente : ces
+   * grandeurs sont thermiques ou continues, les rafraîchir plus vite ne montrerait que du
+   * bruit de conversion et volerait de la bande au battement de sécurité.
+   */
+  async readMonitor(): Promise<MonitorState> {
+    const sens = parseFields(await this.askConsole('SENS.ALL?'));
+    const stats = parseFields(await this.askConsole('STATS?'));
+    const drv = parseFields(await this.askConsole('DRV?'));
+    if (sens === null || stats === null || drv === null) {
+      throw new Error('unreadable monitor reply');
+    }
+
+    const csa = (sens.get('csa_mv') ?? '').split(',').map(Number);
+    const num = (m: Map<string, string>, k: string): number => Number(m.get(k) ?? 0);
+    const next: MonitorState = {
+      rounds: num(sens, 'rounds'),
+      vrefMv: num(sens, 'vref_mv'),
+      vinMv: num(sens, 'vin_mv'),
+      vmotMv: num(sens, 'vmot_mv'),
+      v5Mv: num(sens, 'v5_mv'),
+      v3v3Mv: num(sens, 'v3v3_mv'),
+      csaMv: [csa[0] ?? 0, csa[1] ?? 0, csa[2] ?? 0],
+      // Absent d'un firmware antérieur à la température : `null` se distingue de 0 °C.
+      mcuTempC: sens.has('mcu_temp_c') ? num(sens, 'mcu_temp_c') : null,
+      loadPermille: num(stats, 'load_pm'),
+      isrLastNs: num(stats, 'last_ns'),
+      isrMaxNs: num(stats, 'max_ns'),
+      ticks: num(stats, 'ticks'),
+      drvFault: sens.has('rounds') && drv.get('nfault') === '1',
+      drvEvents: num(drv, 'events'),
+    };
+
+    const prev = this.monitor;
+    this.monitor = next;
+    if (next.drvFault && (prev === null || !prev.drvFault)) {
+      this.log('error', 'device', 'DRV8304 nFAULT asserted');
+    }
+    this.emitChange();
+    return next;
+  }
+
+  private async pollMonitor(): Promise<void> {
+    if (this.monitorBusy || this.client === null || this.connection !== 'connected') return;
+    this.monitorBusy = true;
+    try {
+      await this.readMonitor();
+    } catch {
+      // Même raison que pour le battement : la perte de liaison a déjà son message.
+    } finally {
+      this.monitorBusy = false;
+    }
   }
 
   private async beat(): Promise<void> {

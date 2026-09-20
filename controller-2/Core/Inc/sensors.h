@@ -27,6 +27,7 @@ typedef struct
   uint16_t csa_raw[3];    /**< Entrées de courant A/B/C, échantillonnage long, counts.     */
   uint16_t csa_mv[3];     /**< Les mêmes en millivolts, avec le VREF+ mesuré.              */
   uint16_t vrefint_raw;   /**< Brut, pour vérifier le calcul.                              */
+  int16_t  mcu_temp_c;    /**< Jonction du MCU, en degrés, capteur interne et calibration. */
   uint32_t rounds;        /**< Tours de tourniquet complets depuis le reset.               */
 } Sensors_t;
 
