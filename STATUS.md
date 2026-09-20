@@ -10,17 +10,27 @@ dépôt réel. Une valeur écrite à la main est fausse le lendemain.
 
 Dernière revue : 2026-09-20, sur carte, après remplacement de U3.
 
-> **Reprise suivante — par où commencer.** Une seule mesure à faire, à l'ohmmètre, carte
-> éteinte : **continuité entre `U5` broche 1 (sortie du MCP1501) et `U4` broche 20 (`VREF+`)**.
-> Tout désigne une liaison ouverte — voir « VREF+ n'est tenu par personne ». Dans la même
-> séance, tant que l'ohmmètre est sorti : continuité `U3` 23/22/21 → `U4` 8/9/10, et
-> résistance de `U3` broche 32 et du pad thermique vers la masse. Le DRV8304 est **hors de
-> cause**, remplacé sans effet, et la référence du sachet est bien `DRV8304SRHAR`. En
-> attendant, `VREF.BUF ON` rend la carte mesurable : le tampon interne du MCU tient `VREF+`
-> à 2,048 V et tous les rails se lisent juste.
+> **Reprise suivante — par où commencer.** Trois mesures à l'ohmmètre, carte éteinte, et rien
+> d'autre ne débloque M2 : **continuité `U3` 23/22/21 → `U4` 8/9/10**, puis **résistance de
+> `U3` broche 32 (AGND) et du pad thermique vers la masse**. Le chemin de mesure de courant
+> est coupé entre la sortie de l'amplificateur et la broche du MCU ; le DRV8304 est hors de
+> cause, remplacé sans effet, référence du sachet vérifiée. Au voltmètre, 0 V ne distingue pas
+> « à la masse » de « en l'air » — il faut une résistance.
 >
-> Côté logiciel, rien n'attend : le **watchdog de flux de commandes** est en place des deux
-> côtés et éprouvé sur carte — c'était le dernier prérequis de M3 (`AGENTS.md` §4.3).
+> **Sur VREF, la piste de la liaison coupée est écartée** : 0 Ω entre `U5` broche 1 et `U4`
+> broche 20, même signal aux deux. Reste l'expérience que l'utilisateur a proposée et qui
+> tranchera en un coup de fer : **soulever la patte de sortie de `U5` et regarder si elle
+> oscille à vide**. Puis y coller la 4,7 µF. L'arithmétique dit que le nœud ne porte que
+> 100 nF (voir « `VREF+` n'est tenu par personne »), donc cette capa n'est probablement pas
+> électriquement en place.
+>
+> En attendant, `VREF.BUF ON` rend la carte mesurable : le tampon interne du MCU tient
+> `VREF+` à 2,048 V, tous les rails se lisent juste, et le tableau de bord cesse d'afficher
+> une oscillation. C'est une béquille de diagnostic — à éteindre dès que `U5` est réparé.
+>
+> Côté logiciel, rien n'attend. Le **watchdog de flux de commandes** est en place des deux
+> côtés et éprouvé sur carte : c'était le dernier prérequis de M3 (`AGENTS.md` §4.3). Le
+> tableau de bord montre enfin ce que la carte mesure, et la console se filtre.
 
 > **Cette revue a repris des états faux.** La passe du 2026-09-15 a marqué « validé sur carte » des
 > jalons dont le code n'a jamais été commité. Le détail est plus bas, section
@@ -306,11 +316,23 @@ et `VREF.RATIO` passe de 1398-1625 à **1613-1620**. Coupé, tout revient. Autre
 qu'une source basse impédance tient cette broche, tout est propre.
 
 Or l'utilisateur avait ajouté **4,7 µF** en parallèle du 100 nF sans rien changer, à l'oscilloscope
-comme ici. Faire osciller 4,7 µF de 0,74 V crête à crête à 25 kHz demanderait **0,55 A** — aucune
-référence ne fait ça. Les deux observations ne peuvent tenir ensemble que d'une façon : **la
-broche `VREF+` du MCU n'est pas reliée électriquement au réseau qui porte `U5` et ces
-condensateurs.** Piste coupée, via percée, ou broche non soudée. D'où la mesure à faire :
-ohmmètre entre `U5` broche 1 et `U4` broche 20.
+comme ici. J'en ai conclu à une liaison coupée entre la broche 20 et le réseau portant les
+condensateurs. **Mesuré, c'est faux** : 0 Ω entre `U5` broche 1 et `U4` broche 20, et le même
+signal sur les deux broches à l'oscilloscope. Le réseau est entier.
+
+Ce qui déplace la question sur la fréquence, puisque le courant nécessaire en dépend. `VREF.FREQ`
+la mesure de l'intérieur : 512 conversions de VREFINT à cadence imposée, cadencée au compteur de
+cycles, et comptage des passages par la moyenne. Cinq cadences de 8 à 25 µs donnent **10,0 kHz à
+0,5 % près** — une fréquence repliée changerait avec la cadence, celle-ci ne bouge pas. Les
+cadences au-delà de Nyquist (50, 200, 1000 µs) donnent bien n'importe quoi, ce qui valide la
+méthode.
+
+À 10 kHz et 717 mV crête à crête, `C·2πf·V/2` vaut **108 mA** si 4,8 µF étaient sur ce nœud, et
+**2,25 mA** si seul le 100 nF de `C9` y est. Le second est banal, et cohérent avec la borne
+supérieure indépendante : le tampon interne du MCU, spécifié 4 mA, écrase l'oscillation **87
+fois**. Conclusion : **le nœud ne porte que 100 nF, donc la capacité ajoutée n'y est pas
+électriquement.** Reste à trancher entre une soudure froide et un `U5` intrinsèquement instable —
+un coup de fer sur la patte de sortie, mesurée à vide, le dira.
 
 Ce que ça vaut, une fois `VREF+` tenu — et c'est la première fois que ces chiffres veulent dire
 quelque chose : `vref 2,053 V`, `vin 15,20 V`, `vmot 14,95 V`, `5 V 4,92 V`, `3V3 3,30 V`, stables
@@ -337,6 +359,20 @@ picofarads — la signature d'un nœud qui n'a aucune source. Et 2 ms plus tard,
 zéro, **quel que soit le sens du forçage** : une fuite, rien d'autre. Une sortie d'amplificateur —
 quelques centaines d'ohms, polarisée à `VREF/2` ≈ 1,02 V — aurait imposé sa valeur dès le premier
 échantillon et l'aurait tenue. Identique avec `CAL` haut, à la broche comme par SPI.
+
+Refait le 2026-09-20 avec `VREF.BUF ON`, qui tient `VREF+` **et**, le réseau étant continu, la
+broche `VREF` du DRV : rien ne change. À courant nul, un CSA alimenté sort `VREF/2` ≈ 1,024 V en
+basse impédance — ce point de repos n'a besoin d'aucun courant dans le shunt pour exister. On lit
+`1027, 724, 66` puis `994, 790, 57` d'un relevé à l'autre. Ça dérive, donc ce n'est pas une
+tension de repos.
+
+Et une preuve indépendante, tombée par accident : **ajouter le capteur de température au
+tourniquet de l'ADC a déplacé les valeurs lues sur les entrées de courant** (`1054, 847, 64` avant,
+`1027, 724, 66` après). Une voie sans rapport, convertie ailleurs dans la séquence, ne peut pas
+influencer une broche tenue par une source basse impédance ; elle influence exactement un nœud
+flottant, par la charge que le condensateur d'échantillonnage lui apporte de la conversion
+précédente. Le `1027` de la phase A, si proche de `VREF/2` qu'il donne envie d'y croire, est une
+coïncidence d'équilibre de charge — la lecture suivante donne 994.
 
 Ces trois broches ne sont reliées à aucune source, et le chip n'est pas en cause.
 
@@ -425,17 +461,23 @@ Relevées en écrivant M1c, à trancher dans `docs/protocol.md` avant d'y touche
 - **BOOT0 révision A** — `PB8/BOOT0` n'a pas de pull-down externe. La carte de bring-up a été
   provisionnée pour ignorer la broche et `make provision` rend l'opération reproductible. Ajouter
   un pull-down de 10 kΩ sur la prochaine révision matérielle.
-- **`VREF+` du MCU n'est relié à rien qui le tienne.** La broche balaie 1,70 → 2,43 V ; le
-  tampon interne posé dessus à la même tension fait tomber la dispersion de 1,430 à 1,025 ;
-  4,7 µF ajoutés sur le réseau VREF n'ont rien changé, et ne le pourraient pas (2026-09-20,
-  voir « `VREF+` n'est tenu par personne »). **Mesure à faire : ohmmètre entre `U5` broche 1
-  et `U4` broche 20.** Les rails, eux, sont sains. Contournement disponible : `VREF.BUF ON`.
+- **La référence analogique oscille à 10,0 kHz, 717 mV crête à crête.** `VREF+` balaie
+  1,70 → 2,43 V, donc **toutes** les tensions de la carte sont fausses dans la même
+  proportion. Le réseau est entier (0 Ω entre `U5` broche 1 et `U4` broche 20), la source
+  débite quelques milliampères, et l'arithmétique dit que le nœud ne porte que 100 nF : la
+  capacité de 4,7 µF ajoutée n'y est pas électriquement (2026-09-20, voir « `VREF+` n'est
+  tenu par personne »). **À faire : soulever la patte de sortie de `U5` et la mesurer à
+  vide**, puis y coller la capacité. Les rails, eux, sont sains — mesurés à ±1,8 %
+  indépendamment de la référence. Contournement : `VREF.BUF ON`.
 - **Entrées de courant flottantes — cause inconnue, le DRV est hors de cause.** Remplacer U3
-  par un `DRV8304SRHAR` neuf n'a rien changé (2026-09-20), et `IMOT.Z` relu avec une
-  référence propre montre trois nœuds sans source : après forçage, le premier échantillon
-  n'est que le partage de charge du condensateur de l'ADC, et 2 ms plus tard tout est
-  retombé à zéro, quel que soit le sens. Restent à l'ohmmètre : continuité `U3` 23/22/21 →
-  `U4` 8/9/10, et masse sur `U3` broche 32 et pad thermique. **Bloque l'étape 4 et la suite.**
+  par un `DRV8304SRHAR` neuf n'a rien changé (2026-09-20). Trois lectures concordent, toutes
+  faites avec une référence propre : le point de repos `VREF/2` est absent et dérive d'un
+  relevé à l'autre, `CAL` est inerte, et `IMOT.Z` montre trois nœuds qui retombent à zéro
+  2 ms après un forçage, quel qu'en soit le sens. Ajouter une voie sans rapport au tourniquet
+  de l'ADC déplace les valeurs lues — signature d'un nœud flottant, impossible sur une sortie
+  d'amplificateur. **Le défaut est entre la sortie du CSA et la broche du MCU.** Restent à
+  l'ohmmètre : continuité `U3` 23/22/21 → `U4` 8/9/10, et masse sur `U3` broche 32 et pad
+  thermique. **Bloque l'étape 4 et la suite.**
 
 ---
 
