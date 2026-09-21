@@ -20,10 +20,12 @@ Dernière revue : 2026-09-21, sur carte — deux causes matérielles trouvées d
 > `csa_raw` groupés à 2 counts près autour de la mi-échelle, et l'oscillation a disparu avec
 > son oscillateur. L'étape 4 n'est plus bloquée par le matériel.
 >
-> **Un défaut nouveau a été trouvé dans la foulée : le SPI du DRV ne répond plus.** Tous les
-> registres se relisent à zéro alors que l'étape 2 était validée le 2026-09-16. Deux
-> hypothèses ont été formulées et réfutées par la mesure ; il faut maintenant un
-> oscilloscope. `DRV.LOOP 5000` martèle une lecture pour qu'on puisse déclencher dessus,
+> **Un défaut a été trouvé dans la foulée : le SPI du DRV ne répond plus.** Tous les
+> registres se relisent à zéro. Constaté le 2026-09-21, mais la dernière preuve qu'il
+> fonctionnait date du 2026-09-16, **avant le remplacement de `U3`** : les zéros lus après
+> ce remplacement avaient été pris pour « aucune faute ». Premier suspect, donc, la soudure
+> de `U3` broches 26 à 29. Deux hypothèses ont été formulées et réfutées par la mesure ; il
+> faut maintenant un oscilloscope. `DRV.LOOP 5000` martèle une lecture pour qu'on puisse déclencher dessus,
 > sondes sur `U3` broches 29, 28, 27 et 26 — toutes en bord de boîtier. Détail et ordre des
 > vérifications dans « Le SPI du DRV ne répond plus ».
 >
@@ -59,7 +61,7 @@ Dernière revue : 2026-09-21, sur carte — deux causes matérielles trouvées d
 | **M1c** | Télémétrie souscrite + buffer scope | **Validé sur carte le 2026-09-16** : `telem` sans trou, `scope` 2048 points sur 4 signaux à la cadence de boucle | Coût de l'échantillonnage scope dans l'ISR, voir la piste plus bas |
 | **M1d** | CLI de bring-up | Validé sur simulateur **et sur carte** — toutes les commandes, `firmware-update` compris | — |
 | **Boot** | Bootloader A/B, probation et rollback | **Validé sur carte le 2026-09-16** : installation SWD, `BOOT_INFO`, mise à jour nominale promue, rollback sur image qui ne confirme jamais | Rien ; un défaut trouvé sur carte, corrigé, rejoué |
-| **M2** | Étage de puissance et capteurs (étapes 2 à 9) | **Étape 2 : validée le 2026-09-16, en RÉGRESSION depuis le 2026-09-21** — tous les registres se relisent à zéro, voir plus bas. Pour mémoire, la validation d'origine : le DRV8304 répond en SPI, sept registres relus cohérents avec la fiche technique, écriture-relecture par `DRV.PROBE`, fautes lisibles. **Étape 3 validée à l'oscilloscope le 2026-09-18** : trois bras complémentaires à 20 kHz, temps mort 500 ns aux deux fronts, rapports 20/50/80 % suivis, aucune conduction croisée — après avoir trouvé que les sorties basses n'avaient jamais été activées. **Étape 4 entamée le 2026-09-18**, puis reprise le 2026-09-20 après remplacement de U3 : un défaut d'acquisition corrigé, et **deux défauts matériels isolés** — voir plus bas | Étape 4 : **débloquée le 2026-09-21** — la retouche de la référence a réveillé les trois amplis de shunt, `csa_raw` groupés à 2 counts près autour de la mi-échelle. Reste à faire l'étape elle-même : offsets et bruit mesurés et documentés. Bloquée en pratique par la régression du SPI, qui empêche de régler le gain. Pour mémoire, ce qui bloquait avant : D'abord `VREF` qui oscille de ±370 mV, ce qui fausse toute mesure de tension de la carte ; ensuite les trois entrées de courant flottantes, que le remplacement du DRV n'a pas corrigées — continuité et masse à vérifier à l'ohmmètre. Le chemin nFAULT → coupure de `MOE` est écrit mais **jamais déclenché** . **Étape 6 écrite hors séquence et éprouvée sur carte** (2026-09-21) puisqu'elle ne dépend ni de 4 ni de 5 : AS5600 en DMA à 1 MHz, transfert 57 µs, un échantillon toutes les 59 µs, ISR à 2,60 µs au pire. **Verte à titre provisoire** : le critère « angle monotone à la main » a été validé par l'utilisateur, aimant monté, et je n'ai pas assisté à la mesure — une réserve reste à lever, voir la section de l'étape 6 |
+| **M2** | Étage de puissance et capteurs (étapes 2 à 9) | **Étape 2 : validée le 2026-09-16, EN RÉGRESSION** — tous les registres se relisent à zéro. Constaté le 2026-09-21, mais la dernière preuve date d'avant le remplacement de `U3` : rien n'atteste que le SPI ait fonctionné depuis. Voir plus bas. Pour mémoire, la validation d'origine : le DRV8304 répond en SPI, sept registres relus cohérents avec la fiche technique, écriture-relecture par `DRV.PROBE`, fautes lisibles. **Étape 3 validée à l'oscilloscope le 2026-09-18** : trois bras complémentaires à 20 kHz, temps mort 500 ns aux deux fronts, rapports 20/50/80 % suivis, aucune conduction croisée — après avoir trouvé que les sorties basses n'avaient jamais été activées. **Étape 4 entamée le 2026-09-18**, puis reprise le 2026-09-20 après remplacement de U3 : un défaut d'acquisition corrigé, et **deux défauts matériels isolés** — voir plus bas | Étape 4 : **débloquée le 2026-09-21** — la retouche de la référence a réveillé les trois amplis de shunt, `csa_raw` groupés à 2 counts près autour de la mi-échelle. Reste à faire l'étape elle-même : offsets et bruit mesurés et documentés. Bloquée en pratique par la régression du SPI, qui empêche de régler le gain. Pour mémoire, ce qui bloquait avant : D'abord `VREF` qui oscille de ±370 mV, ce qui fausse toute mesure de tension de la carte ; ensuite les trois entrées de courant flottantes, que le remplacement du DRV n'a pas corrigées — continuité et masse à vérifier à l'ohmmètre. Le chemin nFAULT → coupure de `MOE` est écrit mais **jamais déclenché** . **Étape 6 écrite hors séquence et éprouvée sur carte** (2026-09-21) puisqu'elle ne dépend ni de 4 ni de 5 : AS5600 en DMA à 1 MHz, transfert 57 µs, un échantillon toutes les 59 µs, ISR à 2,60 µs au pire. **Verte à titre provisoire** : le critère « angle monotone à la main » a été validé par l'utilisateur, aimant monté, et je n'ai pas assisté à la mesure — une réserve reste à lever, voir la section de l'étape 6 |
 | **M3** | Asservissements (étapes 10 à 13) | Pas commencé | — |
 
 **Aucun moteur n'a encore tourné**, et les sorties restent en haute impédance.
@@ -560,9 +562,16 @@ Trouvé en voulant commander les amplis pour prouver qu'ils obéissent. **Tous l
 DRV8304 se relisent à `0x000`** et `DRV.PROBE` échoue. `DRV.LOOP 500` compte 19 998 échanges qui
 aboutissent tous au niveau du périphérique et rendent tous zéro.
 
-Ce n'est pas un faux problème : l'étape 2 avait été validée sur carte le 2026-09-16, « sept
-registres relus cohérents avec la fiche technique ». **Elle est donc en régression**, et le
-tableau des jalons le dit.
+**Depuis quand ? Plus tôt qu'on ne l'a cru, et la preuve manquait.** La dernière validation
+réelle date du 2026-09-16 — « sept registres relus cohérents avec la fiche technique ». Entre
+cette date et aujourd'hui, **`U3` a été remplacé** (2026-09-20). Et après ce remplacement, on a
+lu `FS1`/`FS2` à zéro en concluant « aucune protection active » : **des zéros sont exactement ce
+que rend un SPI mort.** La preuve était ambiguë et elle est passée. Il n'existe donc aucune
+mesure attestant que le SPI ait fonctionné après le changement de composant.
+
+Conséquence pour l'enquête : le suspect n'est pas le travail du 2026-09-21. `U5` est ailleurs sur
+la carte et ne touche aucune ligne du SPI. **C'est la soudure de `U3` qu'il faut regarder en
+premier**, broches 26 à 29 — `SDO`, `SDI`, `SCLK`, `nSCS` — toutes sur le même bord du boîtier.
 
 Ce que ça ne remet pas en cause : le composant est vivant et dans son état de reset. Les sorties
 `SOx` sont polarisées à `VREF/2`, ce qui **exige** `VREF_DIV = 1`, la valeur par défaut. Et le
