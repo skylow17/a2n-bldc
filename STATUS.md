@@ -61,7 +61,7 @@ Dernière revue : 2026-09-21, sur carte — deux causes matérielles trouvées d
 | **M1c** | Télémétrie souscrite + buffer scope | **Validé sur carte le 2026-09-16** : `telem` sans trou, `scope` 2048 points sur 4 signaux à la cadence de boucle | Coût de l'échantillonnage scope dans l'ISR, voir la piste plus bas |
 | **M1d** | CLI de bring-up | Validé sur simulateur **et sur carte** — toutes les commandes, `firmware-update` compris | — |
 | **Boot** | Bootloader A/B, probation et rollback | **Validé sur carte le 2026-09-16** : installation SWD, `BOOT_INFO`, mise à jour nominale promue, rollback sur image qui ne confirme jamais | Rien ; un défaut trouvé sur carte, corrigé, rejoué |
-| **M2** | Étage de puissance et capteurs (étapes 2 à 9) | **Étape 2 : validée le 2026-09-16, EN RÉGRESSION** — tous les registres se relisent à zéro. Constaté le 2026-09-21, mais la dernière preuve date d'avant le remplacement de `U3` : rien n'atteste que le SPI ait fonctionné depuis. Voir plus bas. Pour mémoire, la validation d'origine : le DRV8304 répond en SPI, sept registres relus cohérents avec la fiche technique, écriture-relecture par `DRV.PROBE`, fautes lisibles. **Étape 3 validée à l'oscilloscope le 2026-09-18** : trois bras complémentaires à 20 kHz, temps mort 500 ns aux deux fronts, rapports 20/50/80 % suivis, aucune conduction croisée — après avoir trouvé que les sorties basses n'avaient jamais été activées. **Étape 4 entamée le 2026-09-18**, puis reprise le 2026-09-20 après remplacement de U3 : un défaut d'acquisition corrigé, et **deux défauts matériels isolés** — voir plus bas | Étape 4 : **débloquée le 2026-09-21** — la retouche de la référence a réveillé les trois amplis de shunt, `csa_raw` groupés à 2 counts près autour de la mi-échelle. Reste à faire l'étape elle-même : offsets et bruit mesurés et documentés. Bloquée en pratique par la régression du SPI, qui empêche de régler le gain. Pour mémoire, ce qui bloquait avant : D'abord `VREF` qui oscille de ±370 mV, ce qui fausse toute mesure de tension de la carte ; ensuite les trois entrées de courant flottantes, que le remplacement du DRV n'a pas corrigées — continuité et masse à vérifier à l'ohmmètre. Le chemin nFAULT → coupure de `MOE` est écrit mais **jamais déclenché** . **Étape 6 écrite hors séquence et éprouvée sur carte** (2026-09-21) puisqu'elle ne dépend ni de 4 ni de 5 : AS5600 en DMA à 1 MHz, transfert 57 µs, un échantillon toutes les 59 µs, ISR à 2,60 µs au pire. **Verte à titre provisoire** : le critère « angle monotone à la main » a été validé par l'utilisateur, aimant monté, et je n'ai pas assisté à la mesure — une réserve reste à lever, voir la section de l'étape 6 |
+| **M2** | Étage de puissance et capteurs (étapes 2 à 9) | **Étape 2 : validée le 2026-09-16, EN RÉGRESSION** — tous les registres se relisent à zéro. Constaté le 2026-09-21, mais la dernière preuve date d'avant le remplacement de `U3` : rien n'atteste que le SPI ait fonctionné depuis. Voir plus bas. Pour mémoire, la validation d'origine : le DRV8304 répond en SPI, sept registres relus cohérents avec la fiche technique, écriture-relecture par `DRV.PROBE`, fautes lisibles. **Étape 3 validée à l'oscilloscope le 2026-09-18** : trois bras complémentaires à 20 kHz, temps mort 500 ns aux deux fronts, rapports 20/50/80 % suivis, aucune conduction croisée — après avoir trouvé que les sorties basses n'avaient jamais été activées. **Étape 4 entamée le 2026-09-18**, puis reprise le 2026-09-20 après remplacement de U3 : un défaut d'acquisition corrigé, et **deux défauts matériels isolés** — voir plus bas | Étape 4 : **offsets et bruit mesurés et documentés le 2026-09-21** — zéro de chaîne à 1–11 counts de la mi-échelle, répétable à ±1 count sur quatre campagnes, écart-type de 1,4 à 2,0 counts avec `CAL` levé. Ni SPI ni sortie de puissance requis. Reste à confirmer que le gain vaut bien 20 V/V, ce qui demande le SPI. Pour mémoire, ce qui bloquait avant : D'abord `VREF` qui oscille de ±370 mV, ce qui fausse toute mesure de tension de la carte ; ensuite les trois entrées de courant flottantes, que le remplacement du DRV n'a pas corrigées — continuité et masse à vérifier à l'ohmmètre. Le chemin nFAULT → coupure de `MOE` est écrit mais **jamais déclenché** . **Étape 6 écrite hors séquence et éprouvée sur carte** (2026-09-21) puisqu'elle ne dépend ni de 4 ni de 5 : AS5600 en DMA à 1 MHz, transfert 57 µs, un échantillon toutes les 59 µs, ISR à 2,60 µs au pire. **Verte à titre provisoire** : le critère « angle monotone à la main » a été validé par l'utilisateur, aimant monté, et je n'ai pas assisté à la mesure — une réserve reste à lever, voir la section de l'étape 6 |
 | **M3** | Asservissements (étapes 10 à 13) | Pas commencé | — |
 
 **Aucun moteur n'a encore tourné**, et les sorties restent en haute impédance.
@@ -555,6 +555,58 @@ Le reste suit :
 - le garde-fou répond `ERR DRIVEN vref_mv=3300 target_mv=2048`, comme prévu.
 
 **L'étape 4 n'est plus bloquée par le matériel.**
+
+### Étape 4 — offsets et bruit de la chaîne de courant (2026-09-21)
+
+Première étape rendue possible par la retouche de la référence, et **elle n'a eu besoin ni du
+SPI ni de la moindre sortie de puissance** : le calibrage d'offset passe par la broche `CAL`
+du DRV, pas par un registre, et `MOE` reste coupé du début à la fin.
+
+Deux campagnes, parce qu'elles ne disent pas la même chose. `IMOT.CAL` lève `CAL`, qui
+court-circuite les entrées des amplificateurs : ce qui sort est le zéro vrai de la chaîne.
+`IMOT.NOISE` ne touche à rien et mesure la chaîne telle qu'elle travaille.
+
+**Mesuré sur carte, 8000 échantillons par campagne, `MOE` coupé :**
+
+| | Phase A | Phase B | Phase C |
+|---|---|---|---|
+| Zéro de chaîne (`CAL` levé) | 2052 | 2059 | 2049 |
+| Écart à la mi-échelle | **+4** | **+11** | **+1** |
+| Écart-type, `CAL` levé | 1,61 | 1,97 | 1,44 |
+| Écart-type, `CAL` au repos | 4,15 | 3,73 | 3,42 |
+| Étendue, `CAL` au repos | 62 | 41 | 64 |
+
+Tout est en counts. Un count vaut `VREF/4096` = 0,806 mV, soit **4,03 mA** avec le gain de
+20 V/V et les shunts de 10 mΩ — à la réserve près que ce gain est la valeur de reset et qu'on
+**ne peut pas la vérifier tant que le SPI est muet**.
+
+**Le critère de l'étape est tenu : les offsets sont stables.** Quatre campagnes successives
+donnent A à 2051–2052, B à 2059–2060, C à 2049 — **une dispersion d'un count**, soit ±4 mA.
+
+Et le zéro de chaîne tombe à 1 à 11 counts de la mi-échelle théorique, c'est-à-dire 0,02 à
+0,27 % de la pleine échelle. C'est la propriété ratiométrique gagnée par la retouche qui le
+permet : `SOx` repose à `VREF/2` et l'ADC convertit sur `VREF`, donc le zéro tombe au milieu
+sans que la valeur de `VREF` intervienne.
+
+**Le résultat le plus intéressant est l'écart entre les deux campagnes.** Court-circuiter les
+entrées divise l'écart-type par 2,4 et l'étendue par 5. Or `CAL` agit sur les **entrées** de
+l'amplificateur : ce qui disparaît n'est donc ni du bruit d'amplificateur ni du bruit d'ADC,
+c'est quelque chose qui arrive aux bornes des shunts. Avec `MOE` coupé et aucun courant moteur,
+c'est du couplage. Converti : 4,15 counts d'écart-type font **17 mA RMS**, et 62 counts
+d'étendue font **250 mA crête à crête**, dans le cas le plus calme qui soit. Sous PWM ce sera
+pire. C'est le plancher qui limitera la boucle de courant, et c'est à surveiller à l'étape 5.
+
+**Coût dans l'ISR.** La boucle passe de 2,49 à **3,62 µs** au repos, soit 7,2 % du budget, pour
+l'accumulation conditionnelle et le centrage des trois phases. `max` vaut 3,625 µs contre 3,618
+de `last` : **aucun pic**. Pendant une campagne le maximum monte à 4,99 µs, le temps des
+additions 64 bits — c'est transitoire et hors de tout chemin de régulation.
+
+Trois signaux de télémétrie arrivent avec : `current.ia_count`, `ib`, `ic`, le brut moins
+l'offset. **En counts et non en ampères**, délibérément : la conversion demande un gain qu'on
+ne peut pas relire, et un signal en ampères serait faux sans le dire.
+
+**Ce qui reste pour clore l'étape 4 :** vérifier que le gain vaut bien 20 V/V, ce qui demande
+le SPI. Les offsets et le bruit, eux, sont mesurés et documentés.
 
 ### Le SPI du DRV ne répond plus, et c'est un défaut nouveau (2026-09-21)
 

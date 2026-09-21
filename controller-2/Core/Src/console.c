@@ -23,6 +23,7 @@
 #include "ctrl.h"
 #include "drv8304.h"
 #include "encoder.h"
+#include "imot.h"
 #include "sensors.h"
 #include "comm/param.h"
 #include "comm/proto.h"
@@ -611,6 +612,60 @@ static void CmdDrvBitbang(const char *arg)
                 tx, (unsigned long)at_cs, rise, fall, (unsigned long)at_idle);
 }
 
+/* ------------------------------------------------------- chaine de courant (etape 4)
+ *
+ * `IMOT.CAL` leve la broche `CAL` du DRV pendant la campagne — entrees des amplificateurs
+ * court-circuitees, donc zero vrai de la chaine — et **memorise** le resultat comme offset
+ * de travail. `IMOT.NOISE` ne touche a rien et ne memorise rien : elle mesure la chaine
+ * telle qu'elle travaille. L'ecart entre les deux est l'information utile.
+ *
+ * Bloquant le temps de la campagne, ce qui est admissible : on est dans la console, MOE est
+ * coupe, et une seconde de boucle a 20 kHz suffit largement. Le watchdog de flux de
+ * commandes ne s'applique pas, les sorties etant inactives. */
+static void CmdImotCampaign(const char *arg, bool store, bool use_cal)
+{
+  uint32_t n = (*arg != '\0') ? strtoul(arg, NULL, 10) : 4000UL;
+  if (n == 0UL) { n = 4000UL; }
+  if (n > IMOT_CAL_MAX_SAMPLES) { n = IMOT_CAL_MAX_SAMPLES; }
+
+  if (!Imot_StartCampaign(n, store, use_cal)) {
+    Reply("ERR BUSY");
+    return;
+  }
+  /* Deux fois la duree attendue, puis on abandonne : si l'ISR ne tourne pas, mieux vaut
+   * le dire que rester bloque dans la console. */
+  const uint32_t deadline = HAL_GetTick() + (n / (PWM_FREQ_HZ / 1000UL)) + 200UL;
+  while (Imot_Busy() && ((int32_t)(HAL_GetTick() - deadline) < 0)) { }
+  if (Imot_Busy()) {
+    Reply("ERR NOISR");
+    return;
+  }
+
+  Imot_Campaign_t c;
+  Imot_GetCampaign(&c);
+  Link_TxPrintf("OK n=%lu cal=%u mean=%u,%u,%u min=%u,%u,%u max=%u,%u,%u "
+                "sigma_mcnt=%u,%u,%u\r\n",
+                (unsigned long)c.samples, c.used_cal_pin ? 1U : 0U,
+                c.mean[0], c.mean[1], c.mean[2], c.min[0], c.min[1], c.min[2],
+                c.max[0], c.max[1], c.max[2],
+                c.sigma_mcnt[0], c.sigma_mcnt[1], c.sigma_mcnt[2]);
+}
+
+static void CmdImotStatus(void)
+{
+  uint16_t off[3];
+  bool measured = false;
+  Imot_GetOffsets(off, &measured);
+  Ctrl_Stats_t st;
+  Ctrl_GetStats(&st);
+  /* `measured=0` veut dire que l'offset est la mi-echelle theorique et non une mesure :
+   * les courants centres sont alors indicatifs, pas justes. */
+  Link_TxPrintf("OK measured=%u offset=%u,%u,%u raw=%u,%u,%u centered=%d,%d,%d\r\n",
+                measured ? 1U : 0U, off[0], off[1], off[2],
+                st.raw_ia, st.raw_ib, st.raw_ic,
+                st.cent_ia, st.cent_ib, st.cent_ic);
+}
+
 static void CmdVrefRatio(void)
 {
   static const struct { uint8_t ch; const char *name; } k[] = {
@@ -923,6 +978,12 @@ void Console_ExecuteLine(const char *line)
     CmdImotWiggle(arg);
   } else if (Match(line, "IMOT.DECAY", NULL)) {
     CmdImotDecay();
+  } else if (Match(line, "IMOT.CAL", &arg)) {
+    CmdImotCampaign(arg, true, true);
+  } else if (Match(line, "IMOT.NOISE", &arg)) {
+    CmdImotCampaign(arg, false, false);
+  } else if (Match(line, "IMOT?", NULL)) {
+    CmdImotStatus();
   } else if (Match(line, "IMOT.Z", NULL)) {
     CmdImotZ();
   } else if (Match(line, "ADC.PROBE", NULL)) {

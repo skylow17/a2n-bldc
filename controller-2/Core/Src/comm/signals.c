@@ -36,6 +36,13 @@ static float ReadRawIa(const Signal_Snapshot_t *snap) { return (float)snap->raw_
 static float ReadRawIb(const Signal_Snapshot_t *snap) { return (float)snap->raw_ib; }
 static float ReadRawIc(const Signal_Snapshot_t *snap) { return (float)snap->raw_ic; }
 
+/* Le brut moins l'offset mesure. Toujours en counts, jamais en amperes : la conversion
+ * demande le gain de l'amplificateur, qui se regle par SPI, et l'etape 5 pour la verifier.
+ * Un signal en amperes qui sortirait avant cette verification serait faux sans le dire. */
+static float ReadCentIa(const Signal_Snapshot_t *snap) { return (float)snap->cent_ia; }
+static float ReadCentIb(const Signal_Snapshot_t *snap) { return (float)snap->cent_ib; }
+static float ReadCentIc(const Signal_Snapshot_t *snap) { return (float)snap->cent_ic; }
+
 static float ReadEncPosRad(const Signal_Snapshot_t *snap)  { return snap->pos_rad; }
 static float ReadEncVelRadS(const Signal_Snapshot_t *snap) { return snap->vel_rad_s; }
 
@@ -82,6 +89,9 @@ static const SignalDesc_t s_signals[] = {
   { 7U, "enc.pos_rad",          "rad",   ReadEncPosRad         },
   { 8U, "enc.vel_rad_s",        "rad/s", ReadEncVelRadS        },
   { 9U, "enc.age_us",           "us",    ReadEncAgeUs          },
+  { 10U, "current.ia_count",    "count", ReadCentIa            },
+  { 11U, "current.ib_count",    "count", ReadCentIb            },
+  { 12U, "current.ic_count",    "count", ReadCentIc            },
 };
 
 #define SIGNAL_COUNT  ((uint16_t)(sizeof(s_signals) / sizeof(s_signals[0])))

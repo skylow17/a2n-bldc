@@ -19,6 +19,7 @@
 #include "dbg_pin.h"
 #include "drv8304.h"
 #include "encoder.h"
+#include "imot.h"
 #include "sensors.h"
 #include "pwm.h"
 #include "safety.h"
@@ -80,6 +81,7 @@ int main(void)
   Pwm_Init();       /* TIM1 démarre, MOE = 0 : sorties en haute impédance   */
   AdcSync_Init();   /* conversions injectées armées sur TIM1_TRGO, ISR 20 kHz */
   Drv8304_Init();   /* SPI2 + nFAULT ; ne configure rien dans le driver lui-même   */
+  Imot_Init();      /* offsets de la chaine de courant, avant le premier tour d'ISR */
   Sensors_Init();   /* ADC2 : rails, VREFINT, relecture lente des courants          */
   Encoder_Init();   /* AS5600 sur I2C4 en DMA, lecture continue, jamais bloquante   */
 

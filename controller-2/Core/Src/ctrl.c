@@ -11,6 +11,7 @@
 #include "adc_sync.h"
 #include "dbg_pin.h"
 #include "encoder.h"
+#include "imot.h"
 #include "pwm.h"
 #include "comm/scope.h"
 
@@ -50,12 +51,21 @@ void Ctrl_Isr(void)
   uint16_t enc_age_us = 0U;
   const bool enc_ok = Encoder_Sample(&pos_rad, &vel_rad_s, &enc_age_us);
 
+  /* Etape 4 : accumulation d'une campagne d'offset, et centrage. Hors campagne, la
+   * premiere ne coute qu'une comparaison ; la seconde est une soustraction par phase. */
+  Imot_OnSample(ia, ib, ic);
+  int16_t cia, cib, cic;
+  Imot_Apply(ia, ib, ic, &cia, &cib, &cic);
+
   /* --- M1 à M3 viendront se greffer ici : Clarke/Park, régulateurs, SVPWM. --- */
 
   /* Publie aussi vers la superloop : c'est `Ctrl_Stats_t` qui sert d'instantane au
    * streaming de telemetrie. Sans ces quatre champs, `enc.pos_rad` partait a zero sur le
    * flux souscrit alors que la console donnait la bonne valeur — le genre d'ecart qui se
    * remarque une fois la courbe tracee, c'est-a-dire trop tard. */
+  s_stats.cent_ia    = cia;
+  s_stats.cent_ib    = cib;
+  s_stats.cent_ic    = cic;
   s_stats.pos_rad    = pos_rad;
   s_stats.vel_rad_s  = vel_rad_s;
   s_stats.enc_age_us = enc_age_us;
@@ -75,6 +85,9 @@ void Ctrl_Isr(void)
     .raw_ia = ia,
     .raw_ib = ib,
     .raw_ic = ic,
+    .cent_ia = cia,
+    .cent_ib = cib,
+    .cent_ic = cic,
     .pos_rad = pos_rad,
     .vel_rad_s = vel_rad_s,
     .enc_age_us = enc_age_us,

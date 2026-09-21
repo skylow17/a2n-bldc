@@ -75,6 +75,7 @@ APP_C_SOURCES := \
   Core/Src/adc_sync.c \
   Core/Src/sensors.c \
   Core/Src/encoder.c \
+  Core/Src/imot.c \
   Core/Src/safety.c \
   Core/Src/ctrl.c \
   Core/Src/link_usb.c \
