@@ -455,6 +455,135 @@ static void CmdVrefScan(const char *arg)
  * à la première conversion : les deux valeurs se ressemblent, et ne dépendent pas du sens
  * du forçage. Un nœud flottant garde la charge : première valeur collée au rail forcé,
  * seconde qui a dérivé. C'est la seule mesure ici qui ne dépend ni de VREF+ ni du DRV. */
+/* Décroissance d'un nœud chargé, comparée à une broche qu'on sait reliée à rien.
+ *
+ * `IMOT.Z` dit qu'une entrée de courant est flottante. Elle ne dit pas *où* la chaîne est
+ * coupée — côté MCU, ou plus loin. Cette mesure-là le dit, et sans oscilloscope.
+ *
+ * Le principe : une broche en analogique, isolée de tout, ne perd sa charge que par sa
+ * propre fuite, de l'ordre du nanoampère. Sur la dizaine de picofarads d'une broche, la
+ * constante de temps se compte en secondes. Reliée à une piste et à une broche de circuit
+ * au bout, elle voit en plus les diodes de protection et les fuites de cet étage : la
+ * décroissance s'effondre. `PA3` est marquée « no connect » au schéma, du même côté du
+ * boîtier que les trois autres : c'est le témoin.
+ *
+ * Lecture du résultat. Les trois voies de courant s'écroulent nettement plus vite que `PA3`
+ * → la piste est bonne et c'est l'étage au bout qui ne pilote pas. Elles décroissent comme
+ * `PA3` → la broche du MCU ne voit rien, et la coupure est de ce côté-là.
+ *
+ * Chaque point est repris d'une charge neuve. Sinon le condensateur d'échantillonnage de
+ * l'ADC, qui vole un peu de charge à chaque conversion, ajouterait sa propre décroissance
+ * à celle qu'on mesure. */
+/* Continuité d'une entrée de courant, testée depuis le MCU plutôt qu'à l'ohmmètre.
+ *
+ * Sur un boîtier dense, poser deux pointes de touche entre une broche du DRV et une broche
+ * du MCU est pénible et faux une fois sur deux. Ici le MCU fournit le signal : il bat la
+ * broche choisie en créneau à 1 kHz, et il suffit d'une seule sonde, posée sur la broche
+ * correspondante de U3 — 23 pour A, 22 pour B, 21 pour C. Le créneau y est, la piste est
+ * bonne ; il n'y a rien, elle est coupée, et on sait de quel côté chercher.
+ *
+ * Le créneau plutôt qu'un niveau continu : il se reconnaît sans ambiguïté, il ne se confond
+ * pas avec une tension de repos, et il traverse une sonde en position AC.
+ *
+ * Le groupe injecté est figé pendant l'essai — il convertit ces mêmes broches, et une
+ * conversion pendant qu'on les pilote en sortie ne mesurerait rien d'utile. `MOE` est coupé
+ * d'abord : on force des broches analogiques, l'étage de puissance n'a rien à faire là. */
+static void CmdImotWiggle(const char *arg)
+{
+  uint16_t pin;
+  const char *where;
+
+  if (strncasecmp(arg, "A", 1) == 0)      { pin = PIN_IMOTA;   where = "U3 pin 23"; }
+  else if (strncasecmp(arg, "B", 1) == 0) { pin = PIN_IMOTB;   where = "U3 pin 22"; }
+  else if (strncasecmp(arg, "C", 1) == 0) { pin = PIN_IMOTC;   where = "U3 pin 21"; }
+  else { Reply("ERR ARG"); return; }
+
+  while ((*arg != '\0') && (*arg != ' ')) { arg++; }
+  while (*arg == ' ') { arg++; }
+  uint32_t ms = (*arg != '\0') ? strtoul(arg, NULL, 10) : 5000UL;
+  if (ms < 100U)   { ms = 100U; }
+  if (ms > 20000U) { ms = 20000U; }
+
+  const bool was_held = AdcSync_IsHeld();
+  Pwm_Disable();
+  AdcSync_SetHold(true);
+
+  GPIO_InitTypeDef g = {0};
+  g.Pin   = pin;
+  g.Mode  = GPIO_MODE_OUTPUT_PP;
+  g.Pull  = GPIO_NOPULL;
+  g.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOA, &g);
+
+  const uint32_t half = (BOARD_SYSCLK_HZ / 2000U);   /* demi-période de 1 kHz, en cycles */
+  const uint32_t end  = HAL_GetTick() + ms;
+  while ((int32_t)(HAL_GetTick() - end) < 0) {
+    HAL_GPIO_WritePin(GPIOA, pin, GPIO_PIN_SET);
+    uint32_t t0 = DWT->CYCCNT;
+    while ((DWT->CYCCNT - t0) < half) { }
+    HAL_GPIO_WritePin(GPIOA, pin, GPIO_PIN_RESET);
+    t0 = DWT->CYCCNT;
+    while ((DWT->CYCCNT - t0) < half) { }
+  }
+
+  g.Mode = GPIO_MODE_ANALOG;
+  HAL_GPIO_Init(GPIOA, &g);
+  if (!was_held) { AdcSync_SetHold(false); }
+  Sensors_Restart();
+
+  Link_TxPrintf("OK driven=%lu ms at 1 kHz square, probe %s\r\n", (unsigned long)ms, where);
+}
+
+static void CmdImotDecay(void)
+{
+  static const struct { uint16_t pin; uint8_t ch; const char *name; } k[4] = {
+    { PIN_IMOTA, 1U, "a" }, { PIN_IMOTB, 2U, "b" }, { PIN_IMOTC, 3U, "c" },
+    { GPIO_PIN_3, 4U, "nc" },   /* PA3, sans liaison au schéma — le témoin */
+  };
+  static const uint32_t delay_us[5] = { 0U, 200U, 1000U, 5000U, 25000U };
+  uint16_t r[4][5];
+
+  /* Le groupe injecté convertit ces mêmes broches à 20 kHz : chaque conversion y prend de
+   * la charge, et mesurerait sa propre perturbation. On le fige, et on le rend ensuite. */
+  const bool was_held = AdcSync_IsHeld();
+  Pwm_Disable();
+  AdcSync_SetHold(true);
+
+  for (uint32_t i = 0U; i < 4U; i++) {
+    for (uint32_t d = 0U; d < 5U; d++) {
+      GPIO_InitTypeDef g = {0};
+      g.Pin   = k[i].pin;
+      g.Mode  = GPIO_MODE_OUTPUT_PP;
+      g.Pull  = GPIO_NOPULL;
+      g.Speed = GPIO_SPEED_FREQ_LOW;
+      HAL_GPIO_Init(GPIOA, &g);
+      HAL_GPIO_WritePin(GPIOA, k[i].pin, GPIO_PIN_SET);
+      uint32_t t0 = DWT->CYCCNT;
+      while ((DWT->CYCCNT - t0) < (200U * (BOARD_SYSCLK_HZ / 1000000U))) { }
+
+      g.Mode = GPIO_MODE_ANALOG;
+      HAL_GPIO_Init(GPIOA, &g);
+      if (delay_us[d] >= 1000U) {
+        HAL_Delay(delay_us[d] / 1000U);
+      } else if (delay_us[d] != 0U) {
+        t0 = DWT->CYCCNT;
+        while ((DWT->CYCCNT - t0) < (delay_us[d] * (BOARD_SYSCLK_HZ / 1000000U))) { }
+      }
+      r[i][d] = ConvertOnce(ADC1, k[i].ch, 6U);   /* 247,5 cycles */
+    }
+  }
+
+  if (!was_held) { AdcSync_SetHold(false); }
+  Sensors_Restart();
+
+  Link_TxPrintf("OK charge_us=200 delays_us=0,200,1000,5000,25000");
+  for (uint32_t i = 0U; i < 4U; i++) {
+    Link_TxPrintf(" %s=%u,%u,%u,%u,%u%s", k[i].name,
+                  r[i][0], r[i][1], r[i][2], r[i][3], r[i][4],
+                  (i == 3U) ? "\r\n" : "");
+  }
+}
+
 static void CmdImotZ(void)
 {
   static const struct { uint16_t pin; ADC_TypeDef *adc; uint8_t ch; } k[3] = {
@@ -557,6 +686,10 @@ void Console_ExecuteLine(const char *line)
     CmdVrefRatio();
   } else if (Match(line, "VREF.SCAN", &arg)) {
     CmdVrefScan(arg);
+  } else if (Match(line, "IMOT.WIGGLE", &arg)) {
+    CmdImotWiggle(arg);
+  } else if (Match(line, "IMOT.DECAY", NULL)) {
+    CmdImotDecay();
   } else if (Match(line, "IMOT.Z", NULL)) {
     CmdImotZ();
   } else if (Match(line, "ADC.PROBE", NULL)) {
