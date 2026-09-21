@@ -224,9 +224,10 @@ function ReferenceWarning({ spread }: { spread: number }): ReactNode {
       </div>
       <p className="mt-1 text-[11px] leading-relaxed text-fg-3">
         Every voltage below is measured against VREF+, so every one of them carries that swing.
-        The rails themselves are steady — this is the reference moving, not the supply. Until the
-        hardware is fixed, <span className="font-mono text-fg-2">VREF.BUF ON</span> in the console
-        hands VREF+ to the MCU&rsquo;s internal 2.048 V buffer and the readings become true.
+        The rails themselves may well be steady — this is the reference moving, not the supply.
+        <span className="font-mono text-fg-2"> VREF.RATIO </span> in the console converts VREFINT
+        and a rail back to back; their ratio cancels VREF+, so it tells you whether the rail is
+        sound and the reference alone is at fault.
       </p>
     </section>
   );
@@ -235,6 +236,11 @@ function ReferenceWarning({ spread }: { spread: number }): ReactNode {
 function Live({ state, mon }: { state: DeviceSnapshot; mon: MonitorState }): ReactNode {
   const sf = state.safety;
   const enc = state.encoder;
+  // Le nominal vient du dictionnaire que le firmware publie, jamais d'une constante
+  // recopiee ici (AGENTS.md §3). La carte a ete retouchee le 2026-09-21 et sa reference
+  // est passee de 2,048 V a 3,3 V : une valeur en dur aurait affiche `VREF+` en faute
+  // permanente, ce qui revient a eteindre l'alarme en la laissant sonner tout le temps.
+  const vrefNominalMv = state.params.find((p) => p.name === 'board.vref_mv')?.value ?? null;
   const refUnstable =
     mon.vrefSpreadPermille !== null && mon.vrefSpreadPermille > VREF_UNSTABLE_PERMILLE;
   // Le tourniquet de mesure doit avancer. Figé, toutes les valeurs ci-dessous sont celles
@@ -287,12 +293,22 @@ function Live({ state, mon }: { state: DeviceSnapshot; mon: MonitorState }): Rea
               <span className="font-mono text-[12px] text-fg">
                 {(mon.vrefMv / 1000).toFixed(3)} V
               </span>
-              <Pill tone={refUnstable ? 'fault' : railHealth(mon.vrefMv, 2048)}>
+              <Pill
+                tone={
+                  refUnstable
+                    ? 'fault'
+                    : vrefNominalMv === null
+                      ? 'idle'
+                      : railHealth(mon.vrefMv, vrefNominalMv)
+                }
+              >
                 {refUnstable
                   ? `unstable ±${(mon.vrefSpreadPermille! / 20).toFixed(1)} %`
-                  : railHealth(mon.vrefMv, 2048) === 'ok'
-                    ? 'ok'
-                    : 'off nominal'}
+                  : vrefNominalMv === null
+                    ? 'measured'
+                    : railHealth(mon.vrefMv, vrefNominalMv) === 'ok'
+                      ? 'ok'
+                      : `off nominal ${(vrefNominalMv / 1000).toFixed(3)} V`}
               </Pill>
             </>
           }

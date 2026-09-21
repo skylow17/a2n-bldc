@@ -425,7 +425,29 @@ static void CmdVrefBuf(const char *arg)
       else if (strcmp(p, "2900") == 0) { vrs = VREFBUF_CSR_VRS_1; }
       else { Reply("ERR ARG"); return; }
     }
+    const uint32_t target_mv = (vrs == 0U) ? 2048UL
+                             : ((vrs == VREFBUF_CSR_VRS_0) ? 2500UL : 2900UL);
     mv = (vrs == 0U) ? "2048" : ((vrs == VREFBUF_CSR_VRS_0) ? "2500" : "2900");
+
+    /* Refus si quelqu'un tient déjà la broche plus haut que la consigne.
+     *
+     * Depuis la retouche du 2026-09-21, `VREF+` est câblé sur le rail 3,3 V. Activer le
+     * tampon interne reviendrait à lui demander de tirer la broche à 2,048 V contre un
+     * LDO : il se mettrait en limitation sans jamais lever `VRR`, et les mesures
+     * seraient fausses sans que rien ne le dise. C'est exactement le genre d'erreur de
+     * configuration silencieuse qu'une carte retouchée à la main finit par produire.
+     *
+     * La marge de 150 mV est large devant l'incertitude de `VREFINT` (±1 %, soit 33 mV à
+     * 3,3 V) et étroite devant le plus petit écart qui nous intéresse (3300 − 2900). Un
+     * `vref_mv` à zéro veut dire que le tourniquet n'a pas encore publié : on laisse
+     * passer plutôt que de bloquer sur une absence de mesure. */
+    Sensors_t sn;
+    Sensors_Get(&sn);
+    if ((sn.vref_mv != 0U) && ((uint32_t)sn.vref_mv > (target_mv + 150UL))) {
+      Link_TxPrintf("ERR DRIVEN vref_mv=%u target_mv=%lu\r\n",
+                    sn.vref_mv, (unsigned long)target_mv);
+      return;
+    }
 
     __HAL_RCC_SYSCFG_CLK_ENABLE();
     MODIFY_REG(VREFBUF->CSR, VREFBUF_CSR_VRS | VREFBUF_CSR_HIZ, vrs);  /* pilote la broche */

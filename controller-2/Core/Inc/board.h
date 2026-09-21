@@ -50,14 +50,32 @@ void Board_FatalError(const char *what);
 #define PWM_TRIG_OFFSET     20U
 #define PWM_TRIG_CCR4       (PWM_ARR - PWM_TRIG_OFFSET)
 
-/* Gain de la chaîne de mesure de courant.
- * shunt 10 mΩ, sortie CSA polarisée à VREF/2 en mode bidirectionnel, VREF = 2.048 V.
- * Le gain du CSA (5/10/20/40 V/V) est programmé par SPI — à confirmer au bring-up. */
-#define BOARD_VREF_MV       2048U
+/* Référence analogique — **3,3 V depuis la retouche du 2026-09-21**, et non plus les
+ * 2,048 V du MCP1501 (`../AGENTS.md` §2, « Écarts connus du schéma »).
+ *
+ * La carte d'origine alimentait la broche `VREF` du DRV8304 avec la même référence que
+ * l'ADC du MCU. C'était une erreur : cette broche est **l'alimentation** des trois
+ * amplificateurs de shunt, avec un seuil de sous-tension à 2,6 V et un gain caractérisé
+ * seulement de 3,3 à 5 V. À 2,048 V les amplis n'ont jamais été alimentés. `U5` est donc
+ * déposé et ses pastilles 1 (OUT) et 6 (VDD) pontées : le net `VREF` devient le rail 3,3 V,
+ * qui est aussi `VDDA`.
+ *
+ * Deux conséquences qui valaient la modification :
+ *  - le repos des sorties `SOx` vaut `VREF/2`, et la pleine échelle de l'ADC vaut `VREF` :
+ *    le zéro tombe donc **pile au milieu de l'échelle** et la mesure devient ratiométrique,
+ *    une dérive du rail décalant les deux dans le même sens ;
+ *  - le rail 5 V occupait 98 % de l'échelle contre 2,048 V — il frôlait la saturation.
+ *
+ * Cette constante est une **déclaration**, pas une hypothèse de calcul : `sensors.c` mesure
+ * `VREF+` à chaque tour via `VREFINT` et met tout à l'échelle là-dessus. Elle sert au
+ * dictionnaire (`board.vref_mv`) et à `INFO?`, pour que l'interface sache à quoi comparer
+ * la valeur mesurée. */
+#define BOARD_VREF_MV       3300U
 #define BOARD_SHUNT_MOHM    10U
 #define BOARD_IMOT_ZERO_MV  (BOARD_VREF_MV / 2U)
 
-/* Diviseurs de monitoring, dimensionnés pour la référence 2.048 V */
+/* Diviseurs de monitoring. Dimensionnés à l'origine pour 2,048 V ; ils restent valables
+ * puisque la mise à l'échelle part du `VREF+` mesuré, et ils gagnent de la marge. */
 #define BOARD_DIV_VIN_NUM   130U   /* R11 120k / R12 10k  → ×13    */
 #define BOARD_DIV_VIN_DEN   10U
 #define BOARD_DIV_VMOT_NUM  160U   /* R3  150k / R8  10k  → ×16    */

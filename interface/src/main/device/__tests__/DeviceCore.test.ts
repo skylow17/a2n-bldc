@@ -566,7 +566,10 @@ describe('supervision de la carte', () => {
     await settle();
     const m = core.snapshot().monitor;
     expect(m).not.toBeNull();
-    expect(m!.vrefMv).toBe(2048);
+    // Compare au nominal que le firmware publie, pas a une constante recopiee : la carte
+    // a change de reference une fois (2,048 V -> 3,3 V), elle peut en changer encore.
+    const nominal = core.snapshot().params.find((p) => p.name === 'board.vref_mv')?.value;
+    expect(m!.vrefMv).toBe(nominal);
     expect(m!.vinMv).toBeGreaterThan(14_000);
     expect(m!.v3v3Mv).toBeGreaterThan(3_000);
     expect(m!.mcuTempC).not.toBeNull();

@@ -56,7 +56,7 @@ export const DEFAULT_SIM_PARAMS: readonly ParamDesc[] = vectors.param_dict.entri
 /** Valeurs initiales des paramètres en lecture seule, telles que la carte les exposerait. */
 const DEFAULT_RO_VALUES: Readonly<Record<string, number>> = {
   'board.sysclk_hz': 144_000_000,
-  'board.vref_mv': 2048,
+  'board.vref_mv': 3300,
   'pwm.freq_hz': 20_000,
   'pwm.arr': 3599,
   'pwm.deadtime_ns': 500,
@@ -846,7 +846,7 @@ export class SimulatedDevice implements Transport {
       case 'INFO?':
         this.replyLine(
           `OK product=${this.opts.product} fw=${this.opts.fwVersion} proto=2.0 ` +
-            `sysclk=144000000 pwm_hz=20000 arr=3599 deadtime_ns=500 vref_mv=2048`,
+            `sysclk=144000000 pwm_hz=20000 arr=3599 deadtime_ns=500 vref_mv=3300`,
         );
         break;
       case 'PROTO?':
@@ -887,10 +887,10 @@ export class SimulatedDevice implements Transport {
         const t = (Date.now() % 60_000) / 60_000;
         const wobble = (amp: number): number => Math.round(amp * Math.sin(t * 2 * Math.PI));
         this.replyLine(
-          `OK rounds=${++this.sensRounds} vref_mv=2048 vrefint_raw=2420 ` +
+          `OK rounds=${++this.sensRounds} vref_mv=3300 vrefint_raw=1502 ` +
             `vin_mv=${15000 + wobble(120)} vmot_mv=${14950 + wobble(140)} ` +
             `v5_mv=${4920 + wobble(25)} v3v3_mv=${3300 + wobble(12)} ` +
-            `csa_raw=2048,2048,2048 csa_mv=1024,1024,1024 ` +
+            `csa_raw=2048,2048,2048 csa_mv=1650,1650,1650 ` +
             `mcu_temp_c=${38 + wobble(3)}`,
         );
         break;

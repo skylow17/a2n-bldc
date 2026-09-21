@@ -113,6 +113,8 @@ c'est le `.ioc` du v1 qui fait foi : le schéma comporte des affectations erron�
 | Ce que dit le schéma | Réalité |
 |---|---|
 | `PB13 = SPI2_MOSI`, `PB15 = SPI2_SCK` | Impossible : en AF5 sur ce boîtier, `PB13` ne peut être que SCK et `PB15` que MOSI. **La carte a été retouchée** (liaisons refaites directement sur le PCB) et le SPI matériel fonctionne avec le brochage du v1. Le schéma reste à corriger avant toute nouvelle fabrication, sinon le défaut revient. |
+| `VREF` du DRV8304 alimenté en 2,048 V | **Erreur de conception, corrigée à la main le 2026-09-21.** La broche 24 du DRV8304 n'est pas qu'une référence : c'est **l'alimentation** des trois amplificateurs de shunt, avec un seuil de sous-tension à 2,6 V et un gain caractérisé seulement de 3,3 à 5 V. À 2,048 V ils n'ont jamais été alimentés, ce qui explique trois entrées de courant muettes. `U5` (MCP1501-20) est **déposé** et ses pastilles 1 (OUT) et 6 (VDD) pontées : le net `VREF` devient le rail 3,3 V, partagé avec `VDDA`. Conséquence voulue : le repos des sorties `SOx` vaut `VREF/2` et la pleine échelle de l'ADC vaut `VREF`, donc le zéro tombe au milieu de l'échelle et la mesure de courant devient **ratiométrique**. À refaire proprement en révision B — voir `STATUS.md` |
+| C9 (100 nF) directement sur la sortie du MCP1501 | La charge capacitive maximale du MCP1501 est de **300 pF** sans résistance série (datasheet §5.1.2) : 333× la limite, d'où une oscillation à 10 kHz sur toute la référence. Sans objet depuis la dépose de `U5` — C9 est devenu le découplage `VREF` du DRV, ce que TI demande. À reprendre en révision B avec une résistance d'isolement |
 | `TP1`/`TP2` sur `PB8`/`PB9` | Marqués « ne pas poser » : pas de point de test garanti. On instrumente sur `IO1` (`PC14`), sorti sur J7 broche 5. |
 | `R21`/`R22` 4k7, annotés « TBC » | Pull-ups I2C. Valeur limite pour du Fast-mode Plus à 1 MHz. À confirmer. |
 
@@ -121,8 +123,11 @@ Autres points relevés à la lecture :
 - **Shunts low-side de 10 mΩ** (`R19`/`R20`/`R25`), lus par les amplificateurs intégrés du
   DRV8304**S** (variante SPI), sortie polarisée à VREF/2. D'où l'échantillonnage obligatoirement
   synchrone de la PWM.
-- **VREF = 2,048 V** (MCP1501), et non VDDA. Tous les diviseurs de monitoring sont dimensionnés
-  pour cette référence. Le v1 l'avait correctement pris en compte.
+- **VREF = 3,3 V depuis la retouche du 2026-09-21** (`U5` déposé, voir le tableau ci-dessus). Le
+  schéma prévoyait 2,048 V par MCP1501 et les diviseurs de monitoring sont dimensionnés pour cette
+  valeur ; ils restent valables, et y gagnent même de la marge, parce que le firmware mesure `VREF+`
+  à chaque tour via `VREFINT` au lieu de le supposer. Le rail 5 V occupait 98 % de l'échelle à
+  2,048 V — il frôlait la saturation.
 - **`PC13` porte `PWM1N`** : broche du domaine sauvegardé, drive et vitesse plafonnés par rapport
   aux cinq autres sorties PWM. Asymétrie de front à mesurer.
 - **`PB8/BOOT0` n'a pas de pull-down externe** sur la révision A. Une carte non provisionnée peut

@@ -479,6 +479,58 @@ MCP1501 (±5 mA) tient le nœud contre les 4 mA du tampon, et `vref_mv` ne fait 
 datasheet et chaque symptôme mesuré s'y range, mais rien n'est encore prouvé par une intervention.
 Les deux prédictions à vérifier sont dans le bloc de reprise en tête de fichier.
 
+### La retouche : `U5` déposé, tout sur 3,3 V (2026-09-21)
+
+Les deux défauts matériels se corrigent d'un seul geste, et c'est l'utilisateur qui a trouvé
+la bonne forme. Plutôt que d'isoler la broche 24 du DRV et de lui tirer un fil — délicat sur un
+QFN 0,5 mm — on **dépose `U5` (MCP1501-20) et on ponte ses pastilles 1 (OUT) et 6 (VDD)**. Le
+net `VREF` entier devient le rail 3,3 V, qui est aussi `VDDA`.
+
+Rien à couper, un composant retiré, un pont.
+
+| Effet | Pourquoi |
+|---|---|
+| Amplis de shunt alimentés | 3,3 V est au-dessus du seuil de sous-tension de 2,6 V du DRV8304, et au bas de sa plage caractérisée |
+| Oscillation supprimée | L'oscillateur est physiquement retiré |
+| C9 devient légitime | Plus de limite à 300 pF ; C9 redevient le 100 nF de découplage `VREF`/`AGND` que TI demande |
+| Mesure de courant **ratiométrique** | Le repos des `SOx` vaut `VREF/2` et la pleine échelle de l'ADC vaut `VREF` : le zéro tombe pile à 2048 counts, et une dérive du rail décale les deux dans le même sens |
+| Séquencement plus sûr | `VREF+` et `VDDA` montent ensemble ; `VREF+` ne peut plus dépasser `VDDA` |
+
+**Plage de courant obtenue**, shunts de 10 mΩ, gain **par défaut** (20 V/V) : la plage linéaire
+de l'ampli va de 0,25 V à `VREF − 0,25` = 3,05 V, soit **±7,0 A symétriques** à 4 mA par LSB.
+C'est l'ampli qui limite, pas le convertisseur — rien n'est gaspillé, et aucun registre à
+changer. À 5 V/V on monterait à ±28 A.
+
+**Aucune saturation nulle part**, et tout gagne de la marge puisque la pleine échelle passe de
+2,048 à 3,3 V : le rail 5 V occupait **98 %** de l'échelle, il en occupe 61 %.
+
+**Ce qui a changé dans le logiciel.** Rien pour les mesures : `sensors.c` part du `VREF+` mesuré
+par `VREFINT` et non d'une constante, donc tout se recale seul. Ont été repris :
+
+- `BOARD_VREF_MV` passe à 3300. C'est une **déclaration** — ce que le firmware annonce dans
+  `INFO?` et dans `board.vref_mv` — pas une hypothèse de calcul.
+- Le tableau de bord lisait 2048 **en dur** pour juger `VREF+`, et aurait affiché la référence
+  en faute permanente. Il lit désormais le nominal dans le dictionnaire que le firmware publie,
+  comme le veut `AGENTS.md` §3.
+- `VREF.BUF ON` **refuse** maintenant si la broche est déjà tenue plus haut que la consigne.
+  Sans ce garde-fou, la commande demanderait au tampon interne de tirer `VREF+` à 2,048 V contre
+  un LDO : limitation silencieuse, `VRR` jamais levé, et des mesures fausses que rien ne signale.
+  C'est l'erreur de configuration typique d'une carte retouchée à la main.
+- La bannière « référence instable » conseillait `VREF.BUF ON`. Le conseil serait devenu faux ;
+  elle renvoie vers `VREF.RATIO`, qui dit si le défaut vient du rail ou de la référence seule.
+- Le simulateur porte la carte retouchée : `vref_mv=3300`, et `csa_mv=1650` au repos, c'est-à-dire
+  pile la mi-échelle. Le test de supervision compare au nominal du dictionnaire au lieu d'une
+  valeur écrite en dur — la carte a changé de référence une fois, elle peut recommencer.
+
+**Réserve de fond.** La référence est désormais un rail de LDO (±2 %, bruité) là où un bandgap
+ne l'est pas. Pour les étapes 4 à 9, sans importance : le courant est ratiométrique, et `VREFINT`
+rattrape l'absolu sur les rails. Pour la révision B, non — un **MCP1501-30 (3,0 V)** garde la
+propriété ratiométrique *et* un vrai bandgap, avec une résistance d'isolement avant son
+condensateur comme le demande sa datasheet.
+
+**État : non vérifié sur carte.** Le code est écrit et compilé, la soudure est en cours au
+moment où ces lignes sont écrites. Rien n'a été flashé.
+
 ### Étape 6 — l'AS5600 lu en DMA, et le retard enfin chiffré (2026-09-21)
 
 Écrite **hors séquence** : les étapes 4 et 5 sont bloquées par le matériel, et l'étape 6 n'en
