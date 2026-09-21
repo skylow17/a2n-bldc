@@ -1064,6 +1064,7 @@ utile que la liste de ce qui marche.
 
 | Défaut | Comment il a été trouvé |
 |---|---|
+| **Le graphe temps réel était détruit et reconstruit trente fois par seconde.** `Chart.tsx` dit dans son propre en-tête qu'il ne faut surtout pas reconstruire uPlot à chaque rendu, « sans quoi la courbe clignote ». Son tableau de dépendances le faisait quand même : `labels` et `colors` sont des tableaux que l'appelant rebâtit à chaque rendu (`indices.map(…)`), donc React voyait une identité neuve, nettoyait l'effet, appelait `destroy()` et recréait le canvas. L'intention était juste et écrite ; c'est la liste de dépendances qui la contredisait. Corrigé en comparant le **contenu** des deux tableaux et en les lisant par référence. | Signalé à l'œil par l'utilisateur — « il y a du flickering sur le live telemetry et le scope » |
 | Image liée en slot A alors que le MCU démarre à `0x08000000` — le firmware ne s'exécutait pas du tout | Le COM port n'apparaissait pas |
 | Discrimination des canaux sur le terminateur : COBS n'exclut que `0x00`, pas `0x0A` ni `0x0D`. Le canal binaire était inutilisable au-delà de quelques dizaines d'octets | **Premier échange réel** avec le device simulé. Les vecteurs figés passaient — aucun ne contenait de CR/LF |
 | `ld/stm32g473ce_standalone.ld` référencé par le Makefile mais jamais commité : un clone frais ne compilait pas | Migration vers le dépôt unique |

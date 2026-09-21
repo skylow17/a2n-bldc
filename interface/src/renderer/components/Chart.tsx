@@ -46,6 +46,47 @@ export function seriesColor(index: number): string {
   return token(`--color-series-${index + 1}`, '#3987e5');
 }
 
+/**
+ * Prochaine etendue verticale, avec hysteresis.
+ *
+ * Sans elle, uPlot recalcule le minimum et le maximum a chaque lot de trames : sur un
+ * signal bruite, les bornes bougent trente fois par seconde et toute la courbe respire.
+ * Ce n'est pas du bruit de mesure qu'on voit alors, c'est l'axe qui remue.
+ *
+ * Deux regles, et elles tirent dans des sens opposes :
+ *  - on **garde** l'etendue precedente tant que les donnees y tiennent, pour que l'axe ne
+ *    bouge pas a chaque trame ;
+ *  - on la **reprend** quand les donnees en sortent, ou quand elles n'en occupent plus
+ *    qu'une petite part — sinon un transitoire ecraserait la suite du trace pour toujours.
+ *
+ * Le plancher d'etendue evite le dernier piege : une serie parfaitement plate donnerait une
+ * etendue nulle, donc une division par zero et une courbe qui saute d'un bord a l'autre au
+ * moindre bit de bruit. Une ligne plate doit se tracer plate.
+ *
+ * Fonction pure, donc testee a part : c'est la seule logique delicate de ce fichier, le
+ * reste n'est que du canvas.
+ */
+export function nextYRange(
+  prev: readonly [number, number] | null,
+  dataMin: number | null,
+  dataMax: number | null,
+): [number, number] {
+  if (dataMin === null || dataMax === null || !Number.isFinite(dataMin) || !Number.isFinite(dataMax)) {
+    return prev === null ? [0, 1] : [prev[0], prev[1]];
+  }
+  const span = Math.max(dataMax - dataMin, Math.abs(dataMax) * 1e-6, 1e-9);
+  const pad = span * 0.1;
+  const want: [number, number] = [dataMin - pad, dataMax + pad];
+
+  if (prev === null) return want;
+
+  const prevSpan = prev[1] - prev[0];
+  const fits = dataMin >= prev[0] && dataMax <= prev[1];
+  // En dessous du tiers, l'echelle precedente est devenue trop large et le trace s'aplatit.
+  const fillsEnough = prevSpan > 0 && (dataMax - dataMin) / prevSpan > 0.34;
+  return fits && fillsEnough ? [prev[0], prev[1]] : want;
+}
+
 export interface TimeSeriesChartProps {
   /** Temps en secondes, commun à toutes les séries. */
   t: readonly number[];
@@ -111,18 +152,26 @@ export function TimeSeriesChart({
 }: TimeSeriesChartProps): ReactNode {
   const host = useRef<HTMLDivElement | null>(null);
   const plot = useRef<uPlot | null>(null);
+  const yRange = useRef<[number, number] | null>(null);
+
+  // Les libelles et les couleurs arrivent sous forme de tableaux construits a chaque rendu
+  // par l'appelant (`indices.map(...)`). Les mettre dans les dependances de l'effet revient
+  // a comparer des identites toujours neuves : uPlot etait detruit et reconstruit trente
+  // fois par seconde, et c'est exactement ce que l'en-tete de ce fichier dit qu'il ne faut
+  // pas faire. On compare donc leur contenu, et on lit les tableaux par reference.
+  const cfg = useRef({ labels, colors });
+  cfg.current = { labels, colors };
+  const labelsKey = labels.join('|');
+  const colorsKey = colors.join('|');
   // Le repère est lu à chaque tracé : il passe par une référence pour que le greffon n'ait
   // pas à être recréé — et donc le graphe non plus — quand il bouge.
   const marker = useRef<number | null>(markerX);
   marker.current = markerX;
 
-  // L'identité du graphe tient aux courbes qu'il porte, pas à leurs valeurs : tant que la
-  // liste ne change pas, le même uPlot est réutilisé et seules les données bougent.
-  const key = labels.join(',');
-
   useLayoutEffect(() => {
     const el = host.current;
-    if (el === null || labels.length === 0) return undefined;
+    if (el === null || cfg.current.labels.length === 0) return undefined;
+    yRange.current = null;      /* nouvelles courbes, nouvelle echelle */
 
     const grid = token('--color-line-soft', '#1f252d');
     const ink3 = token('--color-fg-3', '#636d7b');
@@ -140,7 +189,16 @@ export function TimeSeriesChart({
         width: el.clientWidth || 600,
         height,
         // Le temps est un écoulement en secondes depuis le début du flux, pas une date.
-        scales: { x: { time: false } },
+        scales: {
+          x: { time: false },
+          y: {
+            range: (_self: uPlot, lo: number, hi: number) => {
+              const r = nextYRange(yRange.current, lo, hi);
+              yRange.current = r;
+              return r;
+            },
+          },
+        },
         legend: { live: true },
         cursor: {
           // Le survol lit une valeur ; il ne sélectionne pas une plage. Un glissement qui
@@ -175,15 +233,15 @@ export function TimeSeriesChart({
         },
         series: [
           { label: 's' },
-          ...labels.map((label, i) => ({
+          ...cfg.current.labels.map((label, i) => ({
             label,
-            stroke: colors[i] ?? ink2,
+            stroke: cfg.current.colors[i] ?? ink2,
             width: 2,
             points: { show: false },
           })),
         ],
       },
-      [[], ...labels.map(() => [])] as uPlot.AlignedData,
+      [[], ...cfg.current.labels.map(() => [])] as uPlot.AlignedData,
       el,
     );
     plot.current = u;
@@ -200,7 +258,11 @@ export function TimeSeriesChart({
       u.destroy();
       plot.current = null;
     };
-  }, [key, unit, height, colors, labels, showXLabel, xLabel]);
+    // Volontairement sans `labels` ni `colors` : leurs **contenus** sont dans les
+    // dependances via `labelsKey` et `colorsKey`, et leurs identites changent a chaque
+    // rendu. Les y remettre reconstruirait le canvas en continu.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [labelsKey, colorsKey, unit, height, showXLabel, xLabel]);
 
   useEffect(() => {
     const u = plot.current;
