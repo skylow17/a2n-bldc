@@ -8,7 +8,7 @@ Ce fichier ne contient **aucun chiffre volatil** (nombre de tests, occupation fl
 Ces valeurs se mesurent, elles ne se recopient pas : `python tools/status.py` les relève sur le
 dépôt réel. Une valeur écrite à la main est fausse le lendemain.
 
-Dernière revue : 2026-09-21, sur carte — deux causes matérielles trouvées dans les datasheets, et l'étape 6 écrite, mesurée et validée à titre provisoire.
+Dernière revue : 2026-09-21, sur carte — deux causes matérielles trouvées dans les datasheets, la retouche de la référence vérifiée, les étapes 4 et 6 mesurées, et une passe de fond sur l'interface.
 
 > **Reprise suivante — par où commencer.** Les deux défauts matériels sont **expliqués**, et
 > aucun des deux n'est une panne : ce sont deux erreurs de conception, l'une et l'autre
@@ -32,6 +32,10 @@ Dernière revue : 2026-09-21, sur carte — deux causes matérielles trouvées d
 > **Ne pas alimenter l'étage de puissance avant d'avoir compris** : `nFAULT` tient et la
 > coupure ne passe pas par le SPI, mais on ne saurait ni lire une faute ni régler le gain
 > des amplis.
+>
+> **Côté interface, deux fonctions manquent** et sont notées pour la reprise : naviguer
+> dans la télémétrie figée comme dans une capture, et l'exporter en CSV. Détail et ordre
+> dans « À reprendre sur l'interface ».
 >
 > Côté logiciel, rien n'attend. Le **watchdog de flux de commandes** est en place des deux
 > côtés et éprouvé sur carte : c'était le dernier prérequis de M3 (`AGENTS.md` §4.3). Le
@@ -1136,6 +1140,30 @@ une mauvaise image demande une sonde et un tournevis.
 
 Control et Recipes restent gardées par un jalon : les capacités correspondantes n'existent
 dans aucun firmware, il n'y a rien à interroger.
+
+### À reprendre sur l'interface, demandé le 2026-09-21
+
+Deux manques identifiés à l'usage, après la passe sur la fluidité et la mise en page. Ni
+l'un ni l'autre n'est un défaut : ce sont des fonctions qui manquent.
+
+**Naviguer dans la télémétrie figée comme dans une capture scope.** L'arrêt du flux fige
+désormais les données au lieu de les effacer, ce qui était le prérequis. Mais une fois figé,
+le tracé n'offre ni zoom par sélection, ni molette, ni déplacement — alors que le scope les a
+depuis la même passe. C'est la même situation : des données qui ne bougent plus, et trop de
+points pour la largeur de l'écran. Le commentaire de `navPlugin` explique pourquoi la
+navigation était refusée sur un flux — une courbe qui défile décroche sous la sélection —
+**et cette raison tombe dès que le flux est arrêté**. Il suffit donc de passer `interactive`
+quand `streaming` est faux, plus un bouton de remise à la vue complète, comme sur le scope.
+
+**Exporter la télémétrie en CSV.** Le scope le fait déjà (`scopeExport.ts` : colonne de temps
+relative au déclenchement, une colonne par signal, unité dans l'en-tête, aucune ligne de
+commentaire pour ne pas obliger les outils qui relisent à savoir la sauter). Le flux figé a la
+même forme de données et mérite le même export — et probablement le même module, quitte à le
+généraliser plutôt qu'à en écrire un second qui divergera.
+
+Ordre logique : la navigation d'abord, puisqu'elle ne coûte qu'un branchement de ce qui
+existe ; l'export ensuite, qui demande de décider si `scopeExport` se généralise ou se
+duplique. Il se généralise.
 
 ### Écarts connus avec la spécification
 
