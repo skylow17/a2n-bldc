@@ -176,7 +176,10 @@ export function Scope({ state }: { state: DeviceSnapshot }): ReactNode {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3 overflow-auto p-3">
+        /* Meme regle que le Dashboard : la capture prend ce qui reste, et non une hauteur
+       relative a la fenetre choisie au juge. En dessous de `xl` la page defile et la
+       capture reprend une hauteur en `vh`, faute de place pour faire autrement. */
+    <div className="flex h-full min-h-0 flex-col gap-3 overflow-auto p-3 xl:overflow-hidden">
       <Panel
         title="Capture"
         right={
@@ -341,7 +344,7 @@ export function Scope({ state }: { state: DeviceSnapshot }): ReactNode {
         <Panel
           /* Même raison que pour le tracé du Dashboard : une hauteur définie, sans quoi
              les graphes n'ont rien à se partager. `shrink-0` parce que la vue défile. */
-          className="h-[min(62vh,760px)] shrink-0"
+          className="h-[min(62vh,760px)] min-h-0 shrink-0 xl:h-auto xl:flex-1"
           title="Capture result"
           right={
             <div className="flex items-center gap-3">

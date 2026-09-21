@@ -882,6 +882,41 @@ par le PC — tout dans la console commune.
 les outils s'appellent `device_connect`, `param_set`. Les clients MCP courants n'acceptent que
 `[a-zA-Z0-9_-]` dans un nom d'outil. Les familles sont inchangées, seul le séparateur diffère.
 
+### Le tableau de bord n'avait pas de mise en page, seulement une grille (2026-09-21)
+
+Trois corrections de taille successives — hauteurs de graphe, hauteur de console, échelles —
+n'avaient traité que des symptômes. Le défaut était la composition elle-même, et l'utilisateur
+l'a dit en une phrase : « il y a des panels inutilisables car noyés par la taille des autres ».
+
+Tout vivait dans **une seule grille de quatre colonnes**, et trois conséquences en découlaient :
+
+- les lignes d'une grille s'étirent sur le panneau le plus haut, donc `Current sense inputs`
+  héritait de la hauteur de `Rails and protection` et se retrouvait avec une grande zone morte ;
+- `Position sensor` occupait deux colonnes sur quatre et restait **seul sur sa ligne** : la
+  moitié de la ligne perdue ;
+- le tracé, c'est-à-dire la seule chose qu'on regarde vraiment en réglant, était **enterré au
+  milieu d'un long défilement**, entre l'état et l'identification.
+
+La vue est maintenant découpée en **deux régions qui se dimensionnent et défilent
+indépendamment** :
+
+| Région | Règle |
+|---|---|
+| Instrument, à gauche | Bande de quatre chiffres à hauteur fixe, puis le tracé qui prend **toute la hauteur restante** |
+| Détail, à droite | Colonne de 23 rem qui défile pour elle-même : rails, courants, capteur, identité, capacités |
+
+Le tracé n'a donc plus de hauteur magique en `vh` : ce qui reste, c'est ce qui reste. Et des
+panneaux de hauteurs très différentes peuvent coexister dans la colonne de droite sans que le
+plus court hérite du vide du plus haut — c'est exactement ce qu'une grille ne sait pas faire.
+
+En dessous de `xl` il n'y a pas la largeur pour deux colonnes : on repasse en une seule, la page
+défile, et le tracé reprend une hauteur relative à la fenêtre. La vue Scope suit la même règle,
+la capture prenant ce qui reste sous le panneau de configuration.
+
+**À vérifier à l'œil.** Cette reprise est faite depuis le code : je n'ai pas de moyen d'afficher
+l'application Electron ni de la regarder. Les proportions — 23 rem pour la colonne de détail, le
+point de bascule à `xl` — sont des choix raisonnés, pas mesurés.
+
 ### Le capteur de position à l'écran, et la console qui se souvient (2026-09-21)
 
 Trois passes sur l'interface, pendant que la carte attend une intervention au fer.

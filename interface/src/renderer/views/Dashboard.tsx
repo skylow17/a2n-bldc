@@ -132,7 +132,7 @@ function MagnetWarning({ enc }: { enc: EncoderState }): ReactNode {
   const tooStrong = (enc.statusRaw & 0x08) !== 0;
   const tooWeak = (enc.statusRaw & 0x10) !== 0;
   return (
-    <section className="rounded-[4px] border border-warn/50 bg-panel px-3 py-2 lg:col-span-2 xl:col-span-4">
+    <section className="rounded-[4px] border border-warn/50 bg-panel px-3 py-2">
       <div className="flex items-baseline gap-2">
         <Dot tone="warn" />
         <h3 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-warn">
@@ -157,7 +157,7 @@ function PositionSensor({ enc }: { enc: EncoderState }): ReactNode {
   const live = enc.present && enc.magnetOk;
   const deg = ((enc.posRad * 180) / Math.PI) % 360;
   return (
-    <Panel title="Position sensor" className="lg:col-span-2">
+    <Panel title="Position sensor">
       <div className="flex items-center gap-3 px-3 py-2">
         <AngleDial rad={enc.posRad} live={live} />
         <div className="min-w-0">
@@ -212,7 +212,7 @@ function PositionSensor({ enc }: { enc: EncoderState }): ReactNode {
 
 function ReferenceWarning({ spread }: { spread: number }): ReactNode {
   return (
-    <section className="rounded-[4px] border border-fault/50 bg-panel px-3 py-2 lg:col-span-2 xl:col-span-4">
+    <section className="rounded-[4px] border border-fault/50 bg-panel px-3 py-2">
       <div className="flex items-baseline gap-2">
         <Dot tone="fault" />
         <h3 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-fault">
@@ -233,7 +233,18 @@ function ReferenceWarning({ spread }: { spread: number }): ReactNode {
   );
 }
 
-function Live({ state, mon }: { state: DeviceSnapshot; mon: MonitorState }): ReactNode {
+/**
+ * Decoupe le tableau de bord en trois regions, au lieu d'un seul flot.
+ *
+ * C'est le coeur de la mise en page. Ces trois familles n'ont ni la meme duree de vie ni le
+ * meme besoin de surface, et les melanger dans une grille unique etait le probleme : un
+ * panneau court se retrouvait etire a la hauteur de son voisin, et le trace — la seule
+ * chose qu'on regarde vraiment en reglant — etait enterre au milieu d'un long defilement.
+ */
+function liveRegions(
+  state: DeviceSnapshot,
+  mon: MonitorState,
+): { banners: ReactNode; metrics: ReactNode; details: ReactNode } {
   const sf = state.safety;
   const enc = state.encoder;
   // Le nominal vient du dictionnaire que le firmware publie, jamais d'une constante
@@ -247,11 +258,17 @@ function Live({ state, mon }: { state: DeviceSnapshot; mon: MonitorState }): Rea
   // du dernier tour publié, et les montrer comme vivantes serait un mensonge.
   const stalled = mon.rounds === 0;
 
-  return (
-    <>
-      {refUnstable && <ReferenceWarning spread={mon.vrefSpreadPermille!} />}
-      {enc !== null && enc.present && !enc.magnetOk && <MagnetWarning enc={enc} />}
-
+  return {
+    banners: (
+      <>
+        {refUnstable && <ReferenceWarning spread={mon.vrefSpreadPermille!} />}
+        {enc !== null && enc.present && !enc.magnetOk && <MagnetWarning enc={enc} />}
+      </>
+    ),
+    /* Bande d'etat : quatre chiffres qu'on lit d'un coup d'oeil, hauteur fixe. Ils ne
+       doivent jamais disputer de la place au trace — c'est leur role d'etre petits. */
+    metrics: (
+      <>
       <Metric
         label="Input voltage"
         value={mon.vinMv / 1000}
@@ -282,8 +299,16 @@ function Live({ state, mon }: { state: DeviceSnapshot; mon: MonitorState }): Rea
         tone={mon.loadPermille > 800 ? 'fault' : mon.loadPermille > 500 ? 'warn' : 'ok'}
         note={`peak ${(mon.isrMaxNs / 1000).toFixed(1)} µs`}
       />
+      </>
+    ),
+    /* Detail : ce qu'on consulte quand un chiffre de la bande surprend. Ces panneaux ont
+       des hauteurs tres differentes — c'est pour ca qu'ils vivent dans une colonne qui
+       defile pour elle-meme, et non dans une grille ou le plus court herite du vide du
+       plus haut. */
+    details: (
+      <>
 
-      <Panel title="Rails and protection" className="lg:col-span-2">
+      <Panel title="Rails and protection">
         <Rail label="5 V rail" mv={mon.v5Mv} nominalMv={5000} />
         <Rail label="3V3 rail" mv={mon.v3v3Mv} nominalMv={3300} />
         <Row
@@ -345,7 +370,7 @@ function Live({ state, mon }: { state: DeviceSnapshot; mon: MonitorState }): Rea
         />
       </Panel>
 
-      <Panel title="Current sense inputs" className="lg:col-span-2">
+      <Panel title="Current sense inputs">
         {(['A', 'B', 'C'] as const).map((phase, i) => (
           <Field key={phase} label={`Phase ${phase}`}>
             {((mon.csaMv[i] ?? 0) / 1000).toFixed(3)} V
@@ -364,8 +389,9 @@ function Live({ state, mon }: { state: DeviceSnapshot; mon: MonitorState }): Rea
       {/* Absent d'un firmware anterieur a l'etape 6 : on ne montre pas un panneau vide, la
           difference entre « pas de capteur dans ce firmware » et « capteur muet » compte. */}
       {enc !== null && <PositionSensor enc={enc} />}
-    </>
-  );
+      </>
+    ),
+  };
 }
 
 export function Dashboard({ state }: { state: DeviceSnapshot }): ReactNode {
@@ -383,30 +409,54 @@ export function Dashboard({ state }: { state: DeviceSnapshot }): ReactNode {
   const byGroup = new Map<string, number>();
   for (const p of state.params) byGroup.set(p.group, (byGroup.get(p.group) ?? 0) + 1);
 
+  const regions =
+    monitor === null ? null : liveRegions(state, monitor);
+
   return (
-    <div className="grid h-full min-h-0 grid-cols-1 gap-3 overflow-auto p-3 lg:grid-cols-2 xl:grid-cols-4">
-      {monitor === null ? (
-        <Panel title="Board monitoring" className="lg:col-span-2 xl:col-span-4">
+    /* Deux regions, deux regles de dimensionnement, deux defilements.
+     *
+     * La version precedente etait une seule grille de quatre colonnes ou tout cohabitait :
+     * les lignes s'etirent sur le panneau le plus haut, donc un panneau court heritait
+     * d'une grande zone morte, `Position sensor` occupait deux colonnes sur quatre et
+     * restait seul sur sa ligne, et le trace etait enterre au milieu d'un long defilement.
+     *
+     * Desormais l'instrument est a gauche et prend **toute la hauteur restante** — plus de
+     * hauteur magique en `vh` : ce qui reste, c'est ce qui reste. Le detail est a droite,
+     * dans une colonne etroite qui defile pour elle-meme, ou des panneaux de hauteurs tres
+     * differentes peuvent coexister sans se disputer la place.
+     *
+     * En dessous de `xl` il n'y a pas la largeur pour deux colonnes : on repasse en une
+     * seule, la page defile, et le trace reprend une hauteur relative a la fenetre. */
+    <div className="flex h-full min-h-0 flex-col gap-3 overflow-auto p-3 xl:overflow-hidden">
+      {regions === null ? (
+        <Panel title="Board monitoring">
           <p className="px-3 py-3 text-[12px] text-fg-3">
             Waiting for the first reading from the board.
           </p>
         </Panel>
       ) : (
-        <Live state={state} mon={monitor} />
+        regions.banners
       )}
 
-      {/* Le tracé occupe toute la largeur : c'est ce qu'on regarde pendant un réglage.
-          Hauteur relative à la fenêtre et non en pixels : c'est elle qui donne au panneau
-          une hauteur définie, donc quelque chose à mesurer et à partager entre les graphes.
-          Sans ça, le panneau se dimensionnerait sur son contenu et le contenu sur le
-          panneau — les graphes retombaient alors sur leur plancher, quelle que soit la
-          place disponible. Le plafond évite qu'un seul graphe occupe un écran entier. */}
-      <div className="h-[min(55vh,640px)] lg:col-span-2 xl:col-span-4">
-        <LiveTelemetry state={state} />
-      </div>
+      <div className="flex min-h-0 flex-1 flex-col gap-3 xl:flex-row">
+        {/* Instrument */}
+        <section className="flex min-h-0 flex-col gap-3 xl:flex-1">
+          {regions !== null && (
+            <div className="grid shrink-0 grid-cols-2 gap-3 sm:grid-cols-4">
+              {regions.metrics}
+            </div>
+          )}
+          <div className="h-[55vh] min-h-0 xl:h-auto xl:flex-1">
+            <LiveTelemetry state={state} />
+          </div>
+        </section>
+
+        {/* Detail et identification */}
+        <aside className="flex flex-col gap-3 xl:w-[23rem] xl:shrink-0 xl:overflow-auto xl:pr-0.5">
+          {regions !== null && regions.details}
 
       {/* Identification : on la lit une fois, elle tient en un panneau et passe en dessous. */}
-      <Panel title="Device" className="lg:col-span-2">
+      <Panel title="Device">
         <Field label="Product">{info.product}</Field>
         <Field label="Firmware">{info.fwVersion}</Field>
         <Field label="Protocol">
@@ -429,7 +479,7 @@ export function Dashboard({ state }: { state: DeviceSnapshot }): ReactNode {
         ))}
       </Panel>
 
-      <Panel title="Announced capabilities" className="lg:col-span-2">
+      <Panel title="Announced capabilities">
         <div className="p-1">
           {CAPABILITIES.map((c) => {
             const on = (info.capabilities & c.bit) !== 0;
@@ -451,6 +501,8 @@ export function Dashboard({ state }: { state: DeviceSnapshot }): ReactNode {
           not a failure — it is a milestone not yet reached.
         </p>
       </Panel>
+        </aside>
+      </div>
     </div>
   );
 }
