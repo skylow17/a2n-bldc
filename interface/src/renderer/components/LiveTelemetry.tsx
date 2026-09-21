@@ -19,6 +19,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { DeviceSnapshot } from '../../main/device/DeviceCore.js';
 import type { SignalDesc } from '../../shared/protocol.js';
 import { TimeSeriesChart, groupByUnit, seriesColor, type YMode } from './Chart.js';
+import { ChartStack } from './ChartStack.js';
 import { Button, Dot, Empty, Panel } from './ui.js';
 import { api, useAction, useTelemetryBuffer } from '../useDevice.js';
 
@@ -186,7 +187,7 @@ export function LiveTelemetry({ state }: { state: DeviceSnapshot }): ReactNode {
   }
 
   return (
-    <Panel title="Live telemetry" right={header}>
+    <Panel title="Live telemetry" right={header} className="h-full">
       <div className="flex flex-wrap gap-x-4 gap-y-1 border-b border-line-soft px-3 py-2">
         {signals.map((s) => {
           const on = picked.includes(s.name);
@@ -233,7 +234,9 @@ export function LiveTelemetry({ state }: { state: DeviceSnapshot }): ReactNode {
       ) : signalNames.length === 0 ? (
         <Empty title="Waiting for the first frames…" />
       ) : (
-        <div className="flex flex-col p-2">
+        <ChartStack count={groups.length} className="flex flex-col p-2">
+          {(chartH) => (
+            <>
           {groups.map(([groupKey, indices], g) => (
             <TimeSeriesChart
               key={groupKey}
@@ -254,7 +257,7 @@ export function LiveTelemetry({ state }: { state: DeviceSnapshot }): ReactNode {
                 : (split ? (units[indices[0] ?? 0] ?? '') : groupKey)}
               // Axe des temps commun : une seule étiquette, sous le dernier graphe.
               showXLabel={g === groups.length - 1}
-              height={groups.length > 2 ? 120 : groups.length > 1 ? 170 : 240}
+              height={chartH}
             />
           ))}
           <p className="px-1 pb-1 text-[11px] leading-relaxed text-fg-3">
@@ -263,7 +266,9 @@ export function LiveTelemetry({ state }: { state: DeviceSnapshot }): ReactNode {
               : 'One vertical scale per unit: signals sharing a unit are comparable, the others are only juxtaposed.'}{' '}
             Showing the last {windowS} s of a {buf.current.t.length}-point buffer.
           </p>
-        </div>
+            </>
+          )}
+        </ChartStack>
       )}
     </Panel>
   );

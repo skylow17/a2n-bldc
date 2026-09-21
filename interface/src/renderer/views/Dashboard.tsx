@@ -395,8 +395,13 @@ export function Dashboard({ state }: { state: DeviceSnapshot }): ReactNode {
         <Live state={state} mon={monitor} />
       )}
 
-      {/* Le tracé occupe toute la largeur : c'est ce qu'on regarde pendant un réglage. */}
-      <div className="lg:col-span-2 xl:col-span-4">
+      {/* Le tracé occupe toute la largeur : c'est ce qu'on regarde pendant un réglage.
+          Hauteur relative à la fenêtre et non en pixels : c'est elle qui donne au panneau
+          une hauteur définie, donc quelque chose à mesurer et à partager entre les graphes.
+          Sans ça, le panneau se dimensionnerait sur son contenu et le contenu sur le
+          panneau — les graphes retombaient alors sur leur plancher, quelle que soit la
+          place disponible. Le plafond évite qu'un seul graphe occupe un écran entier. */}
+      <div className="h-[min(55vh,640px)] lg:col-span-2 xl:col-span-4">
         <LiveTelemetry state={state} />
       </div>
 

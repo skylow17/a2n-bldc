@@ -39,6 +39,29 @@ interface ViewDef {
   requires?: number;
 }
 
+/* Hauteur de la console. Le plancher laisse voir deux lignes et l'en-tete ; le plafond
+ * garde toujours un tiers de la fenetre a la vue courante, sinon on redimensionne jusqu'a
+ * faire disparaitre ce qu'on etait venu regarder. */
+const CONSOLE_DEFAULT_H = 288;   /* les 18 rem d'avant */
+const CONSOLE_HEADER_H = 32;
+const CONSOLE_MIN_H = 96;
+const CONSOLE_H_KEY = 'a2n.console.height';
+
+function clampConsoleH(px: number): number {
+  const max = Math.max(CONSOLE_MIN_H, Math.round(window.innerHeight * 0.66));
+  return Math.round(Math.max(CONSOLE_MIN_H, Math.min(max, px)));
+}
+
+function loadConsoleH(): number {
+  try {
+    const raw = localStorage.getItem(CONSOLE_H_KEY);
+    const n = raw === null ? Number.NaN : Number(raw);
+    return Number.isFinite(n) ? clampConsoleH(n) : CONSOLE_DEFAULT_H;
+  } catch {
+    return CONSOLE_DEFAULT_H;
+  }
+}
+
 const VIEWS: ViewDef[] = [
   { id: 'dashboard', label: 'Dashboard', pending: null },
   { id: 'tuning', label: 'Tuning', pending: null },
@@ -202,6 +225,36 @@ export function App(): ReactNode {
   const { entries, clear } = useDeviceLog();
   const [view, setView] = useState<ViewId>('dashboard');
   const [consoleOpen, setConsoleOpen] = useState(true);
+  const [consoleH, setConsoleH] = useState(loadConsoleH);
+
+  // Retenue d'une session a l'autre : une hauteur de console est un reglage de poste, pas
+  // une decision qu'on reprend a chaque lancement. Ecriture defensive, comme le filtre.
+  useEffect(() => {
+    try {
+      localStorage.setItem(CONSOLE_H_KEY, String(consoleH));
+    } catch {
+      /* stockage indisponible : le reglage vaut pour cette session, et c'est tout */
+    }
+  }, [consoleH]);
+
+  /* Glissement. On ecoute sur la fenetre et non sur la poignee : un mouvement rapide sort
+   * d'une bande de six pixels bien avant que le navigateur ait le temps d'emettre
+   * l'evenement suivant, et la poignee lacherait en plein geste. */
+  const startResize = (down: React.MouseEvent): void => {
+    down.preventDefault();
+    const y0 = down.clientY;
+    const h0 = consoleH;
+    const move = (m: MouseEvent): void => setConsoleH(clampConsoleH(h0 - (m.clientY - y0)));
+    const up = (): void => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+      document.body.style.userSelect = '';
+    };
+    // Sans ca, le glissement selectionne le texte de toute la fenetre au passage.
+    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  };
   const stop = useAction();
   const { theme, toggle: toggleTheme } = useTheme();
 
@@ -322,10 +375,38 @@ export function App(): ReactNode {
             )}
           </div>
 
-          {/* Console repliable */}
+          {/* Console repliable et **redimensionnable**.
+
+              Sa hauteur était figée à 18 rem : confortable sur un portable, ridicule en
+              plein écran, et impossible à changer quand une réponse est longue. La poignée
+              se saisit à la souris comme au clavier, un double-clic revient au défaut, et
+              la hauteur survit à la session — on ne la règle pas vingt fois par jour. */}
+          {consoleOpen && (
+            <div
+              role="separator"
+              aria-orientation="horizontal"
+              aria-label="Resize the console"
+              tabIndex={0}
+              onMouseDown={startResize}
+              onDoubleClick={() => setConsoleH(CONSOLE_DEFAULT_H)}
+              onKeyDown={(e) => {
+                const step = e.shiftKey ? 64 : 16;
+                if (e.key === 'ArrowUp') {
+                  e.preventDefault();
+                  setConsoleH((h) => clampConsoleH(h + step));
+                }
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault();
+                  setConsoleH((h) => clampConsoleH(h - step));
+                }
+              }}
+              className="h-1.5 shrink-0 cursor-row-resize bg-line transition-colors hover:bg-accent focus:bg-accent focus:outline-none"
+              title="Drag to resize, double-click to reset"
+            />
+          )}
           <div
             className="shrink-0 border-t border-line bg-panel"
-            style={{ height: consoleOpen ? '18rem' : 'auto' }}
+            style={{ height: consoleOpen ? `${consoleH}px` : 'auto' }}
           >
             <div className="flex items-center gap-2 border-b border-line-soft px-3 py-1">
               <button
@@ -338,7 +419,7 @@ export function App(): ReactNode {
               <span className="font-mono text-[11px] text-fg-3">{entries.length} lines</span>
             </div>
             {consoleOpen && (
-              <div className="h-[calc(18rem-2rem)]">
+              <div style={{ height: Math.max(0, consoleH - CONSOLE_HEADER_H) }}>
                 <Console state={state} entries={entries} onClear={clear} />
               </div>
             )}

@@ -25,6 +25,7 @@ import type { DeviceSnapshot } from '../../main/device/DeviceCore.js';
 import type { ScopeCapture } from '../../shared/client.js';
 import { ScopeTrigger, type ScopeTriggerValue, type SignalDesc } from '../../shared/protocol.js';
 import { TimeSeriesChart, groupByUnit, seriesColor } from '../components/Chart.js';
+import { ChartStack } from '../components/ChartStack.js';
 import { Button, Empty, Panel } from '../components/ui.js';
 import { captureFileName, captureToCsv } from '../scopeExport.js';
 import { scopeTimeBase } from '../scopeTime.js';
@@ -338,6 +339,9 @@ export function Scope({ state }: { state: DeviceSnapshot }): ReactNode {
         </Panel>
       ) : (
         <Panel
+          /* Même raison que pour le tracé du Dashboard : une hauteur définie, sans quoi
+             les graphes n'ont rien à se partager. `shrink-0` parce que la vue défile. */
+          className="h-[min(62vh,760px)] shrink-0"
           title="Capture result"
           right={
             <div className="flex items-center gap-3">
@@ -351,7 +355,9 @@ export function Scope({ state }: { state: DeviceSnapshot }): ReactNode {
             </div>
           }
         >
-          <div className="flex flex-col p-2">
+          <ChartStack count={plotted.groups.length} className="flex flex-col p-2">
+            {(chartH) => (
+              <>
             {plotted.groups.map(([unit, indices], g) => (
               <TimeSeriesChart
                 key={unit}
@@ -366,7 +372,7 @@ export function Scope({ state }: { state: DeviceSnapshot }): ReactNode {
                 // repère si le déclenchement n'a pas eu lieu : une ligne à zéro laisserait
                 // croire qu'il a eu lieu au premier point.
                 markerX={plotted.triggerIndex === null ? null : 0}
-                height={plotted.groups.length > 2 ? 140 : plotted.groups.length > 1 ? 190 : 260}
+                height={chartH}
                 /* Une capture ne bouge plus : la navigation y a tout son sens, et c'est
                    meme la seule facon de regarder deux mille points sur huit cents pixels.
                    La clef de synchronisation aligne curseur et axe des temps entre les
@@ -382,7 +388,9 @@ export function Scope({ state }: { state: DeviceSnapshot }): ReactNode {
               pointer, drag to pan, double-click to fit; the stacked charts follow each
               other.
             </p>
-          </div>
+              </>
+            )}
+          </ChartStack>
         </Panel>
       )}
     </div>
