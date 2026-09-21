@@ -544,6 +544,73 @@ static void CmdDrvLoop(const char *arg)
                 (unsigned long)n, (unsigned long)ok, rx_read, rx_pat, (unsigned long)ms);
 }
 
+/* Attente courte, comptee en cycles DWT. `HAL_Delay` a une resolution d'une milliseconde :
+ * beaucoup trop grossiere pour cadencer une trame a la main, et une trame de 16 bits y
+ * prendrait 50 ms. */
+static void Spin(uint32_t cycles)
+{
+  const uint32_t t0 = DWT->CYCCNT;
+  while ((DWT->CYCCNT - t0) < cycles) { }
+}
+
+/* Une trame SPI de 16 bits pilotee a la main, ~10 µs par bit, en echantillonnant `MISO`
+ * aux deux fronts. C'est la verite terrain quand le peripherique materiel rend zero sans
+ * qu'on sache pourquoi, et ca remplace un oscilloscope :
+ *
+ *   `cs` est `MISO` juste apres la descente de nCS, avant le moindre coup d'horloge. Le
+ *   DRV8304 ne pilote `SDO` que pendant que nCS est bas : `cs=0` dit qu'il a pris la main,
+ *   `cs=1` qu'il n'a rien vu passer.
+ *   `fall` est le mot echantillonne sur les fronts descendants — c'est ce que fait le
+ *   peripherique en mode 1, donc il doit valoir ce que rend `DRV.LOOP`.
+ *   `rise` est le meme mot echantillonne sur les fronts montants. S'il porte une valeur
+ *   sensee alors que `fall` est nul, le defaut est un demi-coup d'horloge de decalage,
+ *   c'est-a-dire une erreur de mode — et non un fil.
+ */
+static void CmdDrvBitbang(const char *arg)
+{
+  const uint16_t tx = (uint16_t)((*arg != '\0') ? strtoul(arg, NULL, 16) : 0x8000UL);
+  GPIO_InitTypeDef g = {0};
+  uint16_t rise = 0U, fall = 0U;
+
+  g.Mode  = GPIO_MODE_OUTPUT_PP;
+  g.Pull  = GPIO_NOPULL;
+  g.Speed = GPIO_SPEED_FREQ_LOW;
+  g.Pin   = PIN_SPI_SCK | PIN_SPI_MOSI;
+  HAL_GPIO_Init(GPIOB, &g);
+  g.Mode = GPIO_MODE_INPUT;
+  g.Pin  = PIN_SPI_MISO;
+  HAL_GPIO_Init(GPIOB, &g);
+
+  HAL_GPIO_WritePin(GPIOB, PIN_SPI_SCK, GPIO_PIN_RESET);      /* CPOL = 0 */
+  HAL_GPIO_WritePin(PIN_DRV_NCS_PORT, PIN_DRV_NCS, GPIO_PIN_RESET);
+  Spin(200U);
+  const uint32_t at_cs = (GPIOB->IDR & PIN_SPI_MISO) != 0U ? 1U : 0U;
+
+  for (int32_t b = 15; b >= 0; b--) {
+    HAL_GPIO_WritePin(GPIOB, PIN_SPI_MOSI,
+                      ((tx >> (uint32_t)b) & 1U) != 0U ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    Spin(200U);
+    HAL_GPIO_WritePin(GPIOB, PIN_SPI_SCK, GPIO_PIN_SET);
+    Spin(200U);
+    rise = (uint16_t)((rise << 1) | (((GPIOB->IDR & PIN_SPI_MISO) != 0U) ? 1U : 0U));
+    HAL_GPIO_WritePin(GPIOB, PIN_SPI_SCK, GPIO_PIN_RESET);
+    Spin(200U);
+    fall = (uint16_t)((fall << 1) | (((GPIOB->IDR & PIN_SPI_MISO) != 0U) ? 1U : 0U));
+  }
+
+  HAL_GPIO_WritePin(PIN_DRV_NCS_PORT, PIN_DRV_NCS, GPIO_PIN_SET);
+  Spin(200U);
+  const uint32_t at_idle = (GPIOB->IDR & PIN_SPI_MISO) != 0U ? 1U : 0U;
+
+  g.Mode      = GPIO_MODE_AF_PP;
+  g.Alternate = GPIO_AF5_SPI2;
+  g.Pin       = PIN_SPI_SCK | PIN_SPI_MISO | PIN_SPI_MOSI;
+  HAL_GPIO_Init(GPIOB, &g);
+
+  Link_TxPrintf("OK tx=%04X cs=%lu rise=%04X fall=%04X idle=%lu\r\n",
+                tx, (unsigned long)at_cs, rise, fall, (unsigned long)at_idle);
+}
+
 static void CmdVrefRatio(void)
 {
   static const struct { uint8_t ch; const char *name; } k[] = {
@@ -906,6 +973,8 @@ void Console_ExecuteLine(const char *line)
                   sn.csa_mv[0], sn.csa_mv[1], sn.csa_mv[2], sn.mcu_temp_c);
   } else if (Match(line, "DRV?", NULL)) {
     CmdDrvStatus();
+  } else if (Match(line, "DRV.BITBANG", &arg)) {
+    CmdDrvBitbang(arg);
   } else if (Match(line, "DRV.LOOP", &arg)) {
     CmdDrvLoop(arg);
   } else if (Match(line, "DRV.PINS", NULL)) {
