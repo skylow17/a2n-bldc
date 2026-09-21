@@ -15,17 +15,21 @@ Dernière revue : 2026-09-21, sur carte — deux causes matérielles trouvées d
 > lisibles dans la datasheet du composant concerné. Voir
 > [« Une référence à 2,048 V, deux composants qui ne peuvent pas s'en contenter »](#une-référence-à-2048-v-deux-composants-qui-ne-peuvent-pas-sen-contenter).
 >
-> Il n'y a plus de mesure de diagnostic à faire. Deux interventions, dans cet ordre :
+> **C'est fait, et ça a marché.** `U5` est déposé, ses pastilles 1 et 6 pontées, le net
+> `VREF` est passé à 3,3 V : les trois amplis de shunt fonctionnent pour la première fois,
+> `csa_raw` groupés à 2 counts près autour de la mi-échelle, et l'oscillation a disparu avec
+> son oscillateur. L'étape 4 n'est plus bloquée par le matériel.
 >
-> 1. **Soulever une patte de C9** (100 nF sur la sortie du MCP1501, contre le DRV), puis
->    relancer `VREF.FREQ` et `VREF.SCAN`. Prédiction : l'oscillation à 10 kHz disparaît.
->    Réversible, sur un composant discret, sans toucher au boîtier dense.
-> 2. **Isoler `U3` broche 24 du net `VREF` et l'alimenter en +3,3 V** (présent sur J7).
->    Prédiction : `SENS.ALL?` montre les trois `csa_raw` groupés et stables vers 3300, et
->    `IMOT.DECAY` montre des nœuds qui reviennent instantanément au lieu de dériver.
+> **Un défaut nouveau a été trouvé dans la foulée : le SPI du DRV ne répond plus.** Tous les
+> registres se relisent à zéro alors que l'étape 2 était validée le 2026-09-16. Deux
+> hypothèses ont été formulées et réfutées par la mesure ; il faut maintenant un
+> oscilloscope. `DRV.LOOP 5000` martèle une lecture pour qu'on puisse déclencher dessus,
+> sondes sur `U3` broches 29, 28, 27 et 26 — toutes en bord de boîtier. Détail et ordre des
+> vérifications dans « Le SPI du DRV ne répond plus ».
 >
-> `VREF.BUF ON` reste la béquille tant que C9 est en place : le tampon interne du MCU tient
-> `VREF+` à 2,048 V et tous les rails se lisent juste. À éteindre dès que C9 est décollée.
+> **Ne pas alimenter l'étage de puissance avant d'avoir compris** : `nFAULT` tient et la
+> coupure ne passe pas par le SPI, mais on ne saurait ni lire une faute ni régler le gain
+> des amplis.
 >
 > Côté logiciel, rien n'attend. Le **watchdog de flux de commandes** est en place des deux
 > côtés et éprouvé sur carte : c'était le dernier prérequis de M3 (`AGENTS.md` §4.3). Le
@@ -55,7 +59,7 @@ Dernière revue : 2026-09-21, sur carte — deux causes matérielles trouvées d
 | **M1c** | Télémétrie souscrite + buffer scope | **Validé sur carte le 2026-09-16** : `telem` sans trou, `scope` 2048 points sur 4 signaux à la cadence de boucle | Coût de l'échantillonnage scope dans l'ISR, voir la piste plus bas |
 | **M1d** | CLI de bring-up | Validé sur simulateur **et sur carte** — toutes les commandes, `firmware-update` compris | — |
 | **Boot** | Bootloader A/B, probation et rollback | **Validé sur carte le 2026-09-16** : installation SWD, `BOOT_INFO`, mise à jour nominale promue, rollback sur image qui ne confirme jamais | Rien ; un défaut trouvé sur carte, corrigé, rejoué |
-| **M2** | Étage de puissance et capteurs (étapes 2 à 9) | **Étape 2 validée sur carte le 2026-09-16** : le DRV8304 répond en SPI, sept registres relus cohérents avec la fiche technique, écriture-relecture par `DRV.PROBE`, fautes lisibles. **Étape 3 validée à l'oscilloscope le 2026-09-18** : trois bras complémentaires à 20 kHz, temps mort 500 ns aux deux fronts, rapports 20/50/80 % suivis, aucune conduction croisée — après avoir trouvé que les sorties basses n'avaient jamais été activées. **Étape 4 entamée le 2026-09-18**, puis reprise le 2026-09-20 après remplacement de U3 : un défaut d'acquisition corrigé, et **deux défauts matériels isolés** — voir plus bas | Étape 4 : **bloquée par le matériel**. D'abord `VREF` qui oscille de ±370 mV, ce qui fausse toute mesure de tension de la carte ; ensuite les trois entrées de courant flottantes, que le remplacement du DRV n'a pas corrigées — continuité et masse à vérifier à l'ohmmètre. Le chemin nFAULT → coupure de `MOE` est écrit mais **jamais déclenché** . **Étape 6 écrite hors séquence et éprouvée sur carte** (2026-09-21) puisqu'elle ne dépend ni de 4 ni de 5 : AS5600 en DMA à 1 MHz, transfert 57 µs, un échantillon toutes les 59 µs, ISR à 2,60 µs au pire. **Verte à titre provisoire** : le critère « angle monotone à la main » a été validé par l'utilisateur, aimant monté, et je n'ai pas assisté à la mesure — une réserve reste à lever, voir la section de l'étape 6 |
+| **M2** | Étage de puissance et capteurs (étapes 2 à 9) | **Étape 2 : validée le 2026-09-16, en RÉGRESSION depuis le 2026-09-21** — tous les registres se relisent à zéro, voir plus bas. Pour mémoire, la validation d'origine : le DRV8304 répond en SPI, sept registres relus cohérents avec la fiche technique, écriture-relecture par `DRV.PROBE`, fautes lisibles. **Étape 3 validée à l'oscilloscope le 2026-09-18** : trois bras complémentaires à 20 kHz, temps mort 500 ns aux deux fronts, rapports 20/50/80 % suivis, aucune conduction croisée — après avoir trouvé que les sorties basses n'avaient jamais été activées. **Étape 4 entamée le 2026-09-18**, puis reprise le 2026-09-20 après remplacement de U3 : un défaut d'acquisition corrigé, et **deux défauts matériels isolés** — voir plus bas | Étape 4 : **débloquée le 2026-09-21** — la retouche de la référence a réveillé les trois amplis de shunt, `csa_raw` groupés à 2 counts près autour de la mi-échelle. Reste à faire l'étape elle-même : offsets et bruit mesurés et documentés. Bloquée en pratique par la régression du SPI, qui empêche de régler le gain. Pour mémoire, ce qui bloquait avant : D'abord `VREF` qui oscille de ±370 mV, ce qui fausse toute mesure de tension de la carte ; ensuite les trois entrées de courant flottantes, que le remplacement du DRV n'a pas corrigées — continuité et masse à vérifier à l'ohmmètre. Le chemin nFAULT → coupure de `MOE` est écrit mais **jamais déclenché** . **Étape 6 écrite hors séquence et éprouvée sur carte** (2026-09-21) puisqu'elle ne dépend ni de 4 ni de 5 : AS5600 en DMA à 1 MHz, transfert 57 µs, un échantillon toutes les 59 µs, ISR à 2,60 µs au pire. **Verte à titre provisoire** : le critère « angle monotone à la main » a été validé par l'utilisateur, aimant monté, et je n'ai pas assisté à la mesure — une réserve reste à lever, voir la section de l'étape 6 |
 | **M3** | Asservissements (étapes 10 à 13) | Pas commencé | — |
 
 **Aucun moteur n'a encore tourné**, et les sorties restent en haute impédance.
@@ -528,8 +532,69 @@ rattrape l'absolu sur les rails. Pour la révision B, non — un **MCP1501-30 (3
 propriété ratiométrique *et* un vrai bandgap, avec une résistance d'isolement avant son
 condensateur comme le demande sa datasheet.
 
-**État : non vérifié sur carte.** Le code est écrit et compilé, la soudure est en cours au
-moment où ces lignes sont écrites. Rien n'a été flashé.
+**Vérifié sur carte le 2026-09-21, et le diagnostic était bon.** Immédiatement après le flash :
+
+```
+vref_mv=3305  vin_mv=15288  vmot_mv=15056  v5_mv=4945  v3v3_mv=3304  mcu_temp_c=35
+csa_raw=2056,2056,2058   csa_mv=1659,1659,1660
+```
+
+**Les trois entrées de courant sont groupées à 2 counts les unes des autres, à 8 counts de la
+mi-échelle.** Avant la retouche elles lisaient `2126, 1650, 80`, dispersées et dérivantes. Les
+amplis de shunt fonctionnent pour la première fois depuis que cette carte existe. Prédiction
+faite avant l'intervention : « les trois `csa_raw` groupés et stables autour de 2048 ». Tenue.
+
+Le reste suit :
+
+- `VREF+` à 3300–3305 mV sur tous les relevés, là où il balayait 1,70 à 2,43 V ;
+- `VREF.FREQ` donne `raw_min=1502 raw_max=1513`, soit **11 counts d'écart** contre 717 mV crête
+  à crête auparavant. L'oscillation à 10 kHz a disparu avec son oscillateur ;
+- tous les rails se lisent justes sans béquille : 15,29 V, 15,06 V, 4,945 V, 3,304 V, 35 °C ;
+- le garde-fou répond `ERR DRIVEN vref_mv=3300 target_mv=2048`, comme prévu.
+
+**L'étape 4 n'est plus bloquée par le matériel.**
+
+### Le SPI du DRV ne répond plus, et c'est un défaut nouveau (2026-09-21)
+
+Trouvé en voulant commander les amplis pour prouver qu'ils obéissent. **Tous les registres du
+DRV8304 se relisent à `0x000`** et `DRV.PROBE` échoue. `DRV.LOOP 500` compte 19 998 échanges qui
+aboutissent tous au niveau du périphérique et rendent tous zéro.
+
+Ce n'est pas un faux problème : l'étape 2 avait été validée sur carte le 2026-09-16, « sept
+registres relus cohérents avec la fiche technique ». **Elle est donc en régression**, et le
+tableau des jalons le dit.
+
+Ce que ça ne remet pas en cause : le composant est vivant et dans son état de reset. Les sorties
+`SOx` sont polarisées à `VREF/2`, ce qui **exige** `VREF_DIV = 1`, la valeur par défaut. Et le
+chemin de sécurité ne passe pas par le SPI — `nFAULT` est une broche, lue par EXTI, et la coupure
+de `MOE` est déclenchée sans dialogue. Il reste intact.
+
+**Deux hypothèses formulées, deux réfutées par la mesure.** Elles sont notées parce qu'elles
+coûteraient à refaire.
+
+1. *« `SDO` est un drain ouvert et son tirage manque »* — la fiche technique l'exige, le schéma
+   n'en montre aucun, et le firmware ne mettait pas de tirage interne sur `MISO` alors qu'il en
+   met un sur `nFAULT`. Ajouté, plus une baisse de cadence du bus à 562 kHz pour compenser la
+   mollesse d'un tirage interne : **aucun effet**. Les deux modifications ont été retirées.
+2. La commande `DRV.PINS`, écrite pour trancher, a réfuté l'hypothèse elle-même : `miso=1,1`,
+   c'est-à-dire **1 même avec le tirage interne vers le bas**. Le tirage externe existe donc et
+   il est franc. `sck=0,1` et `mosi=0,1` suivent librement, `nCS` est haut au repos. Le câblage
+   est sain au repos.
+
+Ce qui reste, et que je ne peux pas départager sans oscilloscope : le périphérique termine ses
+trames, `MISO` est tiré haut au repos, et pourtant la donnée reçue est nulle — il faut donc que
+quelque chose tire la ligne bas **pendant** la trame. `DRV.LOOP` existe pour ça : elle martèle
+une lecture pendant quelques secondes, de quoi déclencher un oscilloscope sur les quatre lignes.
+
+**Prochaine mesure, dans cet ordre :** `DRV.LOOP 5000`, sondes sur `nCS`, `SCK`, `MOSI`, `SDO`
+aux broches 29, 28, 27 et 26 de `U3` — ce sont des broches de bord, accessibles. On cherche : est-ce
+que `nCS` descend ? est-ce que l'horloge arrive au composant ? est-ce que `SDO` bouge ? Trois
+réponses, trois pannes différentes. La carte a été retouchée à la main sur ces lignes
+(`AGENTS.md` §2) et `U3` a été remplacé depuis la dernière validation : ce sont les deux suspects.
+
+**Rien ne doit alimenter l'étage de puissance tant que ce n'est pas compris.** Pas pour une
+question de sécurité — `nFAULT` tient — mais parce qu'on ne saurait ni lire une faute par SPI ni
+régler le gain des amplis.
 
 ### Étape 6 — l'AS5600 lu en DMA, et le retard enfin chiffré (2026-09-21)
 

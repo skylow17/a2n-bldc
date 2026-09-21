@@ -487,6 +487,8 @@ rapporte l'état, donc l'état rapporté est toujours celui de l'instant où l'h
 |---|---|---|
 | `DRV?` | `OK spi=<0/1> nfault=<0/1> events=<n> fs1=<hex> fs2=<hex> ctrl=<hex> hs=<hex> ls=<hex> ocp=<hex> csa=<hex>` | État complet : bus SPI, broche nFAULT (1 = basse, faute), fronts comptés par l'EXTI depuis le reset, puis les sept registres sur 11 bits |
 | `DRV.PROBE` | `OK` / `ERR DRV` | Critère de l'étape 2 : bascule `COAST`, relit, restaure. Ne laisse rien dans le driver |
+| `DRV.PINS` | `OK miso=<lo>,<hi> sck=<lo>,<hi> mosi=<lo>,<hi> ncs=<0\|1>` | Les trois lignes du SPI relues en entrée numérique, tirées vers le bas puis vers le haut, plus l'état de `nCS`. Au repos `nCS` est haut et le DRV relâche `SDO` : la ligne doit suivre le tirage. `0,1` = libre ; `0,0` = tenue basse ; `1,1` = tenue haute, donc une résistance de tirage externe franche. Restaure l'alternate en sortant |
+| `DRV.LOOP [<ms>]` | `OK reads=<n> ok=<n> last=<hex> ms=<n>` | Martèle une lecture de registre pendant quelques secondes, pour qu'un oscilloscope puisse déclencher sur les lignes du SPI. Une lecture isolée dure 15 µs et ne se rattrape pas à la main. `ok` compte les échanges abou[]tis au niveau du périphérique, `last` ce qu'ils ont rendu : les deux ensemble distinguent un bus muet d'un bus qui répond n'importe quoi. Plafonné à 20 s |
 | `DRV.REG <addr> [<value>]` | `OK reg=<a> value=<hex>` | Lecture, ou écriture puis relecture, d'un registre brut. Hexadécimal, 11 bits |
 | `DRV.CLR` | `OK` / `ERR SPI` | Pulse `CLR_FLT` |
 | `DRV.CAL ON` / `OFF` | `OK` | Broche `CAL` : haut = entrées des trois CSA court-circuitées, sortie à VREF/2 + offset |

@@ -63,6 +63,8 @@ export const CONSOLE_GROUPS: ConsoleGroup[] = [
       { verb: 'DRV.REG', syntax: 'DRV.REG <addr> [<value>]', summary: 'Reads a register, or writes it then reads it back. Hexadecimal.' },
       { verb: 'DRV.CAL', syntax: 'DRV.CAL <ON|OFF>', summary: 'Drives the CAL pin, which shorts the shunt amplifier inputs for offset calibration.' },
       { verb: 'DRV.CLR', syntax: 'DRV.CLR', summary: 'Clears latched driver faults over SPI.' },
+      { verb: 'DRV.PINS', syntax: 'DRV.PINS', summary: 'Reads the three SPI lines as digital inputs, pulled down then up, plus nCS. Says whether a line is free, held low or held high.' },
+      { verb: 'DRV.LOOP', syntax: 'DRV.LOOP [<ms>]', summary: 'Hammers a register read for a few seconds so a scope can trigger on the SPI lines. Counts the transfers that completed and what they returned.' },
     ],
   },
   {

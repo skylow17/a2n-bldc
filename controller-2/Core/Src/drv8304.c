@@ -56,7 +56,14 @@ void Drv8304_Init(void)
   g.Pin = PIN_DRV_CAL;
   HAL_GPIO_Init(PIN_DRV_CAL_PORT, &g);
 
-  /* SCK / MISO / MOSI en AF5. Le brochage est celui du v1, pas celui du schéma — board.h. */
+  /* SCK / MISO / MOSI en AF5. Le brochage est celui du v1, pas celui du schéma — board.h.
+   *
+   * Pas de tirage interne sur MISO, et c'est **mesuré** et non supposé : `SDO` du DRV8304
+   * est un drain ouvert que la fiche technique veut tiré en externe, ce tirage n'apparaît
+   * nulle part au schéma, et on a cru un moment qu'il manquait. `DRV.PINS` a tranché — la
+   * broche lit 1 même avec le tirage interne vers le bas, donc la résistance externe existe
+   * et elle est franche. En ajouter une seconde en parallèle ne ferait que déplacer le
+   * niveau continu du bus sans rien réparer. */
   g.Pin       = PIN_SPI_SCK | PIN_SPI_MISO | PIN_SPI_MOSI;
   g.Mode      = GPIO_MODE_AF_PP;
   g.Pull      = GPIO_NOPULL;

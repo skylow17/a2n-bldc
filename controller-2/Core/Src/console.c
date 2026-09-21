@@ -464,6 +464,76 @@ static void CmdVrefBuf(const char *arg)
   }
 }
 
+/* Les trois lignes du SPI relues en entree numerique, tirees vers le bas puis vers le haut.
+ * Au repos nCS est haut, donc le DRV relache `SDO` : la ligne doit suivre le tirage. Trois
+ * verdicts possibles, et ils ne se reparent pas de la meme facon.
+ *
+ *   pullup=1 pulldown=0  la ligne est libre — le DRV ne pilote rien, le defaut est ailleurs
+ *   pullup=0 pulldown=0  quelque chose la tient basse — court-circuit, ou SDO colle bas
+ *   pullup=1 pulldown=1  quelque chose la tient haute — court-circuit vers 3,3 V
+ *
+ * Restaure l'alternate a la fin : sans ca le SPI resterait muet jusqu'au prochain reset. */
+static void CmdDrvPins(void)
+{
+  GPIO_InitTypeDef g = {0};
+  const uint32_t pins = PIN_SPI_MISO | PIN_SPI_SCK | PIN_SPI_MOSI;
+  uint32_t down = 0U, up = 0U;
+
+  g.Pin   = pins;
+  g.Mode  = GPIO_MODE_INPUT;
+  g.Speed = GPIO_SPEED_FREQ_LOW;
+  g.Pull  = GPIO_PULLDOWN;
+  HAL_GPIO_Init(GPIOB, &g);
+  HAL_Delay(2U);
+  down = GPIOB->IDR & pins;
+  g.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOB, &g);
+  HAL_Delay(2U);
+  up = GPIOB->IDR & pins;
+
+  g.Mode      = GPIO_MODE_AF_PP;
+  g.Alternate = GPIO_AF5_SPI2;
+  g.Pin       = PIN_SPI_SCK | PIN_SPI_MOSI;
+  g.Pull      = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOB, &g);
+  g.Pin  = PIN_SPI_MISO;
+  g.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOB, &g);
+
+  Link_TxPrintf("OK miso=%lu,%lu sck=%lu,%lu mosi=%lu,%lu ncs=%lu\r\n",
+                (unsigned long)((down & PIN_SPI_MISO) != 0U),
+                (unsigned long)((up   & PIN_SPI_MISO) != 0U),
+                (unsigned long)((down & PIN_SPI_SCK) != 0U),
+                (unsigned long)((up   & PIN_SPI_SCK) != 0U),
+                (unsigned long)((down & PIN_SPI_MOSI) != 0U),
+                (unsigned long)((up   & PIN_SPI_MOSI) != 0U),
+                (unsigned long)(HAL_GPIO_ReadPin(PIN_DRV_NCS_PORT, PIN_DRV_NCS) ==
+                                GPIO_PIN_SET));
+}
+
+/* Martele une lecture de registre pendant quelques secondes, pour qu'on puisse poser un
+ * oscilloscope sur les quatre lignes du SPI et declencher dessus. Une lecture isolee dure
+ * 15 µs et ne se rattrape pas a la main ; c'est la meme raison qui avait fait ecrire
+ * `IMOT.WIGGLE`. Compte les echanges qui ont abouti et ce qu'ils ont rendu, pour que la
+ * mesure au scope ait tout de suite son pendant numerique. */
+static void CmdDrvLoop(const char *arg)
+{
+  uint32_t ms = (*arg != '\0') ? strtoul(arg, NULL, 10) : 2000UL;
+  if (ms == 0UL) { ms = 2000UL; }
+  if (ms > 20000UL) { ms = 20000UL; }
+
+  const uint32_t t0 = HAL_GetTick();
+  uint32_t n = 0U, ok = 0U;
+  uint16_t last = 0U;
+  while ((HAL_GetTick() - t0) < ms) {
+    uint16_t v = 0U;
+    if (Drv8304_ReadReg(DRV_REG_FAULT_STATUS_1, &v)) { ok++; last = v; }
+    n++;
+  }
+  Link_TxPrintf("OK reads=%lu ok=%lu last=%03X ms=%lu\r\n",
+                (unsigned long)n, (unsigned long)ok, last, (unsigned long)ms);
+}
+
 static void CmdVrefRatio(void)
 {
   static const struct { uint8_t ch; const char *name; } k[] = {
@@ -826,6 +896,10 @@ void Console_ExecuteLine(const char *line)
                   sn.csa_mv[0], sn.csa_mv[1], sn.csa_mv[2], sn.mcu_temp_c);
   } else if (Match(line, "DRV?", NULL)) {
     CmdDrvStatus();
+  } else if (Match(line, "DRV.LOOP", &arg)) {
+    CmdDrvLoop(arg);
+  } else if (Match(line, "DRV.PINS", NULL)) {
+    CmdDrvPins();
   } else if (Match(line, "DRV.PROBE", NULL)) {
     /* Critère de l'étape 2 : une écriture se relit. Ne laisse aucune trace dans le DRV. */
     Reply(Drv8304_Probe() ? "OK" : "ERR DRV");
