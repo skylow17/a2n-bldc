@@ -249,6 +249,9 @@ Signaux présents à M1c :
 | 4 | `loop.duration_ns` | `ns` | dernier passage dans l'ISR |
 | 5 | `loop.max_duration_ns` | `ns` | pire passage depuis le reset des stats |
 | 6 | `loop.load_pct` | `%` | `duration / 50 us × 100` |
+| 7 | `enc.pos_rad` | `rad` | AS5600, angle mécanique **extrapolé** à l'instant de l'ISR |
+| 8 | `enc.vel_rad_s` | `rad/s` | vitesse mécanique estimée depuis deux angles consécutifs, filtrée |
+| 9 | `enc.age_us` | `us` | âge de l'échantillon d'angle au moment où l'ISR l'a lu |
 
 **Règle firmware** : toute grandeur interne qu'on souhaite pouvoir tracer est déclarée comme
 signal au moment où elle est introduite. Une mesure brute reste explicitement nommée et un signal
@@ -492,6 +495,10 @@ rapporte l'état, donc l'état rapporté est toujours celui de l'instant où l'h
 
 | Commande | Réponse | Rôle |
 |---|---|---|
+| `ENC?` | `OK present=<0\|1> magnet=<0\|1> status=<hex> raw=<c> turns=<n> pos_mrad=<n> vel_mrad_s=<n> bus_hz=<n> xfer_us=<n> period_us=<n> age_max_us=<n> ok=<n> err=<n>` | État de l'AS5600 et **budget de retard de l'étape 6 en une ligne**. `magnet` vient du registre `STATUS` du capteur : `MD` à 1, `ML` et `MH` à 0. `xfer_us` est la durée du transfert I2C, `period_us` l'intervalle entre deux échantillons, `age_max_us` le pire âge vu par l'ISR depuis la dernière remise à zéro — c'est celui-là que subit la boucle de contrôle. Angles en milliradians pour éviter d'embarquer un `printf` flottant |
+| `ENC.REG <addr> [<len>]` | `OK reg=<hex> len=<n> <octets…>` | Lecture ponctuelle d'un registre du capteur, adresse en hexadécimal ou décimal, 1 à 8 octets. Prend le bus le temps du transfert puis relance la chaîne continue. Sert à lire `AGC` (0x1A), `MAGNITUDE` (0x1B) et `CONF` (0x07) |
+| `ENC.BUS <hz>` | `OK` / `ERR ARG` | Fréquence SCL : `100000`, `400000` ou `1000000`. Le défaut est 1 MHz, mesuré bon sur cette carte. Remet la chaîne à plat et la relance |
+| `ENC.RST` | `OK` | Remet à zéro `age_max_us`, `ok` et `err` |
 | `SENS.ALL?` | `OK rounds=<n> vref_mv=<mV> vrefint_raw=<c> vin_mv=<mV> vmot_mv=<mV> v5_mv=<mV> v3v3_mv=<mV> csa_raw=<a>,<b>,<c> csa_mv=<a>,<b>,<c>` | Rails via ADC2, VREF+ **mesuré** par VREFINT, et relecture lente des trois entrées de courant. Un tourniquet d'une conversion par passage de superloop |
 | `ADC?` | `OK jsqr=… sqr1=… smpr1=… smpr2=… cfgr=… cr=… isr=… jdr=<a>,<b>,<c> ccr=…` | Registres d'ADC1 tels quels. `jsqr` dit combien de voies la séquence injectée convertit réellement |
 | `ADC.PROBE` | `OK pulldown=<a>,<b>,<c> pullup=<a>,<b>,<c>` | Les trois entrées de courant lues en numérique sous tirage bas puis haut. Une source qui impose son niveau lit pareil dans les deux cas ; un nœud flottant suit le tirage. Retour en analogique ensuite |

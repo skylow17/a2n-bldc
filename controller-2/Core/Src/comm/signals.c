@@ -36,6 +36,18 @@ static float ReadRawIa(const Signal_Snapshot_t *snap) { return (float)snap->raw_
 static float ReadRawIb(const Signal_Snapshot_t *snap) { return (float)snap->raw_ib; }
 static float ReadRawIc(const Signal_Snapshot_t *snap) { return (float)snap->raw_ic; }
 
+static float ReadEncPosRad(const Signal_Snapshot_t *snap)  { return snap->pos_rad; }
+static float ReadEncVelRadS(const Signal_Snapshot_t *snap) { return snap->vel_rad_s; }
+
+static float ReadEncAgeUs(const Signal_Snapshot_t *snap)
+{
+  /* Age de l'echantillon d'angle au moment ou l'ISR l'a lu. C'est la moitie mesurable du
+   * budget de retard de l'etape 6 : l'autre moitie, le filtre interne du capteur, ne se
+   * voit pas d'ici et se lit dans la fiche technique. Tracable pour qu'un ralentissement
+   * du bus I2C se voie sur une courbe au lieu de se deviner. */
+  return (float)snap->enc_age_us;
+}
+
 static float ReadLoopDurationNs(const Signal_Snapshot_t *snap)
 {
   return (float)snap->cycles_last * SIGNAL_NS_PER_CYCLE;
@@ -67,6 +79,9 @@ static const SignalDesc_t s_signals[] = {
   { 4U, "loop.duration_ns",     "ns",    ReadLoopDurationNs    },
   { 5U, "loop.max_duration_ns", "ns",    ReadLoopMaxDurationNs },
   { 6U, "loop.load_pct",        "%",     ReadLoopLoadPct       },
+  { 7U, "enc.pos_rad",          "rad",   ReadEncPosRad         },
+  { 8U, "enc.vel_rad_s",        "rad/s", ReadEncVelRadS        },
+  { 9U, "enc.age_us",           "us",    ReadEncAgeUs          },
 };
 
 #define SIGNAL_COUNT  ((uint16_t)(sizeof(s_signals) / sizeof(s_signals[0])))

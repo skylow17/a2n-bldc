@@ -22,6 +22,7 @@
 #include "board.h"
 #include "ctrl.h"
 #include "drv8304.h"
+#include "encoder.h"
 #include "sensors.h"
 #include "comm/param.h"
 #include "comm/proto.h"
@@ -363,6 +364,54 @@ static void CmdVrefFreq(const char *arg)
 /* Echelles du tampon interne. 2900 est la seule qui depasse le seuil de sous-tension de
  * 2,6 V de la broche VREF du DRV8304 : c'est elle qui permet de savoir, sans fer a souder,
  * si les amplis de shunt sont simplement tenus eteints par cette protection. */
+/* ------------------------------------------------------------------ AS5600 (etape 6)
+ *
+ * `ENC?` donne le budget de retard de l'etape 6 en une ligne : duree de transfert,
+ * intervalle entre echantillons, et pire age vu par l'ISR. Les deux premiers disent si le
+ * bus tient la cadence, le troisieme dit ce que la boucle de controle subit reellement. */
+static void CmdEncStatus(void)
+{
+  Encoder_t e;
+  Encoder_Get(&e);
+  Link_TxPrintf("OK present=%u magnet=%u status=%02X raw=%u turns=%ld "
+                "pos_mrad=%ld vel_mrad_s=%ld bus_hz=%lu xfer_us=%u period_us=%u "
+                "age_max_us=%u ok=%lu err=%lu\r\n",
+                e.present ? 1U : 0U, e.magnet_ok ? 1U : 0U, (unsigned)e.status_raw,
+                e.raw_angle, (long)e.turns,
+                (long)(e.pos_rad * 1000.0f), (long)(e.vel_rad_s * 1000.0f),
+                (unsigned long)e.bus_hz, e.xfer_us, e.period_us, e.age_max_us,
+                (unsigned long)e.reads_ok, (unsigned long)e.reads_err);
+}
+
+static void CmdEncReg(const char *arg)
+{
+  char *end = NULL;
+  const unsigned long reg = strtoul(arg, &end, 0);
+  unsigned long len = 1UL;
+  if ((end != NULL) && (*end != '\0')) {
+    len = strtoul(end, NULL, 0);
+  }
+  if ((reg > 0xFFUL) || (len < 1UL) || (len > 8UL)) {
+    Reply("ERR ARG");
+    return;
+  }
+  uint8_t buf[8] = {0};
+  if (!Encoder_ReadReg((uint8_t)reg, buf, (uint8_t)len)) {
+    Reply("ERR I2C");
+    return;
+  }
+  Link_TxPrintf("OK reg=%02lX len=%lu", reg, len);
+  for (unsigned long i = 0UL; i < len; i++) {
+    Link_TxPrintf(" %02X", buf[i]);
+  }
+  Reply("");
+}
+
+static void CmdEncBus(const char *arg)
+{
+  Reply(Encoder_SetBusHz(strtoul(arg, NULL, 0)) ? "OK" : "ERR ARG");
+}
+
 static void CmdVrefBuf(const char *arg)
 {
   const char *mv = NULL;
@@ -733,6 +782,15 @@ void Console_ExecuteLine(const char *line)
                   (unsigned long)ADC1->CFGR, (unsigned long)ADC1->CR, (unsigned long)ADC1->ISR,
                   (unsigned long)ADC1->JDR1, (unsigned long)ADC1->JDR2, (unsigned long)ADC1->JDR3,
                   (unsigned long)ADC12_COMMON->CCR);
+  } else if (Match(line, "ENC?", NULL)) {
+    CmdEncStatus();
+  } else if (Match(line, "ENC.REG", &arg)) {
+    CmdEncReg(arg);
+  } else if (Match(line, "ENC.BUS", &arg)) {
+    CmdEncBus(arg);
+  } else if (Match(line, "ENC.RST", NULL)) {
+    Encoder_ResetStats();
+    Reply("OK");
   } else if (Match(line, "SENS.ALL?", NULL)) {
     Sensors_t sn;
     Sensors_Get(&sn);

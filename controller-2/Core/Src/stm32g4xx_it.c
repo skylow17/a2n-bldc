@@ -5,6 +5,7 @@
 #include "stm32g4xx_hal.h"
 #include "ctrl.h"
 #include "drv8304.h"
+#include "encoder.h"
 #include "board.h"
 
 extern PCD_HandleTypeDef hpcd_USB_FS;
@@ -52,3 +53,9 @@ void USB_LP_IRQHandler(void)
 {
   HAL_PCD_IRQHandler(&hpcd_USB_FS);
 }
+
+/* AS5600 sur I2C4 : fin de transfert DMA, evenements et erreurs. Priorite 3, donc
+ * toujours derriere la boucle de controle et derriere la coupure sur faute driver. */
+void DMA1_Channel1_IRQHandler(void) { Encoder_IrqDma(); }
+void I2C4_EV_IRQHandler(void)       { Encoder_IrqEv(); }
+void I2C4_ER_IRQHandler(void)       { Encoder_IrqEr(); }

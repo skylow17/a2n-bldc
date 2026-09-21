@@ -24,6 +24,10 @@ typedef struct
   uint16_t raw_ia;         /**< brut ADC phase A, instantané                        */
   uint16_t raw_ib;
   uint16_t raw_ic;
+  float    pos_rad;        /**< angle mecanique extrapole au dernier tour d'ISR     */
+  float    vel_rad_s;      /**< vitesse mecanique estimee                           */
+  uint16_t enc_age_us;     /**< age de l'echantillon d'angle a ce tour d'ISR        */
+  uint8_t  enc_valid;      /**< 0 tant qu'aucun angle coherent n'a ete publie       */
 } Ctrl_Stats_t;
 
 void Ctrl_Init(void);

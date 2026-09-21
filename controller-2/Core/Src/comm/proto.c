@@ -322,6 +322,10 @@ static void ProcessTelemetry(void)
     .raw_ia = stats.raw_ia,
     .raw_ib = stats.raw_ib,
     .raw_ic = stats.raw_ic,
+    .pos_rad = stats.pos_rad,
+    .vel_rad_s = stats.vel_rad_s,
+    .enc_age_us = stats.enc_age_us,
+    .enc_valid = stats.enc_valid,
   };
 
   size_t o = 0U;

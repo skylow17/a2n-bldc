@@ -30,6 +30,11 @@ Dernière revue : 2026-09-21, sur carte, datasheets DRV8304 et MCP1501 à l'appu
 > Côté logiciel, rien n'attend. Le **watchdog de flux de commandes** est en place des deux
 > côtés et éprouvé sur carte : c'était le dernier prérequis de M3 (`AGENTS.md` §4.3). Le
 > tableau de bord montre enfin ce que la carte mesure, et la console se filtre.
+>
+> L'**étape 6 est écrite et mesurée** (AS5600 en DMA à 1 MHz), hors séquence puisqu'elle ne
+> dépend pas des étapes bloquées. Il lui manque un aimant diamétral sur l'arbre pour que le
+> critère « angle croissant monotone à la main » puisse être vérifié — c'est la seule chose
+> qui reste, et elle tient en une pièce mécanique.
 
 > **Cette revue a repris des états faux.** La passe du 2026-09-15 a marqué « validé sur carte » des
 > jalons dont le code n'a jamais été commité. Le détail est plus bas, section
@@ -49,7 +54,7 @@ Dernière revue : 2026-09-21, sur carte, datasheets DRV8304 et MCP1501 à l'appu
 | **M1c** | Télémétrie souscrite + buffer scope | **Validé sur carte le 2026-09-16** : `telem` sans trou, `scope` 2048 points sur 4 signaux à la cadence de boucle | Coût de l'échantillonnage scope dans l'ISR, voir la piste plus bas |
 | **M1d** | CLI de bring-up | Validé sur simulateur **et sur carte** — toutes les commandes, `firmware-update` compris | — |
 | **Boot** | Bootloader A/B, probation et rollback | **Validé sur carte le 2026-09-16** : installation SWD, `BOOT_INFO`, mise à jour nominale promue, rollback sur image qui ne confirme jamais | Rien ; un défaut trouvé sur carte, corrigé, rejoué |
-| **M2** | Étage de puissance et capteurs (étapes 2 à 9) | **Étape 2 validée sur carte le 2026-09-16** : le DRV8304 répond en SPI, sept registres relus cohérents avec la fiche technique, écriture-relecture par `DRV.PROBE`, fautes lisibles. **Étape 3 validée à l'oscilloscope le 2026-09-18** : trois bras complémentaires à 20 kHz, temps mort 500 ns aux deux fronts, rapports 20/50/80 % suivis, aucune conduction croisée — après avoir trouvé que les sorties basses n'avaient jamais été activées. **Étape 4 entamée le 2026-09-18**, puis reprise le 2026-09-20 après remplacement de U3 : un défaut d'acquisition corrigé, et **deux défauts matériels isolés** — voir plus bas | Étape 4 : **bloquée par le matériel**. D'abord `VREF` qui oscille de ±370 mV, ce qui fausse toute mesure de tension de la carte ; ensuite les trois entrées de courant flottantes, que le remplacement du DRV n'a pas corrigées — continuité et masse à vérifier à l'ohmmètre. Le chemin nFAULT → coupure de `MOE` est écrit mais **jamais déclenché** |
+| **M2** | Étage de puissance et capteurs (étapes 2 à 9) | **Étape 2 validée sur carte le 2026-09-16** : le DRV8304 répond en SPI, sept registres relus cohérents avec la fiche technique, écriture-relecture par `DRV.PROBE`, fautes lisibles. **Étape 3 validée à l'oscilloscope le 2026-09-18** : trois bras complémentaires à 20 kHz, temps mort 500 ns aux deux fronts, rapports 20/50/80 % suivis, aucune conduction croisée — après avoir trouvé que les sorties basses n'avaient jamais été activées. **Étape 4 entamée le 2026-09-18**, puis reprise le 2026-09-20 après remplacement de U3 : un défaut d'acquisition corrigé, et **deux défauts matériels isolés** — voir plus bas | Étape 4 : **bloquée par le matériel**. D'abord `VREF` qui oscille de ±370 mV, ce qui fausse toute mesure de tension de la carte ; ensuite les trois entrées de courant flottantes, que le remplacement du DRV n'a pas corrigées — continuité et masse à vérifier à l'ohmmètre. Le chemin nFAULT → coupure de `MOE` est écrit mais **jamais déclenché** . **Étape 6 écrite hors séquence et éprouvée sur carte** (2026-09-21) puisqu'elle ne dépend ni de 4 ni de 5 : AS5600 en DMA à 1 MHz, transfert 57 µs, un échantillon toutes les 59 µs, ISR à 2,60 µs au pire. Non déclarée verte : le critère « angle monotone à la main » demande un aimant, qui n'est pas monté |
 | **M3** | Asservissements (étapes 10 à 13) | Pas commencé | — |
 
 **Aucun moteur n'a encore tourné**, et les sorties restent en haute impédance.
@@ -472,6 +477,70 @@ MCP1501 (±5 mA) tient le nœud contre les 4 mA du tampon, et `vref_mv` ne fait 
 **Confiance : élevée sur le diagnostic, à confirmer sur carte.** Chaque affirmation vient d'une
 datasheet et chaque symptôme mesuré s'y range, mais rien n'est encore prouvé par une intervention.
 Les deux prédictions à vérifier sont dans le bloc de reprise en tête de fichier.
+
+### Étape 6 — l'AS5600 lu en DMA, et le retard enfin chiffré (2026-09-21)
+
+Écrite **hors séquence** : les étapes 4 et 5 sont bloquées par le matériel, et l'étape 6 n'en
+dépend pas. Le module est donc là, éprouvé sur carte, mais l'étape n'est pas déclarée verte —
+voir « Ce qui reste » plus bas.
+
+C'est la marche que le v1 avait ratée, et qui mérite d'être nommée : là-bas, `As5600_ReadRawAngle`
+appelait `HAL_I2C_Mem_Read` **bloquant** à 100 kHz depuis la superloop, ce qui plafonnait tout le
+firmware à environ 1,5 kHz avec de la gigue. Ici la chaîne I2C se relance depuis sa propre
+interruption de fin, en DMA, et l'ISR de contrôle ne fait qu'extrapoler depuis le dernier
+échantillon publié et son horodatage.
+
+**Mesuré sur carte, Fast-mode Plus à 1 MHz :**
+
+| Grandeur | Mesure |
+|---|---|
+| Durée d'un transfert | **57 µs** |
+| Intervalle entre échantillons | **59 µs**, soit ~17 kHz |
+| Âge de l'échantillon vu par l'ISR | 4 µs typique, 118 µs au pire en régime normal |
+| Durée de l'ISR de contrôle | 2,49 µs, **max 2,60 µs** — charge 5,2 % |
+| Erreurs I2C | 2 sur ~500 000 transferts, reprises automatiquement |
+
+`AGENTS.md` §3 visait « ~70 µs par lecture, soit ~10 kHz effectif » : on est à 57 µs et 17 kHz.
+Le schéma annotait les tirages R21/R22 (4k7) d'un « TBC » en soupçonnant un temps de montée trop
+lent pour le Fast-mode Plus — **mesuré, ça passe**, et 1 MHz est devenu le défaut.
+
+Que `max` et `last` de l'ISR soient à 4 % l'un de l'autre est le résultat qui compte : le capteur
+n'introduit **aucun pic**. C'est le critère « aucun blocage de l'ISR », mesuré plutôt qu'espéré.
+
+**Le retard du capteur lui-même était le vrai piège.** L'AS5600 échantillonne toutes les 150 µs
+puis filtre, et le champ `SF` du registre `CONF` vaut `00` au démarrage — soit **2,2 ms**
+d'établissement, 44 périodes de la boucle de contrôle. À 3000 tr/min c'est 40° de rotation
+mécanique : inutilisable pour orienter un champ. `Encoder_Init` écrit donc `SF = 11` (0,286 ms) à
+chaque démarrage. Le bruit passe de 0,015° à 0,043° RMS, ce qui reste bien sous le pas de
+quantification de 12 bits (0,088°) : on ne perd rien de réel et on gagne un facteur 7,7.
+
+Le budget complet est donc : **286 µs** de filtre interne (irréductible sans changer de capteur),
+**57 µs** de transport, et **0 à 118 µs** d'âge — ces deux derniers annulés par l'extrapolation.
+
+**Deux défauts trouvés en écrivant ce module, tous deux sur carte.**
+
+Le premier était à moi et instructif. La reprise après erreur se contentait d'un
+`HAL_I2C_Master_Abort_IT` suivi d'un réglage : elle n'a jamais repris une seule fois. `Abort_IT`
+est asynchrone et a besoin du bus pour aboutir — or le bus est justement ce qui est mort. Surtout,
+**le canal DMA restait armé**, si bien que chaque relance se faisait renvoyer `HAL_BUSY` en
+silence : `reads_ok` et `reads_err` tous les deux à zéro, et l'angle figé sur sa dernière valeur
+sans que rien ne le déclare faux. J'en avais conclu un peu vite que le bus ne tenait pas le 1 MHz ;
+la remise à plat complète écrite, 1 MHz passe sans une erreur. D'où aussi un **garde-fou** : plus
+de transfert abouti pendant 20 ms et la chaîne est remise à plat, parce qu'un angle qui ne bouge
+plus et que personne ne déclare faux se propage jusque dans une boucle de position.
+
+Le second : les trois signaux d'encodeur sortaient à **zéro** sur le flux de télémétrie souscrit
+alors que la console donnait la bonne valeur. Le streaming reconstruit son instantané depuis
+`Ctrl_Stats_t`, pas depuis celui de l'ISR ; les champs manquaient. Corrigé en les faisant transiter
+par le canal de publication existant — et non en relisant l'encodeur depuis la superloop, ce qui
+aurait extrapolé à un autre instant et touché au cache de l'ISR.
+
+**Ce qui reste, et qui demande un aimant.** Il n'y en a pas au-dessus du capteur aujourd'hui. Le
+registre `STATUS` lit `0x13`, c'est-à-dire `ML = 1` et `MD = 0` — *magnet too weak*. C'est en soi
+une validation : le capteur rapporte fidèlement la réalité, donc la liaison et la donnée sont
+bonnes. Mais le critère de l'étape 6, « angle croissant monotone à la main », ne peut pas être
+vérifié, et `ENC_LAG_COMP_US` reste à zéro plutôt que de compenser d'un nombre non mesuré. À
+reprendre dès qu'un aimant diamétral est monté sur l'arbre.
 
 ### Watchdog de flux de commandes — les deux moitiés, et la carte le prouve (2026-09-20)
 

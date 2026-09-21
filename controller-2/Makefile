@@ -74,6 +74,7 @@ APP_C_SOURCES := \
   Core/Src/pwm.c \
   Core/Src/adc_sync.c \
   Core/Src/sensors.c \
+  Core/Src/encoder.c \
   Core/Src/safety.c \
   Core/Src/ctrl.c \
   Core/Src/link_usb.c \
@@ -126,6 +127,8 @@ HAL_SOURCES := \
   $(HAL)/Src/stm32g4xx_hal_dma.c \
   $(HAL)/Src/stm32g4xx_hal_dma_ex.c \
   $(HAL)/Src/stm32g4xx_hal_exti.c \
+  $(HAL)/Src/stm32g4xx_hal_i2c.c \
+  $(HAL)/Src/stm32g4xx_hal_i2c_ex.c \
   $(HAL)/Src/stm32g4xx_hal_spi.c \
   $(HAL)/Src/stm32g4xx_hal_tim.c \
   $(HAL)/Src/stm32g4xx_hal_tim_ex.c \
