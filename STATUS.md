@@ -882,6 +882,38 @@ par le PC — tout dans la console commune.
 les outils s'appellent `device_connect`, `param_set`. Les clients MCP courants n'acceptent que
 `[a-zA-Z0-9_-]` dans un nom d'outil. Les familles sont inchangées, seul le séparateur diffère.
 
+### La télémétrie persiste, le scope se navigue (2026-09-21)
+
+Quatre défauts d'usage, et deux d'entre eux avaient la même cause de fond qu'on avait déjà
+rencontrée deux fois : **une identité d'objet dans un tableau de dépendances React**.
+
+**Le tracé semblait redémarrer tout seul.** Le snapshot du device traverse l'IPC d'Electron,
+donc il est sérialisé : côté renderer, `state.telemetry` est un objet **neuf** à chaque
+émission — au moins deux fois par seconde entre le battement de sécurité et le relevé de
+supervision. Il figurait dans les dépendances de l'effet qui remet le tampon à zéro. Le tampon
+était donc vidé en continu. Seule l'identité des signaux compte, et elle tient dans une chaîne.
+
+**Arrêter le flux effaçait ce qu'on venait de capturer.** Or on coupe précisément pour regarder
+ce qui vient de se passer. L'arrêt **fige** maintenant : les données restent tracées, la fenêtre
+glissante est levée pour qu'on voie la fin de l'événement, et l'en-tête affiche `frozen` avec le
+nombre de points. C'est le **démarrage** d'une souscription qui repart d'un relevé neuf.
+
+**La fenêtre d'affichage ne pouvait pas dépasser le tampon.** Demander trente secondes avec un
+tampon de quinze donnait une courbe tronquée sans rien pour l'expliquer. La capacité se calcule
+désormais à partir de la fenêtre et de la cadence **réellement appliquée** par le firmware, avec
+une marge et un plafond de mémoire. Les fenêtres vont jusqu'à une minute.
+
+**Le zoom du scope se perdait à chaque rendu du parent.** `setData` remet les échelles à zéro, et
+il était appelé à chaque rendu parce que `series` est reconstruit par l'appelant — le même piège
+que pour `labels` et `colors`. Il n'est plus appelé que lorsque le tableau de temps change,
+c'est-à-dire quand la capture change vraiment.
+
+La navigation est maintenant celle d'un oscilloscope : **glissement = zoom par sélection** sur
+l'axe des temps, molette = zoom autour du pointeur, `Shift`-glissement ou bouton du milieu =
+déplacement, double-clic ou bouton **Reset zoom** = toute la capture. La sélection ne porte pas
+sur l'axe vertical : sur une capture on zoome sur un intervalle de temps, et figer l'ordonnée
+cacherait ce qui sort du cadre juste après.
+
 ### Les tailles se règlent à la main, et la télémétrie a des préréglages (2026-09-21)
 
 Suite du même sujet. Découper la vue en deux régions ne suffisait pas : des constantes
@@ -1140,6 +1172,8 @@ utile que la liste de ce qui marche.
 
 | Défaut | Comment il a été trouvé |
 |---|---|
+| **Le tampon de télémétrie était effacé deux fois par seconde.** Le snapshot traverse l'IPC d'Electron, donc il est **sérialisé** : côté renderer, `state.telemetry` est un objet neuf à chaque émission. Le mettre dans les dépendances de l'effet de remise à zéro vidait le tampon en continu, et la courbe semblait redémarrer toute seule. Même classe de défaut que `labels`/`colors` sur le graphe, et pour la même raison : une identité d'objet dans un tableau de dépendances. | « la vue du graphe reset toutes les secondes environ, comme si la mesure redémarrait » |
+| **Le zoom du scope se perdait au moindre rendu du parent.** `setData` remet les échelles à zéro, et il était rappelé à chaque rendu parce que `series` est reconstruit par l'appelant. Aucun geste de l'utilisateur ne l'expliquait. | « je ne peux pas pan ou zoom sans que ça reset la position d'affichage » |
 | **Hauteurs de graphe et de console figées en pixels.** 120 px par graphe au-delà de deux courbes, 18 rem de console, quelle que soit la fenêtre : sur un portable ça débordait, en plein écran ça laissait la moitié de la surface vide — et dans les deux cas le panneau se mettait à défiler, ce qui se voit comme des données tronquées. Les graphes se partagent désormais la hauteur mesurée du panneau, entre un plancher de lisibilité et un plafond au-delà duquel l'étirement n'apprend rien ; la console a une poignée de redimensionnement. | Signalé à l'œil par l'utilisateur — « des fois en plein écran, il y a plein de données qui sont tronquées » |
 | **Le flux de télémétrie déclenchait un rendu React par lot de trames.** `interface/AGENTS.md` §3 l'interdit explicitement — « uPlot est mis à jour par `requestAnimationFrame`, pas par échantillon reçu » — et `useTelemetry` appelait pourtant `bump()` trente fois par seconde, désynchronisé de l'affichage. La règle était écrite, l'implémentation avait dérivé. | L'utilisateur a persisté après la première correction : « le live telemetry a toujours un peu de saccade » |
 | **Le graphe temps réel était détruit et reconstruit trente fois par seconde.** `Chart.tsx` dit dans son propre en-tête qu'il ne faut surtout pas reconstruire uPlot à chaque rendu, « sans quoi la courbe clignote ». Son tableau de dépendances le faisait quand même : `labels` et `colors` sont des tableaux que l'appelant rebâtit à chaque rendu (`indices.map(…)`), donc React voyait une identité neuve, nettoyait l'effet, appelait `destroy()` et recréait le canvas. L'intention était juste et écrite ; c'est la liste de dépendances qui la contredisait. Corrigé en comparant le **contenu** des deux tableaux et en les lisant par référence. | Signalé à l'œil par l'utilisateur — « il y a du flickering sur le live telemetry et le scope » |

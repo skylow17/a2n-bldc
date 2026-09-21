@@ -62,6 +62,9 @@ function Control({ label, children }: { label: string; children: ReactNode }): R
 
 export function Scope({ state }: { state: DeviceSnapshot }): ReactNode {
   const [dict, setDict] = useState<SignalDesc[]>([]);
+  /* Compteur de remise a la vue complete : le bouton incremente, les graphes suivent.
+     Partage par toute la pile, pour que les graphes synchronises reviennent ensemble. */
+  const [fit, setFit] = useState(0);
   const [picked, setPicked] = useState<string[]>([]);
   const [depth, setDepth] = useState<number>(2048);
   const [decimation, setDecimation] = useState<number>(1);
@@ -352,6 +355,12 @@ export function Scope({ state }: { state: DeviceSnapshot }): ReactNode {
                 {plotted.status.captured} pts · {plotted.periodMs.toFixed(3)} ms/pt ·{' '}
                 {plotted.durationMs.toFixed(2)} ms
               </span>
+              <Button
+                onClick={() => setFit((n) => n + 1)}
+                title="Fit the whole capture back in the frame"
+              >
+                Reset zoom
+              </Button>
               <Button onClick={exportCsv} disabled={busy} title="Save this capture as CSV">
                 Export CSV
               </Button>
@@ -383,13 +392,14 @@ export function Scope({ state }: { state: DeviceSnapshot }): ReactNode {
                    abscisses differentes sans qu'on s'en apercoive. */
                 interactive
                 syncKey="scope"
+                resetZoom={fit}
               />
             ))}
             <p className="px-1 pb-1 text-[11px] leading-relaxed text-fg-3">
               Time is relative to the trigger, marked by the dashed line: negative before,
-              positive after. One vertical scale per unit. Scroll to zoom around the
-              pointer, drag to pan, double-click to fit; the stacked charts follow each
-              other.
+              positive after. One vertical scale per unit. Drag to zoom into a time span,
+              scroll to zoom around the pointer, shift-drag or middle-drag to pan,
+              double-click to fit; the stacked charts follow each other.
             </p>
               </>
             )}

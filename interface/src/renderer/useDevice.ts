@@ -126,28 +126,46 @@ const EMPTY_BUFFER: TelemetryBuffer = {
 export function useTelemetryBuffer(
   telemetry: DeviceSnapshot['telemetry'],
   capacity = 3000,
-): { buf: { current: TelemetryBuffer }; signalNames: string[]; units: string[] } {
+): { buf: { current: TelemetryBuffer }; signalNames: string[]; units: string[]; has: boolean } {
   const buf = useRef<TelemetryBuffer>(EMPTY_BUFFER);
   const elapsedUs = useRef(0);
   const lastTs = useRef<number | null>(null);
   const lastSeq = useRef<number | null>(null);
+  const [, bumpShape] = useState(0);
 
-  const key = telemetry === null ? '' : telemetry.signalNames.join(',');
+  /* `null` = pas d'abonnement. Sinon, l'identite de la souscription. */
+  const key = telemetry === null ? null : telemetry.signalNames.join(',');
 
   useEffect(() => {
-    buf.current = telemetry === null
-      ? EMPTY_BUFFER
-      : {
-          t: [],
-          series: telemetry.signalNames.map(() => []),
-          signalNames: telemetry.signalNames,
-          units: telemetry.units,
-          dropped: 0,
-        };
+    /**
+     * Deux pieges ici, et les deux ont ete vus a l'usage.
+     *
+     * **Ne jamais dependre de `telemetry` lui-meme.** Le snapshot traverse l'IPC d'Electron,
+     * donc il est serialise : cote renderer, `state.telemetry` est un objet **neuf** a chaque
+     * emission, au moins deux fois par seconde. Le mettre dans les dependances effacait le
+     * tampon en continu, et la courbe semblait redemarrer toute seule. Seule l'identite des
+     * signaux compte, et elle tient dans une chaine.
+     *
+     * **L'arret ne doit rien effacer.** On coupe le flux precisement pour regarder ce qui
+     * vient de se passer ; vider le tampon a ce moment-la detruit ce qu'on voulait voir. On
+     * fige donc, et c'est le **demarrage** d'une souscription qui repart d'un releve neuf.
+     */
+    if (key === null) return;
+    const names = telemetryNames(telemetry);
+    buf.current = {
+      t: [],
+      series: names.map(() => []),
+      signalNames: names,
+      units: telemetryUnits(telemetry),
+      dropped: 0,
+    };
     elapsedUs.current = 0;
     lastTs.current = null;
     lastSeq.current = null;
-  }, [key, telemetry]);
+    bumpShape((n) => n + 1);
+    // `telemetry` est volontairement absent : voir ci-dessus.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
 
   useEffect(
     () =>
@@ -187,11 +205,22 @@ export function useTelemetryBuffer(
     [capacity],
   );
 
+  /* Les noms viennent du **tampon** et non de `telemetry` : apres un arret, `telemetry` est
+   * `null` alors que les donnees figees, elles, sont toujours la et doivent rester tracees. */
   return {
     buf,
-    signalNames: telemetry === null ? [] : telemetry.signalNames,
-    units: telemetry === null ? [] : telemetry.units,
+    signalNames: buf.current.signalNames,
+    units: buf.current.units,
+    has: buf.current.t.length > 0,
   };
+}
+
+function telemetryNames(t: DeviceSnapshot['telemetry']): string[] {
+  return t === null ? [] : t.signalNames;
+}
+
+function telemetryUnits(t: DeviceSnapshot['telemetry']): string[] {
+  return t === null ? [] : t.units;
 }
 
 /** @deprecated Provoque un rendu par lot de trames. Voir `useTelemetryBuffer`. */

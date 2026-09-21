@@ -34,8 +34,25 @@ import { api, useAction, useTelemetryBuffer } from '../useDevice.js';
 const EMPTY_NUMS: readonly number[] = [];
 const EMPTY_SERIES: ReadonlyArray<readonly number[]> = [];
 
-/** Fenêtres proposées. Cinq secondes est le réglage utile pour suivre un transitoire. */
-const WINDOWS = [1, 2, 5, 15, 30] as const;
+/**
+ * Fenêtres proposées — la quantité de données qui reste à l'écran avant que le tracé ne
+ * défile vers la gauche. Cinq secondes convient pour suivre un transitoire, une minute pour
+ * voir une dérive thermique.
+ */
+const WINDOWS = [1, 2, 5, 15, 30, 60] as const;
+
+/**
+ * Le tampon doit contenir **plus** que ce qu'on affiche, sinon la fenêtre choisie ne peut
+ * pas être tenue : demander trente secondes avec un tampon de quinze donnait une courbe
+ * tronquée sans que rien ne l'explique. La marge absorbe les variations de cadence, et le
+ * plafond borne la mémoire — à 500 Hz et huit signaux, cent mille points font environ 3 Mo.
+ */
+const BUFFER_MARGIN = 1.3;
+const BUFFER_MAX = 100_000;
+
+export function bufferCapacity(windowS: number, rateHz: number): number {
+  return Math.min(BUFFER_MAX, Math.max(600, Math.ceil(windowS * rateHz * BUFFER_MARGIN)));
+}
 
 /** Cadences proposées. Le firmware impose 100 à 500 Hz — docs/protocol.md §6. */
 const RATES = [100, 200, 500] as const;
@@ -56,7 +73,13 @@ export function LiveTelemetry({ state }: { state: DeviceSnapshot }): ReactNode {
 
   const connected = state.connection === 'connected';
   const streaming = state.telemetry !== null;
-  const { buf, signalNames, units } = useTelemetryBuffer(state.telemetry);
+  /* La cadence réellement appliquée par le firmware, pas celle demandée : c'est elle qui
+   * décide combien de points une fenêtre représente. */
+  const liveRate = state.telemetry?.rateHz ?? rateHz;
+  const { buf, signalNames, units, has } = useTelemetryBuffer(
+    state.telemetry,
+    bufferCapacity(windowS, liveRate),
+  );
   /* Le tampon est mute sur place et ne provoque aucun rendu : ce compteur lent existe
    * uniquement pour les quelques chiffres affiches en texte, a une cadence ou l'oeil suit. */
   const [, tickSlow] = useState(0);
@@ -151,6 +174,11 @@ export function LiveTelemetry({ state }: { state: DeviceSnapshot }): ReactNode {
             split
           </label>
         </>
+      )}
+      {!streaming && has && (
+        <span className="font-mono text-[11px] text-accent">
+          <Dot tone="warn" /> frozen · {buf.current.t.length} pts
+        </span>
       )}
       {streaming && (
         <span className="font-mono text-[11px] text-fg-3">
@@ -267,7 +295,9 @@ export function LiveTelemetry({ state }: { state: DeviceSnapshot }): ReactNode {
         <p className="border-b border-line-soft px-3 py-2 text-[11px] text-fault">{error}</p>
       )}
 
-      {!streaming ? (
+      {/* Arreter le flux ne doit rien effacer : on coupe precisement pour regarder ce qui
+          vient de se passer. Tant qu'il reste des donnees, on les montre, figees. */}
+      {!streaming && !has ? (
         <Empty
           title="Telemetry is off"
           hint={
@@ -276,7 +306,7 @@ export function LiveTelemetry({ state }: { state: DeviceSnapshot }): ReactNode {
               : `Press Start to subscribe to ${picked.length} signal(s).`
           }
         />
-      ) : signalNames.length === 0 ? (
+      ) : !has ? (
         <Empty title="Waiting for the first frames…" />
       ) : (
         <ChartStack count={groups.length} className="flex flex-col p-2">
@@ -293,7 +323,9 @@ export function LiveTelemetry({ state }: { state: DeviceSnapshot }): ReactNode {
                 t: buf.current.t,
                 series: indices.map((i) => buf.current.series[i] ?? EMPTY_NUMS),
               })}
-              xWindow={windowS}
+              /* Fige : on montre tout ce qui a ete capture, sans fenetre glissante — sinon
+                 la fin de l'evenement qu'on voulait examiner resterait hors cadre. */
+              xWindow={streaming ? windowS : null}
               yMode={yMode}
               labels={indices.map((i) => signalNames[i] ?? '')}
               colors={indices.map((i) => colorOf(signalNames[i] ?? ''))}
@@ -309,7 +341,9 @@ export function LiveTelemetry({ state }: { state: DeviceSnapshot }): ReactNode {
             {split
               ? 'One chart per signal: each has its own vertical scale, so shapes are comparable but levels are not.'
               : 'One vertical scale per unit: signals sharing a unit are comparable, the others are only juxtaposed.'}{' '}
-            Showing the last {windowS} s of a {buf.current.t.length}-point buffer.
+            {streaming
+              ? `Showing the last ${windowS} s; the buffer holds ${buf.current.t.length} points.`
+              : `Frozen: all ${buf.current.t.length} captured points. Press Start for a new run.`}
           </p>
             </>
           )}

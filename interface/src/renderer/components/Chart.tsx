@@ -112,6 +112,13 @@ export function nextYRange(
  * Le zoom est **centre sur le pointeur** et non sur le milieu du graphe : on zoome sur ce
  * qu'on regarde, ce qui evite de devoir recadrer apres chaque cran de molette.
  */
+/** Remontre toute la capture. Un seul endroit, appele par le double-clic et par le bouton. */
+function fitX(u: uPlot): void {
+  const xs = u.data[0];
+  if (xs === undefined || xs.length === 0) return;
+  u.setScale('x', { min: xs[0] as number, max: xs[xs.length - 1] as number });
+}
+
 function navPlugin(): uPlot.Plugin {
   return {
     hooks: {
@@ -136,7 +143,10 @@ function navPlugin(): uPlot.Plugin {
         );
 
         over.addEventListener('mousedown', (e: MouseEvent) => {
-          if (e.button !== 0) return;
+          // Le glissement simple appartient a uPlot : c'est le **zoom par selection**, et
+          // c'est le geste qu'on attend d'un oscilloscope. Le deplacement se fait donc a la
+          // molette enfoncee ou avec `Shift`, comme dans tous les outils de trace.
+          if (e.button !== 1 && !(e.button === 0 && e.shiftKey)) return;
           const sx = u.scales['x'];
           if (sx?.min === undefined || sx.max === undefined) return;
           const x0 = e.clientX;
@@ -161,11 +171,7 @@ function navPlugin(): uPlot.Plugin {
           window.addEventListener('mouseup', up);
         });
 
-        over.addEventListener('dblclick', () => {
-          // Retour a la vue complete. `null` rend la main a l'echelle automatique d'uPlot,
-          // qui reprend l'etendue des donnees.
-          u.setScale('x', { min: u.data[0]?.[0] ?? 0, max: u.data[0]?.[u.data[0].length - 1] ?? 1 });
-        });
+        over.addEventListener('dblclick', () => fitX(u));
       },
     },
   };
@@ -228,6 +234,11 @@ export interface TimeSeriesChartProps {
    * sans s'en apercevoir.
    */
   syncKey?: string | null;
+  /**
+   * Compteur de remise a la vue complete. Chaque increment refait tenir toute la capture
+   * dans le cadre. Un compteur plutot qu'un `ref` imperatif : l'appelant n'a rien a tenir.
+   */
+  resetZoom?: number;
 }
 
 /** Regroupe des signaux par unité — une échelle verticale par groupe. */
@@ -267,6 +278,7 @@ export function TimeSeriesChart({
   yMode = 'auto',
   interactive = false,
   syncKey = null,
+  resetZoom = 0,
 }: TimeSeriesChartProps): ReactNode {
   const host = useRef<HTMLDivElement | null>(null);
   const plot = useRef<uPlot | null>(null);
@@ -277,8 +289,8 @@ export function TimeSeriesChart({
   // a comparer des identites toujours neuves : uPlot etait detruit et reconstruit trente
   // fois par seconde, et c'est exactement ce que l'en-tete de ce fichier dit qu'il ne faut
   // pas faire. On compare donc leur contenu, et on lit les tableaux par reference.
-  const cfg = useRef({ labels, colors });
-  cfg.current = { labels, colors };
+  const cfg = useRef({ labels, colors, series });
+  cfg.current = { labels, colors, series };
   const labelsKey = labels.join('|');
   const colorsKey = colors.join('|');
   // Le repère est lu à chaque tracé : il passe par une référence pour que le greffon n'ait
@@ -325,7 +337,10 @@ export function TimeSeriesChart({
           // Sur un flux, le survol lit une valeur et rien d'autre : un glissement qui zoome
           // ferait decrocher une courbe qui defile, sans moyen evident de revenir. Sur une
           // capture, qui ne bouge plus, la navigation est au contraire indispensable.
-          drag: { x: false, y: false },
+          // Selection rectangle sur l'axe des temps quand la navigation est permise. Pas sur
+          // l'axe vertical : sur une capture on zoome sur un intervalle de temps, et laisser
+          // l'ordonnee se figer sur une selection cacherait ce qui sort du cadre juste apres.
+          drag: interactive ? { x: true, y: false } : { x: false, y: false },
           points: { size: 6 },
           ...(syncKey === null
             ? {}
@@ -395,12 +410,28 @@ export function TimeSeriesChart({
   // la fonction elle-meme est lue par reference a chaque trame.
   const hasFeed = feed !== null && feed !== undefined;
 
-  /* Source statique — une capture. Rendue telle quelle, une fois par changement. */
+  /* Source statique — une capture.
+   *
+   * **Uniquement quand les donnees changent vraiment.** `series` est reconstruit par
+   * l'appelant a chaque rendu (`indices.map(...)`), et `setData` remet les echelles a zero :
+   * le zoom et le deplacement se perdaient donc au moindre rendu du parent, sans qu'aucun
+   * geste de l'utilisateur ne l'explique. On compare l'identite du tableau de temps, qui est
+   * stable tant que la capture ne change pas, et on lit les series par reference. */
+  const lastT = useRef<readonly number[] | null>(null);
   useEffect(() => {
     const u = plot.current;
     if (u === null || hasFeed) return;
-    u.setData([t as number[], ...(series as number[][])] as uPlot.AlignedData);
-  }, [t, series, markerX, hasFeed]);
+    if (lastT.current === t) return;
+    lastT.current = t;
+    u.setData([t as number[], ...(cfg.current.series as number[][])] as uPlot.AlignedData);
+  }, [t, hasFeed]);
+
+  /* Retour a la vue complete, demande de l'exterieur. Un compteur plutot qu'une fonction
+   * imperative : le parent n'a rien a tenir, il incremente. */
+  useEffect(() => {
+    const u = plot.current;
+    if (u !== null && resetZoom > 0) fitX(u);
+  }, [resetZoom]);
 
   /* Source vivante — le flux. Une seule boucle d'affichage, aucun rendu React impliqué. */
   useEffect(() => {
