@@ -8,25 +8,24 @@ Ce fichier ne contient **aucun chiffre volatil** (nombre de tests, occupation fl
 Ces valeurs se mesurent, elles ne se recopient pas : `python tools/status.py` les relève sur le
 dépôt réel. Une valeur écrite à la main est fausse le lendemain.
 
-Dernière revue : 2026-09-20, sur carte, après remplacement de U3.
+Dernière revue : 2026-09-21, sur carte, datasheets DRV8304 et MCP1501 à l'appui.
 
-> **Reprise suivante — par où commencer.** Trois mesures à l'ohmmètre, carte éteinte, et rien
-> d'autre ne débloque M2 : **continuité `U3` 23/22/21 → `U4` 8/9/10**, puis **résistance de
-> `U3` broche 32 (AGND) et du pad thermique vers la masse**. Le chemin de mesure de courant
-> est coupé entre la sortie de l'amplificateur et la broche du MCU ; le DRV8304 est hors de
-> cause, remplacé sans effet, référence du sachet vérifiée. Au voltmètre, 0 V ne distingue pas
-> « à la masse » de « en l'air » — il faut une résistance.
+> **Reprise suivante — par où commencer.** Les deux défauts matériels sont **expliqués**, et
+> aucun des deux n'est une panne : ce sont deux erreurs de conception, l'une et l'autre
+> lisibles dans la datasheet du composant concerné. Voir
+> [« Une référence à 2,048 V, deux composants qui ne peuvent pas s'en contenter »](#une-référence-à-2048-v-deux-composants-qui-ne-peuvent-pas-sen-contenter).
 >
-> **Sur VREF, la piste de la liaison coupée est écartée** : 0 Ω entre `U5` broche 1 et `U4`
-> broche 20, même signal aux deux. Reste l'expérience que l'utilisateur a proposée et qui
-> tranchera en un coup de fer : **soulever la patte de sortie de `U5` et regarder si elle
-> oscille à vide**. Puis y coller la 4,7 µF. L'arithmétique dit que le nœud ne porte que
-> 100 nF (voir « `VREF+` n'est tenu par personne »), donc cette capa n'est probablement pas
-> électriquement en place.
+> Il n'y a plus de mesure de diagnostic à faire. Deux interventions, dans cet ordre :
 >
-> En attendant, `VREF.BUF ON` rend la carte mesurable : le tampon interne du MCU tient
-> `VREF+` à 2,048 V, tous les rails se lisent juste, et le tableau de bord cesse d'afficher
-> une oscillation. C'est une béquille de diagnostic — à éteindre dès que `U5` est réparé.
+> 1. **Soulever une patte de C9** (100 nF sur la sortie du MCP1501, contre le DRV), puis
+>    relancer `VREF.FREQ` et `VREF.SCAN`. Prédiction : l'oscillation à 10 kHz disparaît.
+>    Réversible, sur un composant discret, sans toucher au boîtier dense.
+> 2. **Isoler `U3` broche 24 du net `VREF` et l'alimenter en +3,3 V** (présent sur J7).
+>    Prédiction : `SENS.ALL?` montre les trois `csa_raw` groupés et stables vers 3300, et
+>    `IMOT.DECAY` montre des nœuds qui reviennent instantanément au lieu de dériver.
+>
+> `VREF.BUF ON` reste la béquille tant que C9 est en place : le tampon interne du MCU tient
+> `VREF+` à 2,048 V et tous les rails se lisent juste. À éteindre dès que C9 est décollée.
 >
 > Côté logiciel, rien n'attend. Le **watchdog de flux de commandes** est en place des deux
 > côtés et éprouvé sur carte : c'était le dernier prérequis de M3 (`AGENTS.md` §4.3). Le
@@ -388,6 +387,92 @@ Ce qui n'a jamais été mesuré, et qui doit l'être maintenant, à l'ohmmètre 
 La piste « mauvaise pièce » — `DRV8320S` partage le brochage `RHA` et n'a aucun amplificateur
 de courant — est **écartée** : la référence du sachet est bien `DRV8304SRHAR`.
 
+### Une référence à 2,048 V, deux composants qui ne peuvent pas s'en contenter (2026-09-21)
+
+Les deux défauts matériels qui bloquaient M2 sont expliqués. **Aucun des deux n'est une panne.**
+Ce sont deux erreurs de conception sur le même net, chacune écrite noir sur blanc dans la
+datasheet du composant concerné. Le schéma est bon, les pistes sont bonnes, les composants sont
+bons — c'est le choix de la tension et celui du découplage qui sont faux.
+
+Le net `VREF` part de `U5` (MCP1501-20xCH, 2,048 V) et alimente deux choses : `U4` broche 20,
+la référence de l'ADC du MCU, et `U3` broche 24. C'est cette deuxième destination qui pose
+problème, deux fois.
+
+**1. Les amplis de shunt sont maintenus éteints par le DRV lui-même.**
+
+La broche 24 du DRV8304 n'est pas qu'une référence. La datasheet la décrit ainsi :
+
+> `VREF 24 PWR` — *Shunt amplifier **power supply** input and reference.*
+
+C'est l'alimentation des trois amplificateurs. Et deux lignes de la table des caractéristiques
+électriques ferment le dossier :
+
+| Paramètre | Valeur |
+|---|---|
+| `VREFUV` — VREF undervoltage | **2,6 V** |
+| Gain des amplis, conditions d'essai | `VREF = 3.3 to 5 V` |
+
+La carte y injecte **2,048 V**. C'est sous le seuil de sous-tension, et très en dessous de la
+plage où TI caractérise quoi que ce soit. Les trois amplis ne sont jamais alimentés.
+
+`VREFUV` n'apparaît **qu'une seule fois** dans les 66 pages : la valeur, sans une ligne
+d'explication, et sans bit de statut associé. D'où le symptôme muet — aucune faute remontée,
+`FS1`/`FS2` à zéro, le reste du composant parfaitement fonctionnel.
+
+Tout ce qui avait été observé s'aligne :
+
+| Observation | Explication |
+|---|---|
+| `IMOT.DECAY` : A/B/C décroissent comme `PA3` (broche sans liaison), τ ≈ 150 ms | Un étage de sortie non alimenté est en haute impédance |
+| Point de repos `VREF/2` absent | Pas d'alimentation, pas de polarisation |
+| `CAL` sans effet | Court-circuiter les entrées d'un ampli éteint ne fait rien |
+| `U3` remplacé, comportement identique | Les deux composants se comportent **correctement** |
+| SPI, grilles, fautes : tout marche | Alimentés par `DVDD`, sans rapport avec `VREF` |
+
+Le point de départ de `IMOT.DECAY` chiffre en plus la capacité des nœuds par partage de charge
+avec le condensateur d'échantillonnage de l'ADC : ~4 pF pour `PA3` nue, ~8 pF pour `ImotA`.
+L'écart est celui d'une piste courte et d'une broche de boîtier. **Les pistes sont intactes** —
+ce que l'utilisateur soutenait, et il avait raison.
+
+**2. Le MCP1501 oscille parce qu'on lui a collé 333 fois sa charge capacitive maximale.**
+
+Datasheet MCP1501, §5.1.2 :
+
+> *LOAD CAPACITOR — The maximum capacitive load is **300 pF**. However, larger capacitors may be
+> implemented if a resistor is used in series with a larger load capacitor.*
+
+C9 fait **100 nF**, directement sur la sortie, sans résistance série. C'est le seul condensateur
+du net — il n'y en a aucun côté `U5`. D'où les 10 kHz, 717 mVpp, insensibles à tout ce qu'on a
+essayé côté MCU. Et d'où l'inefficacité du 4,7 µF ajouté en parallèle : il portait la charge à
+16 000 fois la limite au lieu de 333.
+
+**Essai fait, non concluant, gardé pour mémoire.** Le VREFBUF du STM32G473 propose trois échelles
+(2,048 / 2,5 / **2,9 V**), et 2,9 V passe au-dessus du seuil de 2,6 V du DRV. `VREF.BUF ON 2900`
+permet donc de tenter le réveil des amplis sans fer à souder. Sur carte, `ready` reste à 0 : le
+MCP1501 (±5 mA) tient le nœud contre les 4 mA du tampon, et `vref_mv` ne fait que vaciller entre
+1,7 et 2,4 V. La commande reste utile pour une autre carte ; ici elle ne tranche pas.
+
+**Les deux corrections de fond**, pour la révision suivante du PCB :
+
+- **Remplacer `U5` par un MCP1501-30 (3,0 V).** Une seule substitution, et les deux usages
+  redeviennent compatibles : 3,0 V passe au-dessus du seuil de 2,6 V du DRV, et reste sous `VDDA`
+  avec 0,3 V de marge côté MCU. Le point de repos des sorties `SOx` devient 1,5 V, soit exactement
+  le milieu de l'échelle de l'ADC — **aucun diviseur à ajouter, mesure entièrement ratiométrique**.
+  Les diviseurs de monitoring existants y gagnent aussi : le rail 5 V lit aujourd'hui 2,0 V contre
+  une référence de 2,048 V, à la limite de la saturation. Seule réserve : 3,0 V est au-dessus du
+  seuil mais sous la plage 3,3–5 V où TI caractérise le gain.
+- **Si la précision de gain compte davantage** : alimenter `U3` broche 24 depuis le rail +5 V
+  (milieu de la plage caractérisée) et ajouter un diviseur ~0,41 sur chaque `SOx`. Le rail 5 V est
+  déjà mesuré par le MCU (`ADC2_IN3`), donc l'erreur de gain reste corrigeable en logiciel. Six
+  résistances de plus, et la mesure n'est plus ratiométrique.
+- **Dans les deux cas** : intercaler une résistance d'isolement (~47–100 Ω) entre la sortie de
+  `U5` et son condensateur de découplage, comme le demande le §5.1.2, et placer ce condensateur
+  contre la broche `VREF+` du MCU plutôt qu'à l'autre bout de la carte.
+
+**Confiance : élevée sur le diagnostic, à confirmer sur carte.** Chaque affirmation vient d'une
+datasheet et chaque symptôme mesuré s'y range, mais rien n'est encore prouvé par une intervention.
+Les deux prédictions à vérifier sont dans le bloc de reprise en tête de fichier.
+
 ### Watchdog de flux de commandes — les deux moitiés, et la carte le prouve (2026-09-20)
 
 `AGENTS.md` §4.3 demande que le couple tombe si le flux de commandes s'interrompt pendant qu'un
@@ -463,21 +548,20 @@ Relevées en écrivant M1c, à trancher dans `docs/protocol.md` avant d'y touche
   un pull-down de 10 kΩ sur la prochaine révision matérielle.
 - **La référence analogique oscille à 10,0 kHz, 717 mV crête à crête.** `VREF+` balaie
   1,70 → 2,43 V, donc **toutes** les tensions de la carte sont fausses dans la même
-  proportion. Le réseau est entier (0 Ω entre `U5` broche 1 et `U4` broche 20), la source
-  débite quelques milliampères, et l'arithmétique dit que le nœud ne porte que 100 nF : la
-  capacité de 4,7 µF ajoutée n'y est pas électriquement (2026-09-20, voir « `VREF+` n'est
-  tenu par personne »). **À faire : soulever la patte de sortie de `U5` et la mesurer à
-  vide**, puis y coller la capacité. Les rails, eux, sont sains — mesurés à ±1,8 %
-  indépendamment de la référence. Contournement : `VREF.BUF ON`.
-- **Entrées de courant flottantes — cause inconnue, le DRV est hors de cause.** Remplacer U3
-  par un `DRV8304SRHAR` neuf n'a rien changé (2026-09-20). Trois lectures concordent, toutes
-  faites avec une référence propre : le point de repos `VREF/2` est absent et dérive d'un
-  relevé à l'autre, `CAL` est inerte, et `IMOT.Z` montre trois nœuds qui retombent à zéro
-  2 ms après un forçage, quel qu'en soit le sens. Ajouter une voie sans rapport au tourniquet
-  de l'ADC déplace les valeurs lues — signature d'un nœud flottant, impossible sur une sortie
-  d'amplificateur. **Le défaut est entre la sortie du CSA et la broche du MCU.** Restent à
-  l'ohmmètre : continuité `U3` 23/22/21 → `U4` 8/9/10, et masse sur `U3` broche 32 et pad
-  thermique. **Bloque l'étape 4 et la suite.**
+  proportion. **Cause trouvée (2026-09-21)** : C9 fait 100 nF directement sur la sortie du
+  MCP1501, dont la charge capacitive maximale est de **300 pF** sans résistance série
+  (datasheet §5.1.2). 333 fois la limite. Les rails, eux, sont sains — mesurés à ±1,8 %
+  indépendamment de la référence. **À faire : soulever une patte de C9**, puis vérifier que
+  l'oscillation cesse. Contournement en attendant : `VREF.BUF ON`.
+- **Entrées de courant flottantes — cause trouvée (2026-09-21).** La broche `VREF` du DRV8304
+  est l'**alimentation** des trois amplis de shunt, avec un seuil de sous-tension à **2,6 V**
+  et un gain caractérisé seulement entre 3,3 et 5 V. La carte y met 2,048 V : les amplis ne
+  sont jamais alimentés, et leurs sorties restent en haute impédance. `VREFUV` n'a aucun bit
+  de statut, d'où le symptôme muet. `IMOT.DECAY` sur carte le confirme : les trois entrées
+  décroissent comme `PA3`, broche sans liaison, avec τ ≈ 150 ms — et leur capacité de nœud
+  (~8 pF contre ~4 pF) dit que **les pistes sont intactes**. Remplacer U3 n'avait rien changé
+  parce que les deux composants se comportaient correctement. **À faire : isoler `U3`
+  broche 24 et l'alimenter en +3,3 V.** **Bloque l'étape 4 et la suite.**
 
 ---
 

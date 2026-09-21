@@ -360,16 +360,31 @@ static void CmdVrefFreq(const char *arg)
   Sensors_Restart();
 }
 
+/* Echelles du tampon interne. 2900 est la seule qui depasse le seuil de sous-tension de
+ * 2,6 V de la broche VREF du DRV8304 : c'est elle qui permet de savoir, sans fer a souder,
+ * si les amplis de shunt sont simplement tenus eteints par cette protection. */
 static void CmdVrefBuf(const char *arg)
 {
-  if (strcasecmp(arg, "ON") == 0) {
+  const char *mv = NULL;
+  if (strncasecmp(arg, "ON", 2U) == 0) {
+    uint32_t vrs = 0U;                       /* 2,048 V par defaut */
+    const char *p = arg + 2U;
+    while ((*p == ' ') || (*p == '\t')) { p++; }
+    if (*p != '\0') {
+      if (strcmp(p, "2048") == 0)      { vrs = 0U; }
+      else if (strcmp(p, "2500") == 0) { vrs = VREFBUF_CSR_VRS_0; }
+      else if (strcmp(p, "2900") == 0) { vrs = VREFBUF_CSR_VRS_1; }
+      else { Reply("ERR ARG"); return; }
+    }
+    mv = (vrs == 0U) ? "2048" : ((vrs == VREFBUF_CSR_VRS_0) ? "2500" : "2900");
+
     __HAL_RCC_SYSCFG_CLK_ENABLE();
-    MODIFY_REG(VREFBUF->CSR, VREFBUF_CSR_VRS | VREFBUF_CSR_HIZ, 0U);   /* 2,048 V, pilote */
+    MODIFY_REG(VREFBUF->CSR, VREFBUF_CSR_VRS | VREFBUF_CSR_HIZ, vrs);  /* pilote la broche */
     SET_BIT(VREFBUF->CSR, VREFBUF_CSR_ENVR);
     uint32_t guard = 0U;
     while (((VREFBUF->CSR & VREFBUF_CSR_VRR) == 0U) && (guard < 100000U)) { guard++; }
-    Link_TxPrintf("OK csr=%08lX ready=%u\r\n", (unsigned long)VREFBUF->CSR,
-                  ((VREFBUF->CSR & VREFBUF_CSR_VRR) != 0U) ? 1U : 0U);
+    Link_TxPrintf("OK csr=%08lX ready=%u nominal_mv=%s\r\n", (unsigned long)VREFBUF->CSR,
+                  ((VREFBUF->CSR & VREFBUF_CSR_VRR) != 0U) ? 1U : 0U, mv);
   } else if (strcasecmp(arg, "OFF") == 0) {
     VREFBUF->CSR = VREFBUF_CSR_HIZ;     /* tampon coupé, broche rendue à l'extérieur */
     Link_TxPrintf("OK csr=%08lX ready=0\r\n", (unsigned long)VREFBUF->CSR);
