@@ -8,7 +8,7 @@ Ce fichier ne contient **aucun chiffre volatil** (nombre de tests, occupation fl
 Ces valeurs se mesurent, elles ne se recopient pas : `python tools/status.py` les relève sur le
 dépôt réel. Une valeur écrite à la main est fausse le lendemain.
 
-Dernière revue : 2026-09-21, sur carte, datasheets DRV8304 et MCP1501 à l'appui.
+Dernière revue : 2026-09-21, sur carte — deux causes matérielles trouvées dans les datasheets, et l'étape 6 écrite, mesurée et validée à titre provisoire.
 
 > **Reprise suivante — par où commencer.** Les deux défauts matériels sont **expliqués**, et
 > aucun des deux n'est une panne : ce sont deux erreurs de conception, l'une et l'autre
@@ -31,10 +31,11 @@ Dernière revue : 2026-09-21, sur carte, datasheets DRV8304 et MCP1501 à l'appu
 > côtés et éprouvé sur carte : c'était le dernier prérequis de M3 (`AGENTS.md` §4.3). Le
 > tableau de bord montre enfin ce que la carte mesure, et la console se filtre.
 >
-> L'**étape 6 est écrite et mesurée** (AS5600 en DMA à 1 MHz), hors séquence puisqu'elle ne
-> dépend pas des étapes bloquées. Il lui manque un aimant diamétral sur l'arbre pour que le
-> critère « angle croissant monotone à la main » puisse être vérifié — c'est la seule chose
-> qui reste, et elle tient en une pièce mécanique.
+> L'**étape 6 est écrite, mesurée et validée à titre provisoire** (AS5600 en DMA à 1 MHz),
+> hors séquence puisqu'elle ne dépend pas des étapes bloquées. Deux réserves à lever quand
+> la carte sera rebranchée, et elles ne bloquent rien : le registre `STATUS` du capteur ne
+> confirmait pas l'aimant lors de ma dernière lecture, et le taux d'erreurs I²C sur une
+> longue durée mérite un coup d'œil. Détail dans la section de l'étape 6.
 
 > **Cette revue a repris des états faux.** La passe du 2026-09-15 a marqué « validé sur carte » des
 > jalons dont le code n'a jamais été commité. Le détail est plus bas, section
@@ -54,7 +55,7 @@ Dernière revue : 2026-09-21, sur carte, datasheets DRV8304 et MCP1501 à l'appu
 | **M1c** | Télémétrie souscrite + buffer scope | **Validé sur carte le 2026-09-16** : `telem` sans trou, `scope` 2048 points sur 4 signaux à la cadence de boucle | Coût de l'échantillonnage scope dans l'ISR, voir la piste plus bas |
 | **M1d** | CLI de bring-up | Validé sur simulateur **et sur carte** — toutes les commandes, `firmware-update` compris | — |
 | **Boot** | Bootloader A/B, probation et rollback | **Validé sur carte le 2026-09-16** : installation SWD, `BOOT_INFO`, mise à jour nominale promue, rollback sur image qui ne confirme jamais | Rien ; un défaut trouvé sur carte, corrigé, rejoué |
-| **M2** | Étage de puissance et capteurs (étapes 2 à 9) | **Étape 2 validée sur carte le 2026-09-16** : le DRV8304 répond en SPI, sept registres relus cohérents avec la fiche technique, écriture-relecture par `DRV.PROBE`, fautes lisibles. **Étape 3 validée à l'oscilloscope le 2026-09-18** : trois bras complémentaires à 20 kHz, temps mort 500 ns aux deux fronts, rapports 20/50/80 % suivis, aucune conduction croisée — après avoir trouvé que les sorties basses n'avaient jamais été activées. **Étape 4 entamée le 2026-09-18**, puis reprise le 2026-09-20 après remplacement de U3 : un défaut d'acquisition corrigé, et **deux défauts matériels isolés** — voir plus bas | Étape 4 : **bloquée par le matériel**. D'abord `VREF` qui oscille de ±370 mV, ce qui fausse toute mesure de tension de la carte ; ensuite les trois entrées de courant flottantes, que le remplacement du DRV n'a pas corrigées — continuité et masse à vérifier à l'ohmmètre. Le chemin nFAULT → coupure de `MOE` est écrit mais **jamais déclenché** . **Étape 6 écrite hors séquence et éprouvée sur carte** (2026-09-21) puisqu'elle ne dépend ni de 4 ni de 5 : AS5600 en DMA à 1 MHz, transfert 57 µs, un échantillon toutes les 59 µs, ISR à 2,60 µs au pire. Non déclarée verte : le critère « angle monotone à la main » demande un aimant, qui n'est pas monté |
+| **M2** | Étage de puissance et capteurs (étapes 2 à 9) | **Étape 2 validée sur carte le 2026-09-16** : le DRV8304 répond en SPI, sept registres relus cohérents avec la fiche technique, écriture-relecture par `DRV.PROBE`, fautes lisibles. **Étape 3 validée à l'oscilloscope le 2026-09-18** : trois bras complémentaires à 20 kHz, temps mort 500 ns aux deux fronts, rapports 20/50/80 % suivis, aucune conduction croisée — après avoir trouvé que les sorties basses n'avaient jamais été activées. **Étape 4 entamée le 2026-09-18**, puis reprise le 2026-09-20 après remplacement de U3 : un défaut d'acquisition corrigé, et **deux défauts matériels isolés** — voir plus bas | Étape 4 : **bloquée par le matériel**. D'abord `VREF` qui oscille de ±370 mV, ce qui fausse toute mesure de tension de la carte ; ensuite les trois entrées de courant flottantes, que le remplacement du DRV n'a pas corrigées — continuité et masse à vérifier à l'ohmmètre. Le chemin nFAULT → coupure de `MOE` est écrit mais **jamais déclenché** . **Étape 6 écrite hors séquence et éprouvée sur carte** (2026-09-21) puisqu'elle ne dépend ni de 4 ni de 5 : AS5600 en DMA à 1 MHz, transfert 57 µs, un échantillon toutes les 59 µs, ISR à 2,60 µs au pire. **Verte à titre provisoire** : le critère « angle monotone à la main » a été validé par l'utilisateur, aimant monté, et je n'ai pas assisté à la mesure — une réserve reste à lever, voir la section de l'étape 6 |
 | **M3** | Asservissements (étapes 10 à 13) | Pas commencé | — |
 
 **Aucun moteur n'a encore tourné**, et les sorties restent en haute impédance.
@@ -535,12 +536,33 @@ alors que la console donnait la bonne valeur. Le streaming reconstruit son insta
 par le canal de publication existant — et non en relisant l'encodeur depuis la superloop, ce qui
 aurait extrapolé à un autre instant et touché au cache de l'ISR.
 
-**Ce qui reste, et qui demande un aimant.** Il n'y en a pas au-dessus du capteur aujourd'hui. Le
-registre `STATUS` lit `0x13`, c'est-à-dire `ML = 1` et `MD = 0` — *magnet too weak*. C'est en soi
-une validation : le capteur rapporte fidèlement la réalité, donc la liaison et la donnée sont
-bonnes. Mais le critère de l'étape 6, « angle croissant monotone à la main », ne peut pas être
-vérifié, et `ENC_LAG_COMP_US` reste à zéro plutôt que de compenser d'un nombre non mesuré. À
-reprendre dès qu'un aimant diamétral est monté sur l'arbre.
+**Validée à titre provisoire, sur mesure de l'utilisateur (2026-09-21).** Aimant monté, le
+critère « angle croissant monotone à la main » a été vérifié au banc. **Je n'ai pas assisté à
+cette mesure** : elle est notée telle qu'elle m'a été rapportée, et c'est la seule étape du
+projet dont l'état ne repose pas sur une observation que j'ai faite moi-même.
+
+Deux réserves, à lever quand la carte sera rebranchée. Ni l'une ni l'autre ne bloque la suite,
+mais les taire reviendrait à arrondir un état.
+
+1. **Le registre `STATUS` ne confirmait pas l'aimant à ma dernière lecture.** Prise juste après
+   le message de validation : `status=0x57`, soit `MD = 0` et `ML = 1` — le capteur déclarait
+   toujours l'aimant absent ou trop faible, alors que `turns=7` et un angle cohérent disent
+   qu'il a bien tourné. Trois lectures possibles : l'aimant a été présenté puis retiré, il est
+   monté mais trop loin ou pas diamétralement magnétisé, ou le bit `MD` n'a pas basculé pour
+   une autre raison. `ENC.REG 0x1A` (AGC) et `0x1B` (MAGNITUDE) trancheront en une commande —
+   un AGC près de sa butée haute veut dire champ trop faible. Le port a disparu avant que je
+   puisse les lire. À noter que le critère de l'étape est l'angle qui suit l'arbre, pas le bit
+   `MD` : c'est un indicateur de confort, pas la mesure.
+2. **491 erreurs I²C sur 95 millions de transferts** après environ 1 h 45 de fonctionnement,
+   soit une pour 194 000, toutes reprises automatiquement. Le taux est faible et la chaîne
+   n'est jamais restée bloquée — `age_max_us` a plafonné à 1509 µs, ce qui est la durée d'une
+   remise à plat et non un défaut de cadence. Mais sur la première chauffe de 30 s on comptait
+   2 erreurs pour 500 000 transferts, soit un pour 250 000 : le taux est stable, pas croissant.
+   À regarder si un asservissement de position s'avère nerveux.
+
+`ENC_LAG_COMP_US` reste à zéro. Compenser le retard de groupe du filtre interne demande la
+réponse indicielle de l'étape 11 ; avancer la prédiction d'un nombre non mesuré serait inventer
+de la fraîcheur.
 
 ### Watchdog de flux de commandes — les deux moitiés, et la carte le prouve (2026-09-20)
 
