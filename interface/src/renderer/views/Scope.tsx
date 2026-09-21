@@ -367,11 +367,20 @@ export function Scope({ state }: { state: DeviceSnapshot }): ReactNode {
                 // croire qu'il a eu lieu au premier point.
                 markerX={plotted.triggerIndex === null ? null : 0}
                 height={plotted.groups.length > 2 ? 140 : plotted.groups.length > 1 ? 190 : 260}
+                /* Une capture ne bouge plus : la navigation y a tout son sens, et c'est
+                   meme la seule facon de regarder deux mille points sur huit cents pixels.
+                   La clef de synchronisation aligne curseur et axe des temps entre les
+                   graphes empiles — sans elle, zoomer sur l'un ferait comparer des
+                   abscisses differentes sans qu'on s'en apercoive. */
+                interactive
+                syncKey="scope"
               />
             ))}
             <p className="px-1 pb-1 text-[11px] leading-relaxed text-fg-3">
               Time is relative to the trigger, marked by the dashed line: negative before,
-              positive after. One vertical scale per unit.
+              positive after. One vertical scale per unit. Scroll to zoom around the
+              pointer, drag to pan, double-click to fit; the stacked charts follow each
+              other.
             </p>
           </div>
         </Panel>

@@ -18,9 +18,17 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import type { DeviceSnapshot } from '../../main/device/DeviceCore.js';
 import type { SignalDesc } from '../../shared/protocol.js';
-import { TimeSeriesChart, groupByUnit, seriesColor } from './Chart.js';
+import { TimeSeriesChart, groupByUnit, seriesColor, type YMode } from './Chart.js';
 import { Button, Dot, Empty, Panel } from './ui.js';
-import { api, useAction, useTelemetry } from '../useDevice.js';
+import { api, useAction, useTelemetryBuffer } from '../useDevice.js';
+
+/* Tableaux vides et stables : passés en props quand les données arrivent par `feed`.
+ * Un littéral `[]` écrit sur place serait une identité neuve à chaque rendu. */
+const EMPTY_NUMS: readonly number[] = [];
+const EMPTY_SERIES: ReadonlyArray<readonly number[]> = [];
+
+/** Fenêtres proposées. Cinq secondes est le réglage utile pour suivre un transitoire. */
+const WINDOWS = [1, 2, 5, 15, 30] as const;
 
 /** Cadences proposées. Le firmware impose 100 à 500 Hz — docs/protocol.md §6. */
 const RATES = [100, 200, 500] as const;
@@ -32,11 +40,23 @@ export function LiveTelemetry({ state }: { state: DeviceSnapshot }): ReactNode {
   const [signals, setSignals] = useState<SignalDesc[]>([]);
   const [picked, setPicked] = useState<string[]>([]);
   const [rateHz, setRateHz] = useState<number>(200);
+  /* Presentation. Ces trois reglages ne changent que ce qu'on regarde, jamais ce qui est
+   * mesure — ils ne touchent ni a la souscription ni au tampon. */
+  const [windowS, setWindowS] = useState<number>(5);
+  const [yMode, setYMode] = useState<YMode>('auto');
+  const [split, setSplit] = useState(false);
   const { busy, error, run } = useAction();
 
   const connected = state.connection === 'connected';
   const streaming = state.telemetry !== null;
-  const buffer = useTelemetry(state.telemetry);
+  const { buf, signalNames, units } = useTelemetryBuffer(state.telemetry);
+  /* Le tampon est mute sur place et ne provoque aucun rendu : ce compteur lent existe
+   * uniquement pour les quelques chiffres affiches en texte, a une cadence ou l'oeil suit. */
+  const [, tickSlow] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => tickSlow((n) => n + 1), 500);
+    return () => clearInterval(id);
+  }, []);
 
   // Le dictionnaire de signaux vient du device, comme celui des paramètres : rien n'est
   // codé en dur ici, et un signal ajouté au firmware apparaît sans toucher à l'interface.
@@ -63,8 +83,10 @@ export function LiveTelemetry({ state }: { state: DeviceSnapshot }): ReactNode {
   /* Regroupement par unité — une échelle verticale par graphe. L'indice porté ici est
    * celui de la série dans le tampon, pas celui du dictionnaire. */
   const groups = useMemo(
-    () => groupByUnit(buffer.signalNames, buffer.units),
-    [buffer.signalNames, buffer.units],
+    () => (split
+      ? signalNames.map((n, i): [string, number[]] => [`${n}~${i}`, [i]])
+      : groupByUnit(signalNames, units)),
+    [signalNames, units, split],
   );
 
   /* La couleur suit le signal, pas son rang dans un graphe : elle est tirée de la position
@@ -82,13 +104,47 @@ export function LiveTelemetry({ state }: { state: DeviceSnapshot }): ReactNode {
     );
   };
 
+  const sel = 'rounded-[3px] border border-line bg-raise px-1.5 py-1 font-mono text-[11px] text-fg disabled:opacity-40';
+
   const header = (
     <div className="flex items-center gap-2">
+      {/* Reglages de presentation. Ils ne changent que ce qu'on regarde : ni la
+          souscription, ni la cadence, ni le contenu du tampon. */}
+      {streaming && (
+        <>
+          <select
+            value={windowS}
+            onChange={(e) => setWindowS(Number(e.target.value))}
+            title="Width of the time window shown"
+            className={sel}
+          >
+            {WINDOWS.map((w) => (
+              <option key={w} value={w}>
+                {w} s
+              </option>
+            ))}
+          </select>
+          <select
+            value={yMode}
+            onChange={(e) => setYMode(e.target.value as YMode)}
+            title="How the vertical scale behaves"
+            className={sel}
+          >
+            <option value="auto">auto</option>
+            <option value="zero">±0</option>
+            <option value="locked">locked</option>
+          </select>
+          <label className="flex items-center gap-1 font-mono text-[11px] text-fg-3" title="One chart per signal instead of one per unit">
+            <input type="checkbox" checked={split} onChange={(e) => setSplit(e.target.checked)} />
+            split
+          </label>
+        </>
+      )}
       {streaming && (
         <span className="font-mono text-[11px] text-fg-3">
           <Dot tone="ok" /> {state.telemetry?.rateHz} Hz
-          {buffer.dropped > 0 && (
-            <span className="ml-2 text-fault">{buffer.dropped} dropped</span>
+          {buf.current.dropped > 0 && (
+            <span className="ml-2 text-fault">{buf.current.dropped} dropped</span>
           )}
         </span>
       )}
@@ -174,26 +230,38 @@ export function LiveTelemetry({ state }: { state: DeviceSnapshot }): ReactNode {
               : `Press Start to subscribe to ${picked.length} signal(s).`
           }
         />
-      ) : buffer.t.length === 0 ? (
+      ) : signalNames.length === 0 ? (
         <Empty title="Waiting for the first frames…" />
       ) : (
         <div className="flex flex-col p-2">
-          {groups.map(([unit, indices], g) => (
+          {groups.map(([groupKey, indices], g) => (
             <TimeSeriesChart
-              key={unit}
-              t={buffer.t}
-              series={indices.map((i) => buffer.series[i] ?? [])}
-              labels={indices.map((i) => buffer.signalNames[i] ?? '')}
-              colors={indices.map((i) => colorOf(buffer.signalNames[i] ?? ''))}
-              unit={unit === '' ? '(no unit)' : unit}
+              key={groupKey}
+              /* Les données n'arrivent pas par les props : le graphe lit le tampon
+                 lui-même, une fois par trame d'affichage. Voir `feed` dans Chart.tsx. */
+              t={EMPTY_NUMS}
+              series={EMPTY_SERIES}
+              feed={() => ({
+                t: buf.current.t,
+                series: indices.map((i) => buf.current.series[i] ?? EMPTY_NUMS),
+              })}
+              xWindow={windowS}
+              yMode={yMode}
+              labels={indices.map((i) => signalNames[i] ?? '')}
+              colors={indices.map((i) => colorOf(signalNames[i] ?? ''))}
+              unit={(split ? (units[indices[0] ?? 0] ?? '') : groupKey) === ''
+                ? '(no unit)'
+                : (split ? (units[indices[0] ?? 0] ?? '') : groupKey)}
               // Axe des temps commun : une seule étiquette, sous le dernier graphe.
               showXLabel={g === groups.length - 1}
               height={groups.length > 2 ? 120 : groups.length > 1 ? 170 : 240}
             />
           ))}
           <p className="px-1 pb-1 text-[11px] leading-relaxed text-fg-3">
-            One vertical scale per unit: signals sharing a unit are comparable, the others
-            are only juxtaposed. The window keeps the last {buffer.t.length} points.
+            {split
+              ? 'One chart per signal: each has its own vertical scale, so shapes are comparable but levels are not.'
+              : 'One vertical scale per unit: signals sharing a unit are comparable, the others are only juxtaposed.'}{' '}
+            Showing the last {windowS} s of a {buf.current.t.length}-point buffer.
           </p>
         </div>
       )}

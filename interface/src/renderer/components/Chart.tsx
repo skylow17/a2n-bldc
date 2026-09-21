@@ -66,25 +66,109 @@ export function seriesColor(index: number): string {
  * Fonction pure, donc testee a part : c'est la seule logique delicate de ce fichier, le
  * reste n'est que du canvas.
  */
+export type YMode = 'auto' | 'zero' | 'locked';
+
 export function nextYRange(
   prev: readonly [number, number] | null,
   dataMin: number | null,
   dataMax: number | null,
+  mode: YMode = 'auto',
 ): [number, number] {
+  if (prev !== null && mode === 'locked') {
+    return [prev[0], prev[1]];   /* l'utilisateur a fige l'echelle : on n'y touche plus */
+  }
   if (dataMin === null || dataMax === null || !Number.isFinite(dataMin) || !Number.isFinite(dataMax)) {
     return prev === null ? [0, 1] : [prev[0], prev[1]];
   }
-  const span = Math.max(dataMax - dataMin, Math.abs(dataMax) * 1e-6, 1e-9);
+
+  // Centre sur zero : un courant signe se lit a sa position par rapport a l'axe, et une
+  // echelle qui ne contient pas zero ment sur le signe autant que sur l'amplitude.
+  const lo = mode === 'zero' ? -Math.max(Math.abs(dataMin), Math.abs(dataMax)) : dataMin;
+  const hi = mode === 'zero' ? Math.max(Math.abs(dataMin), Math.abs(dataMax)) : dataMax;
+
+  const span = Math.max(hi - lo, Math.abs(hi) * 1e-6, 1e-9);
   const pad = span * 0.1;
-  const want: [number, number] = [dataMin - pad, dataMax + pad];
+  const want: [number, number] = [lo - pad, hi + pad];
 
   if (prev === null) return want;
 
   const prevSpan = prev[1] - prev[0];
-  const fits = dataMin >= prev[0] && dataMax <= prev[1];
+  const fits = lo >= prev[0] && hi <= prev[1];
   // En dessous du tiers, l'echelle precedente est devenue trop large et le trace s'aplatit.
-  const fillsEnough = prevSpan > 0 && (dataMax - dataMin) / prevSpan > 0.34;
+  const fillsEnough = prevSpan > 0 && (hi - lo) / prevSpan > 0.34;
   return fits && fillsEnough ? [prev[0], prev[1]] : want;
+}
+
+/**
+ * Greffon de navigation : molette pour zoomer, glissement pour deplacer, double-clic pour
+ * tout remontrer.
+ *
+ * Reserve aux captures. Sur un flux qui defile, uPlot propose de base un glissement qui
+ * zoome, et c'est un piege : la courbe continue d'avancer sous la selection, on se retrouve
+ * sur une fenetre fixe pendant que les donnees filent ailleurs, sans rien qui dise comment
+ * revenir. Une capture, elle, ne bouge plus — la navigation y a tout son sens, et c'est
+ * meme la seule facon de regarder deux mille points sur huit cents pixels.
+ *
+ * Le zoom est **centre sur le pointeur** et non sur le milieu du graphe : on zoome sur ce
+ * qu'on regarde, ce qui evite de devoir recadrer apres chaque cran de molette.
+ */
+function navPlugin(): uPlot.Plugin {
+  return {
+    hooks: {
+      ready: (u: uPlot) => {
+        const over = u.over;
+
+        over.addEventListener(
+          'wheel',
+          (e: WheelEvent) => {
+            e.preventDefault();
+            const sx = u.scales['x'];
+            if (sx?.min === undefined || sx.max === undefined) return;
+            const rect = over.getBoundingClientRect();
+            const anchor = u.posToVal(e.clientX - rect.left, 'x');
+            const factor = e.deltaY < 0 ? 0.82 : 1 / 0.82;
+            u.setScale('x', {
+              min: anchor - (anchor - sx.min) * factor,
+              max: anchor + (sx.max - anchor) * factor,
+            });
+          },
+          { passive: false },
+        );
+
+        over.addEventListener('mousedown', (e: MouseEvent) => {
+          if (e.button !== 0) return;
+          const sx = u.scales['x'];
+          if (sx?.min === undefined || sx.max === undefined) return;
+          const x0 = e.clientX;
+          const min0 = sx.min;
+          const max0 = sx.max;
+          const perPx = (max0 - min0) / u.bbox.width * devicePixelRatio;
+          let moved = false;
+
+          const move = (m: MouseEvent): void => {
+            const d = (m.clientX - x0) * perPx;
+            if (Math.abs(m.clientX - x0) > 2) { moved = true; }
+            u.setScale('x', { min: min0 - d, max: max0 - d });
+          };
+          const up = (): void => {
+            window.removeEventListener('mousemove', move);
+            window.removeEventListener('mouseup', up);
+            // Un clic sans deplacement reste un clic : on ne l'avale pas.
+            if (moved) { over.style.cursor = ''; }
+          };
+          over.style.cursor = 'grabbing';
+          window.addEventListener('mousemove', move);
+          window.addEventListener('mouseup', up);
+        });
+
+        over.addEventListener('dblclick', () => {
+          // Retour a la vue complete. `null` rend la main a l'echelle automatique d'uPlot,
+          // qui reprend l'etendue des donnees.
+          u.setScale('x', { min: u.data[0]?.[0] ?? 0, max: u.data[0]?.[u.data[0].length - 1] ?? 1 });
+        });
+      },
+    },
+  };
 }
 
 export interface TimeSeriesChartProps {
@@ -115,6 +199,35 @@ export interface TimeSeriesChartProps {
    */
   markerX?: number | null;
   height?: number;
+  /**
+   * Source vivante, interrogee a chaque trame d'affichage.
+   *
+   * C'est la regle de `AGENTS.md` §3 : « uPlot est mis a jour par `requestAnimationFrame`,
+   * pas par echantillon recu. Aucun re-render React declenche par une trame de telemetrie. »
+   * Quand `feed` est fourni, `t` et `series` ne servent plus : le graphe lit lui-meme, au
+   * rythme de l'ecran, un tampon que personne ne recopie. Le flux arrive par lots de 33 ms,
+   * l'ecran affiche a 60 Hz ; lier les deux faisait avancer la courbe par a-coups.
+   */
+  feed?: (() => { t: readonly number[]; series: ReadonlyArray<readonly number[]> } | null) | null;
+  /**
+   * Largeur de la fenetre temporelle, dans l'unite de l'axe X. `null` = toute la memoire.
+   *
+   * Sur un flux, une fenetre fixe est ce qui rend le defilement previsible : sans elle
+   * l'axe s'etire pendant que le tampon se remplit, puis glisse quand il deborde, et la
+   * vitesse apparente de la courbe change en cours de route sans que rien l'explique.
+   */
+  xWindow?: number | null;
+  /** Comportement de l'echelle verticale — voir `nextYRange`. */
+  yMode?: YMode;
+  /** Molette, glissement et double-clic. Reserve aux captures : voir `navPlugin`. */
+  interactive?: boolean;
+  /**
+   * Clef de synchronisation. Les graphes qui la partagent alignent leur curseur et leur axe
+   * des temps : zoomer sur l'un zoome les autres. Des graphes empiles qui montrent le meme
+   * instant doivent le montrer au meme endroit, sinon on compare des abscisses differentes
+   * sans s'en apercevoir.
+   */
+  syncKey?: string | null;
 }
 
 /** Regroupe des signaux par unité — une échelle verticale par groupe. */
@@ -149,6 +262,11 @@ export function TimeSeriesChart({
   xLabel = 'time (s)',
   markerX = null,
   height = 200,
+  feed = null,
+  xWindow = null,
+  yMode = 'auto',
+  interactive = false,
+  syncKey = null,
 }: TimeSeriesChartProps): ReactNode {
   const host = useRef<HTMLDivElement | null>(null);
   const plot = useRef<uPlot | null>(null);
@@ -167,6 +285,9 @@ export function TimeSeriesChart({
   // pas à être recréé — et donc le graphe non plus — quand il bouge.
   const marker = useRef<number | null>(markerX);
   marker.current = markerX;
+  // Lus a chaque trace, donc par reference : les changer ne doit pas reconstruire le canvas.
+  const live = useRef({ feed, xWindow, yMode });
+  live.current = { feed, xWindow, yMode };
 
   useLayoutEffect(() => {
     const el = host.current;
@@ -193,7 +314,7 @@ export function TimeSeriesChart({
           x: { time: false },
           y: {
             range: (_self: uPlot, lo: number, hi: number) => {
-              const r = nextYRange(yRange.current, lo, hi);
+              const r = nextYRange(yRange.current, lo, hi, live.current.yMode);
               yRange.current = r;
               return r;
             },
@@ -201,11 +322,16 @@ export function TimeSeriesChart({
         },
         legend: { live: true },
         cursor: {
-          // Le survol lit une valeur ; il ne sélectionne pas une plage. Un glissement qui
-          // zoome ferait décrocher une courbe qui défile, sans moyen évident de revenir.
+          // Sur un flux, le survol lit une valeur et rien d'autre : un glissement qui zoome
+          // ferait decrocher une courbe qui defile, sans moyen evident de revenir. Sur une
+          // capture, qui ne bouge plus, la navigation est au contraire indispensable.
           drag: { x: false, y: false },
           points: { size: 6 },
+          ...(syncKey === null
+            ? {}
+            : { sync: { key: syncKey, scales: ['x', null] as [string, null] } }),
         },
+        plugins: interactive ? [navPlugin()] : [],
         axes: [
           showXLabel
             ? { ...axis, label: xLabel, labelFont: '11px ui-monospace, monospace', labelSize: 20, labelGap: 0 }
@@ -262,13 +388,45 @@ export function TimeSeriesChart({
     // dependances via `labelsKey` et `colorsKey`, et leurs identites changent a chaque
     // rendu. Les y remettre reconstruirait le canvas en continu.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [labelsKey, colorsKey, unit, height, showXLabel, xLabel]);
+  }, [labelsKey, colorsKey, unit, height, showXLabel, xLabel, interactive, syncKey]);
 
+  // `feed` est une fonction que l'appelant recree a chaque rendu : la mettre dans les
+  // dependances relancerait la boucle d'affichage pour rien. Seule compte sa presence, et
+  // la fonction elle-meme est lue par reference a chaque trame.
+  const hasFeed = feed !== null && feed !== undefined;
+
+  /* Source statique — une capture. Rendue telle quelle, une fois par changement. */
   useEffect(() => {
     const u = plot.current;
-    if (u === null) return;
+    if (u === null || hasFeed) return;
     u.setData([t as number[], ...(series as number[][])] as uPlot.AlignedData);
-  }, [t, series, markerX]);
+  }, [t, series, markerX, hasFeed]);
+
+  /* Source vivante — le flux. Une seule boucle d'affichage, aucun rendu React impliqué. */
+  useEffect(() => {
+    if (!hasFeed) return undefined;
+    let raf = 0;
+    const tick = (): void => {
+      raf = requestAnimationFrame(tick);
+      const u = plot.current;
+      const d = live.current.feed?.();
+      if (u === null || d === undefined || d === null || d.t.length === 0) return;
+
+      u.setData([d.t as number[], ...(d.series as number[][])] as uPlot.AlignedData, false);
+
+      // Fenetre glissante : on impose l'etendue plutot que de laisser uPlot prendre celle
+      // des donnees, pour que la vitesse de defilement ne depende pas du remplissage.
+      const w = live.current.xWindow;
+      const last = d.t[d.t.length - 1] ?? 0;
+      if (w !== null && w !== undefined && w > 0) {
+        u.setScale('x', { min: last - w, max: last });
+      } else {
+        u.setScale('x', { min: d.t[0] ?? 0, max: last });
+      }
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [hasFeed]);
 
   return <div ref={host} className="a2n-chart w-full" />;
 }

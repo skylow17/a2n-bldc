@@ -110,6 +110,91 @@ const EMPTY_BUFFER: TelemetryBuffer = {
  * quel ordre. Le tampon se vide quand l'abonnement change ou s'arrête — garder les points
  * d'un abonnement précédent tracerait deux signaux différents sur la même courbe.
  */
+/**
+ * Accumule le flux souscrit, **sans provoquer le moindre rendu React par trame**.
+ *
+ * C'est une règle d'architecture, pas une optimisation : `AGENTS.md` §3 dit que « uPlot est
+ * mis à jour par `requestAnimationFrame`, pas par échantillon reçu » et qu'« aucun re-render
+ * React n'est déclenché par une trame de télémétrie ». La première version appelait pourtant
+ * `bump()` à chaque lot — trente rendus complets par seconde, désynchronisés de l'affichage,
+ * et une courbe qui avançait par à-coups. Le tampon est donc muté sur place et rendu par
+ * référence ; le graphe le lit lui-même au rythme de l'écran.
+ *
+ * Ce qui reste dans l'état React est ce qui change rarement : la liste des signaux. Elle
+ * décide de la forme de la vue, et son changement doit bien provoquer un rendu.
+ */
+export function useTelemetryBuffer(
+  telemetry: DeviceSnapshot['telemetry'],
+  capacity = 3000,
+): { buf: { current: TelemetryBuffer }; signalNames: string[]; units: string[] } {
+  const buf = useRef<TelemetryBuffer>(EMPTY_BUFFER);
+  const elapsedUs = useRef(0);
+  const lastTs = useRef<number | null>(null);
+  const lastSeq = useRef<number | null>(null);
+
+  const key = telemetry === null ? '' : telemetry.signalNames.join(',');
+
+  useEffect(() => {
+    buf.current = telemetry === null
+      ? EMPTY_BUFFER
+      : {
+          t: [],
+          series: telemetry.signalNames.map(() => []),
+          signalNames: telemetry.signalNames,
+          units: telemetry.units,
+          dropped: 0,
+        };
+    elapsedUs.current = 0;
+    lastTs.current = null;
+    lastSeq.current = null;
+  }, [key, telemetry]);
+
+  useEffect(
+    () =>
+      api().onTelemetry((frames) => {
+        const b = buf.current;
+        if (b.series.length === 0) return;
+
+        for (const f of frames) {
+          // `timestamp_us` est monotone **modulo 2^32** : il repasse à zéro toutes les
+          // 71 minutes environ. Accumuler les écarts non signés plutôt que de soustraire
+          // un instant de référence évite de voir le temps reculer en pleine session.
+          const prev = lastTs.current;
+          if (prev !== null) elapsedUs.current += (f.timestampUs - prev) >>> 0;
+          lastTs.current = f.timestampUs;
+
+          const prevSeq = lastSeq.current;
+          if (prevSeq !== null) {
+            b.dropped += (((f.sampleSeq - prevSeq) & 0xffff) - 1 + 0x10000) % 0x10000;
+          }
+          lastSeq.current = f.sampleSeq;
+
+          b.t.push(elapsedUs.current / 1e6);
+          for (let i = 0; i < b.series.length; i++) {
+            b.series[i]!.push(f.values[i] ?? NaN);
+          }
+        }
+
+        // Fenêtre glissante : une session de réglage dure des heures, et un tableau qui
+        // grossit sans fin finit par faire tomber le tracé.
+        const excess = b.t.length - capacity;
+        if (excess > 0) {
+          b.t.splice(0, excess);
+          for (const s of b.series) s.splice(0, excess);
+        }
+        // Volontairement : aucun `setState` ici.
+      }),
+    [capacity],
+  );
+
+  return {
+    buf,
+    signalNames: telemetry === null ? [] : telemetry.signalNames,
+    units: telemetry === null ? [] : telemetry.units,
+  };
+}
+
+/** @deprecated Provoque un rendu par lot de trames. Voir `useTelemetryBuffer`. */
 export function useTelemetry(
   telemetry: DeviceSnapshot['telemetry'],
   capacity = 3000,

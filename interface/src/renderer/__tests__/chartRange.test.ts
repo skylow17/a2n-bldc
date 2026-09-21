@@ -58,6 +58,27 @@ describe('échelle verticale d un graphe', () => {
     expect(z[1]).toBeGreaterThan(z[0]);
   });
 
+  it('centre sur zéro en mode « ±0 »', () => {
+    // Un courant signé se lit à sa position par rapport à l'axe. Une échelle qui ne
+    // contient pas zéro ment sur le signe autant que sur l'amplitude.
+    const r = nextYRange(null, -3, 10, 'zero');
+    expect(r[0]).toBeCloseTo(-r[1], 9);
+    expect(r[1]).toBeGreaterThan(10);
+    // Y compris quand toutes les valeurs sont du même côté.
+    const p = nextYRange(null, 2, 8, 'zero');
+    expect(p[0]).toBeLessThan(0);
+  });
+
+  it('ne bouge plus du tout en mode « locked »', () => {
+    // Figer sert à comparer deux essais à la même échelle : si elle bougeait, la
+    // comparaison ne voudrait plus rien dire, et c'est tout l'intérêt du mode.
+    const locked: [number, number] = [-5, 5];
+    expect(nextYRange(locked, -1000, 1000, 'locked')).toEqual(locked);
+    expect(nextYRange(locked, 0, 0.1, 'locked')).toEqual(locked);
+    // Sans étendue précédente, il faut bien en prendre une.
+    expect(nextYRange(null, 0, 10, 'locked')).not.toEqual([0, 1]);
+  });
+
   it('garde l échelle précédente quand il n y a rien à tracer', () => {
     // Entre deux captures scope, ou au démarrage d'un flux, uPlot demande une étendue sans
     // donnée. Rendre l'étendue par défaut ferait clignoter l'axe à chaque trou.
