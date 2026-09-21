@@ -14,7 +14,7 @@
 
 import type { ReactNode } from 'react';
 
-import type { DeviceSnapshot, MonitorState } from '../../main/device/DeviceCore.js';
+import type { DeviceSnapshot, EncoderState, MonitorState } from '../../main/device/DeviceCore.js';
 import { PROTO_CAP } from '../../shared/protocol.js';
 import { LiveTelemetry } from '../components/LiveTelemetry.js';
 import { Metric, Pill, type Health } from '../components/Metric.js';
@@ -96,6 +96,120 @@ const VREF_UNSTABLE_PERMILLE = 20;
  * exactement ce qui vient d'arriver. Rien n'est lissé : amortir l'affichage rendrait la vue
  * agréable et masquerait un vrai défaut matériel. On mesure l'agitation, et on la dit.
  */
+/**
+ * Cadran d'angle mecanique. Un chiffre en radians ne dit rien a l'oeil ; une aiguille dit
+ * tout de suite si l'arbre tourne, dans quel sens, et si la lecture saute.
+ *
+ * Grisee quand l'aimant manque : la valeur existe, elle bouge meme beaucoup, mais c'est du
+ * bruit. Afficher une aiguille franche sur du bruit serait le pire des deux mondes.
+ */
+function AngleDial({ rad, live }: { rad: number; live: boolean }): ReactNode {
+  // Zero en haut, sens horaire — la convention d'un cadran, pas celle du cercle
+  // trigonometrique : c'est l'arbre qu'on regarde, pas une equation.
+  const a = rad - Math.PI / 2;
+  const x = 22 + 16 * Math.cos(a);
+  const y = 22 + 16 * Math.sin(a);
+  return (
+    <svg viewBox="0 0 44 44" className="h-11 w-11 shrink-0" aria-hidden="true">
+      <circle cx="22" cy="22" r="18" fill="none" strokeWidth="1"
+        className={live ? 'stroke-line' : 'stroke-line-soft'} />
+      <line x1="22" y1="22" x2={x} y2={y} strokeWidth="2" strokeLinecap="round"
+        className={live ? 'stroke-accent' : 'stroke-fg-3'} />
+      <circle cx="22" cy="22" r="1.5" className={live ? 'fill-accent' : 'fill-fg-3'} />
+    </svg>
+  );
+}
+
+/**
+ * L'absence d'aimant merite une banniere et pas une pastille.
+ *
+ * Sans aimant diametral en face du capteur, l'angle renvoye est du bruit — et rien d'autre
+ * dans l'interface ne le dirait. C'est un prerequis de M3 : on ne veut pas le decouvrir en
+ * lancant un asservissement de position.
+ */
+function MagnetWarning({ enc }: { enc: EncoderState }): ReactNode {
+  // Bits du registre STATUS de l'AS5600 : MH bit3, ML bit4, MD bit5.
+  const tooStrong = (enc.statusRaw & 0x08) !== 0;
+  const tooWeak = (enc.statusRaw & 0x10) !== 0;
+  return (
+    <section className="rounded-[4px] border border-warn/50 bg-panel px-3 py-2 lg:col-span-2 xl:col-span-4">
+      <div className="flex items-baseline gap-2">
+        <Dot tone="warn" />
+        <h3 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-warn">
+          No usable magnet on the position sensor
+        </h3>
+        <span className="font-mono text-[11px] text-fg-3">
+          STATUS 0x{enc.statusRaw.toString(16).toUpperCase().padStart(2, '0')}
+          {tooWeak ? ' — too weak or absent' : tooStrong ? ' — too strong' : ''}
+        </span>
+      </div>
+      <p className="mt-1 text-[11px] leading-relaxed text-fg-3">
+        The sensor answers and the I&sup2;C chain is healthy, but the angle it returns is noise.
+        A diametrically magnetised magnet has to sit on the shaft, on axis, before any position
+        or velocity loop means anything. The link itself is fine &mdash; this reading is the
+        sensor telling the truth about what it can see.
+      </p>
+    </section>
+  );
+}
+
+function PositionSensor({ enc }: { enc: EncoderState }): ReactNode {
+  const live = enc.present && enc.magnetOk;
+  const deg = ((enc.posRad * 180) / Math.PI) % 360;
+  return (
+    <Panel title="Position sensor" className="lg:col-span-2">
+      <div className="flex items-center gap-3 px-3 py-2">
+        <AngleDial rad={enc.posRad} live={live} />
+        <div className="min-w-0">
+          <div className="font-mono text-[18px] leading-none text-fg">
+            {live ? `${deg.toFixed(1)}°` : '—'}
+          </div>
+          <div className="mt-1 font-mono text-[11px] text-fg-3">
+            {live ? `${enc.velRadS.toFixed(2)} rad/s · turn ${enc.turns}` : 'no angle to report'}
+          </div>
+        </div>
+        <div className="ml-auto">
+          <Pill tone={!enc.present ? 'fault' : enc.magnetOk ? 'ok' : 'warn'}>
+            {!enc.present ? 'not answering' : enc.magnetOk ? 'magnet ok' : 'no magnet'}
+          </Pill>
+        </div>
+      </div>
+      <Row
+        label="Sample age, worst seen"
+        right={
+          <>
+            <span className="font-mono text-[12px] text-fg">{enc.ageMaxUs} µs</span>
+            {/* Un tour de boucle vaut 50 µs. Au-dela de deux, l'extrapolation travaille sur
+                du vieux et le plafond de vitesse exploitable descend. */}
+            <Pill tone={enc.ageMaxUs > 500 ? 'warn' : 'ok'}>
+              {enc.ageMaxUs > 500 ? 'stale' : 'fresh'}
+            </Pill>
+          </>
+        }
+      />
+      <Row
+        label="I²C chain"
+        right={
+          <>
+            <span className="font-mono text-[12px] text-fg-3">
+              {(enc.busHz / 1000).toFixed(0)} kHz · {enc.xferUs} µs per read · every{' '}
+              {enc.periodUs} µs
+            </span>
+            <Pill tone={enc.readsErr > 0 ? 'warn' : 'ok'}>
+              {enc.readsErr === 0 ? 'no errors' : `${enc.readsErr} errors`}
+            </Pill>
+          </>
+        }
+      />
+      <p className="border-t border-line-soft px-3 py-2 text-[11px] leading-relaxed text-fg-3">
+        The angle is extrapolated to the instant the control loop asks for it, from the last
+        sample and its timestamp. What it cannot undo is the sensor&rsquo;s own 286 µs settling
+        time &mdash; that one is the floor, and it is what caps usable speed.
+      </p>
+    </Panel>
+  );
+}
+
 function ReferenceWarning({ spread }: { spread: number }): ReactNode {
   return (
     <section className="rounded-[4px] border border-fault/50 bg-panel px-3 py-2 lg:col-span-2 xl:col-span-4">
@@ -120,6 +234,7 @@ function ReferenceWarning({ spread }: { spread: number }): ReactNode {
 
 function Live({ state, mon }: { state: DeviceSnapshot; mon: MonitorState }): ReactNode {
   const sf = state.safety;
+  const enc = state.encoder;
   const refUnstable =
     mon.vrefSpreadPermille !== null && mon.vrefSpreadPermille > VREF_UNSTABLE_PERMILLE;
   // Le tourniquet de mesure doit avancer. Figé, toutes les valeurs ci-dessous sont celles
@@ -129,6 +244,7 @@ function Live({ state, mon }: { state: DeviceSnapshot; mon: MonitorState }): Rea
   return (
     <>
       {refUnstable && <ReferenceWarning spread={mon.vrefSpreadPermille!} />}
+      {enc !== null && enc.present && !enc.magnetOk && <MagnetWarning enc={enc} />}
 
       <Metric
         label="Input voltage"
@@ -228,6 +344,10 @@ function Live({ state, mon }: { state: DeviceSnapshot; mon: MonitorState }): Rea
           something once the inputs are actually driven.
         </p>
       </Panel>
+
+      {/* Absent d'un firmware anterieur a l'etape 6 : on ne montre pas un panneau vide, la
+          difference entre « pas de capteur dans ce firmware » et « capteur muet » compte. */}
+      {enc !== null && <PositionSensor enc={enc} />}
     </>
   );
 }

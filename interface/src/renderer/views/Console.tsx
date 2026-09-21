@@ -10,6 +10,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import type { DeviceSnapshot, LogEntry } from '../../main/device/DeviceCore.js';
 import { Button, Empty } from '../components/ui.js';
+import { QUICK_COMMANDS, searchCommands } from '../consoleCommands.js';
 import { api, useAction } from '../useDevice.js';
 import {
   DEFAULT_FILTER,
@@ -23,7 +24,60 @@ import {
   type ConsoleFilter,
 } from '../consoleFilter.js';
 
-const SUGGESTIONS = ['PING', 'INFO?', 'STATS?', 'SAFETY?', 'SENS.ALL?', 'DRV?', 'SELFTEST'];
+
+
+/**
+ * Rappel des commandes, replie par defaut.
+ *
+ * Le jeu de commandes de diagnostic a plus que triple pendant M2, et la syntaxe vivait
+ * uniquement dans `docs/protocol.md`. Au banc, aller la chercher veut dire lacher une sonde.
+ * Un clic recopie la commande dans le champ de saisie sans l'envoyer : on relit ses
+ * arguments avant de mettre quoi que ce soit sous tension.
+ */
+function CommandHelp({ onPick }: { onPick: (syntax: string) => void }): ReactNode {
+  const [query, setQuery] = useState('');
+  const groups = searchCommands(query);
+
+  return (
+    <div className="flex min-h-0 w-72 shrink-0 flex-col gap-2 rounded-[4px] border border-line-soft bg-panel p-2">
+      <input
+        className="shrink-0 rounded-[3px] border border-line bg-raise px-2 py-1 font-mono text-[11px] text-fg outline-none focus:border-fg-3"
+        placeholder="search commands…"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+      />
+      <div className="min-h-0 flex-1 overflow-auto">
+        {groups.length === 0 && (
+          <p className="px-1 py-2 text-[11px] text-fg-3">No command matches.</p>
+        )}
+        {groups.map((g) => (
+          <section key={g.title} className="mb-2">
+            <h4 className="px-1 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-fg-3">
+              {g.title}
+            </h4>
+            {g.commands.map((c) => (
+              <button
+                key={c.verb}
+                type="button"
+                onClick={() => onPick(c.syntax)}
+                title="Copy into the input, without sending"
+                className="block w-full rounded-[3px] px-1 py-1 text-left hover:bg-raise"
+              >
+                <span className="font-mono text-[11px] text-fg">{c.syntax}</span>
+                {c.arms === true && (
+                  <span className="ml-1 font-mono text-[10px] text-warn">power</span>
+                )}
+                <span className="mt-0.5 block text-[11px] leading-snug text-fg-3">
+                  {c.summary}
+                </span>
+              </button>
+            ))}
+          </section>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 /**
  * Bouton de filtre. Actif = la catégorie est affichée ; éteint = elle est masquée.
@@ -88,6 +142,7 @@ export function Console({
   const endRef = useRef<HTMLDivElement>(null);
   const [follow, setFollow] = useState(true);
   const [filter, setFilter] = useState<ConsoleFilter>(load);
+  const [help, setHelp] = useState(false);
 
   const update = (next: ConsoleFilter): void => {
     setFilter(next);
@@ -114,6 +169,7 @@ export function Console({
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2 p-3">
+      <div className="flex min-h-0 flex-1 gap-2">
       <div
         className="min-h-0 flex-1 overflow-auto rounded-[4px] border border-line-soft bg-panel p-2 font-mono text-[12px]"
         onScroll={(e) => {
@@ -144,6 +200,11 @@ export function Console({
           ))
         )}
         <div ref={endRef} />
+      </div>
+
+      {/* Le rappel se glisse a cote du journal plutot que par-dessus : on lit une reponse
+          et la syntaxe de la commande suivante en meme temps. */}
+      {help && <CommandHelp onPick={(syntax) => setLine(syntax)} />}
       </div>
 
       {/* Les filtres au-dessus des raccourcis : on règle ce qu'on voit avant de parler. */}
@@ -194,12 +255,15 @@ export function Console({
       </div>
 
       <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-        {SUGGESTIONS.map((s) => (
+        {QUICK_COMMANDS.map((s) => (
           <Button key={s} onClick={() => send(s)} disabled={!connected || busy}>
             {s}
           </Button>
         ))}
         <div className="flex-1" />
+        <Button onClick={() => setHelp((v) => !v)} {...(help ? { tone: 'accent' as const } : {})}>
+          {help ? 'Hide commands' : 'Commands'}
+        </Button>
         {!follow && (
           <Button onClick={() => setFollow(true)} tone="accent">
             Follow tail

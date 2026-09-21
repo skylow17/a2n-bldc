@@ -682,6 +682,68 @@ par le PC — tout dans la console commune.
 les outils s'appellent `device_connect`, `param_set`. Les clients MCP courants n'acceptent que
 `[a-zA-Z0-9_-]` dans un nom d'outil. Les familles sont inchangées, seul le séparateur diffère.
 
+### Le capteur de position à l'écran, et la console qui se souvient (2026-09-21)
+
+Trois passes sur l'interface, pendant que la carte attend une intervention au fer.
+
+**Le panneau capteur.** La carte publie depuis l'étape 6 l'angle, la vitesse, l'âge de
+l'échantillon, l'état de l'aimant, la cadence du bus et un compteur d'erreurs — et l'interface
+n'en montrait rien. `ENC?` rejoint le relevé de supervision, et le tableau de bord gagne un
+cadran d'angle, l'état de la chaîne I²C et le pire âge d'échantillon. Ce dernier est celui que
+la boucle de contrôle subit, donc celui qui plafonne la vitesse exploitable : il mérite d'être
+lu sans ouvrir une console.
+
+Un point de fond : **l'absence d'aimant reçoit une bannière, pas une pastille**. Sans aimant
+diamétral en face du capteur, l'angle renvoyé est du bruit, et rien d'autre dans l'interface ne
+le dirait. C'est un prérequis de M3 qu'on ne veut pas découvrir en lançant un asservissement de
+position. Le message ne sort qu'une fois, à la bascule — comme celui de la référence instable,
+et pour la même raison : un avertissement répété deux fois par seconde se confond avec le bruit
+qu'il dénonce.
+
+Le simulateur porte un aimant et un arbre qui tourne. L'état dégradé se force par
+`setMagnet(false)`, **point d'accroche de test et non commande console** : le firmware n'a
+aucune commande pour ça — un aimant est une pièce mécanique — et en inventer une côté PC aurait
+créé exactement la divergence que `docs/protocol.md` existe pour empêcher.
+
+**Le rappel des commandes.** Le jeu de commandes de diagnostic a plus que triplé pendant M2 et
+vivait uniquement dans `docs/protocol.md` ; la liste de raccourcis de la console, elle, datait de
+M1 et en proposait sept. Un catalogue s'affiche maintenant à côté du journal, cherchable dans le
+verbe comme dans la description — au banc on se souvient plus souvent de ce qu'une commande fait
+que de son nom. Un clic recopie la syntaxe dans le champ sans l'envoyer.
+
+Cette liste est une copie, et une copie dérive. `consoleCommands.test.ts` la confronte donc au
+tableau de `docs/protocol.md` **dans les deux sens** : rien de documenté ne manque à l'écran,
+rien n'est proposé à l'écran que la spécification ignore. Le test a d'ailleurs attrapé son
+propre défaut en chemin — les `\|` échappés dans une cellule de tableau coupaient la ligne au
+mauvais endroit et faisaient disparaître `IMOT.WIGGLE` de l'extraction.
+
+### La frontière IPC ne validait rien (2026-09-21)
+
+Dernier écart de spécification encore ouvert côté interface, et le plus sérieux des trois
+sujets du jour. Les handlers IPC déclaraient leurs types en TypeScript, qui **disparaissent à la
+compilation**. À l'exécution, `handle('device:console', (line: string) => …)` acceptait un objet,
+`undefined` ou n'importe quoi, et le passait à la couche qui tient le port série.
+
+Ce n'était pas théorique :
+
+- `device:setAiControl` gouverne le verrou qui autorise un agent à mettre un axe en mouvement
+  (`AGENTS.md` §4.6). En JavaScript, la chaîne `'false'` est vraie : sans schéma, elle l'activait.
+- `device:console` peut porter `PWM ON`, et une ligne contenant un `CR` en fait passer **deux**
+  pour une, dont la seconde que personne n'a vue.
+- `device:updateFirmware` prend un chemin de fichier et programme ce qu'il y trouve.
+
+Un schéma `zod` par canal, dans une table, et `handle()` **refuse de servir un canal absent de
+cette table** — l'erreur est levée au démarrage. On ne peut donc pas ajouter un canal en oubliant
+sa validation : c'est ce qui fait la différence entre une barrière et une intention.
+
+Le chemin du firmware demandait plus qu'un schéma, parce qu'un schéma peut dire « c'est une
+chaîne » mais pas « c'est le bon fichier ». Seul un chemin sorti de la boîte de dialogue native
+est désormais accepté : le seul dont l'utilisateur ait vu le nom.
+
+Les bornes reprennent celles de `docs/protocol.md` plutôt que d'en inventer. Elles ne remplacent
+aucune vérification du firmware — les limites vivent dans la carte (`AGENTS.md` §4.2) — et
+n'évitent que d'envoyer du charabia.
+
 ### Le dashboard avait dérivé du mockup, et on sait quand (2026-09-20)
 
 Remarque de l'utilisateur, juste : le tableau de bord n'affiche rien de ce que la carte mesure,
@@ -773,7 +835,7 @@ Relevés lors d'une revue, assumés pour l'instant, à traiter :
 
 | Écart | Spécification | Décision |
 |---|---|---|
-| `zod` partiel | « valider toute donnée entrante » | Le codec valide structurellement, et les entrées des outils MCP passent par un schéma `zod`. Les futurs fichiers `.a2nrcp` devront l'être aussi |
+| — | — | Aucun écart ouvert. Le dernier, `zod` partiel, est réglé le 2026-09-21 : voir « La frontière IPC ne validait rien » plus bas. Les futurs fichiers `.a2nrcp` devront l'être aussi |
 
 Réglés le 2026-09-16 :
 

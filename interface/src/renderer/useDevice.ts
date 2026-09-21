@@ -34,6 +34,7 @@ const EMPTY: DeviceSnapshot = {
   telemetry: null,
   safety: null,
   monitor: null,
+  encoder: null,
   lastError: null,
 };
 

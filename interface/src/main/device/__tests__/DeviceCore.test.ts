@@ -585,6 +585,44 @@ describe('supervision de la carte', () => {
     await core.disconnect();
   });
 
+  it('relève le capteur de position avec le reste', async () => {
+    const { core } = await connected();
+    await core.readMonitor();
+    const e = core.snapshot().encoder;
+    expect(e).not.toBeNull();
+    expect(e!.present).toBe(true);
+    expect(e!.busHz).toBe(1_000_000);
+    // Le budget de retard de l'étape 6 doit traverser jusqu'à l'UI : c'est lui qui
+    // plafonne la vitesse exploitable, et personne ne le devinera d'un angle.
+    expect(e!.xferUs).toBeGreaterThan(0);
+    expect(e!.ageMaxUs).toBeGreaterThan(0);
+    await core.disconnect();
+  });
+
+  it('avertit une fois quand l aimant manque, et ne le répète pas', async () => {
+    // Sans aimant l'angle est du bruit. Rien d'autre dans l'interface ne le dirait, et
+    // c'est un prérequis de M3 : l'avertissement doit sortir, mais une fois — un message
+    // répété deux fois par seconde se confond avec le bruit qu'il dénonce.
+    const { core, logs } = await connected();
+    core.simulator!.setMagnet(false);
+    await core.readMonitor();
+    await core.readMonitor();
+    await core.readMonitor();
+
+    const warnings = logs.filter((l) => l.level === 'warn' && l.text.includes('magnet'));
+    expect(warnings).toHaveLength(1);
+    expect(core.snapshot().encoder!.magnetOk).toBe(false);
+    await core.disconnect();
+  });
+
+  it('oublie le capteur de position à la déconnexion', async () => {
+    const { core } = await connected();
+    await core.readMonitor();
+    expect(core.snapshot().encoder).not.toBeNull();
+    await core.disconnect();
+    expect(core.snapshot().encoder).toBeNull();
+  });
+
   it('oublie le relevé à la déconnexion', async () => {
     const { core } = await connected();
     await settle();

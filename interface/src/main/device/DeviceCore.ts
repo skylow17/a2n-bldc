@@ -67,6 +67,12 @@ export interface DeviceSnapshot {
   safety: SafetyState | null;
   /** Dernier relevé de supervision, `null` tant que rien n'a été lu. */
   monitor: MonitorState | null;
+  /**
+   * Capteur de position, `null` si le firmware ne publie pas encore `ENC?`. La distinction
+   * compte : « pas de capteur dans ce firmware » et « capteur qui ne répond pas » ne se
+   * réparent pas de la même façon.
+   */
+  encoder: EncoderState | null;
   lastError: string | null;
 }
 
@@ -118,6 +124,41 @@ export interface MonitorState {
   drvFault: boolean;
   /** Fronts `nFAULT` comptés depuis le reset. */
   drvEvents: number;
+}
+
+/**
+ * Capteur de position AS5600, relevé avec le reste de la supervision.
+ *
+ * `magnetOk` mérite d'être remonté jusqu'à l'écran plutôt que de rester dans la console :
+ * sans aimant diamétral en face du capteur, l'angle est du bruit, et rien d'autre ne le
+ * signale. C'est un prérequis de M3 qu'on ne veut pas découvrir en lançant un asservissement.
+ *
+ * `ageMaxUs` est le pire âge de l'échantillon d'angle vu par la boucle de contrôle depuis la
+ * dernière remise à zéro : c'est le retard que l'asservissement subira réellement, et donc la
+ * grandeur qui plafonne la vitesse exploitable.
+ */
+export interface EncoderState {
+  /** Le capteur a répondu au moins une fois depuis le reset de la carte. */
+  present: boolean;
+  /** Aimant détecté et à la bonne distance — `MD` levé, `ML` et `MH` retombés. */
+  magnetOk: boolean;
+  /** Registre `STATUS` brut, pour distinguer « trop faible » de « trop fort ». */
+  statusRaw: number;
+  /** `RAW_ANGLE` sur 12 bits, tel que lu. */
+  rawAngle: number;
+  posRad: number;
+  velRadS: number;
+  turns: number;
+  /** Fréquence SCL effectivement programmée. */
+  busHz: number;
+  /** Durée d'un transfert I2C, en µs. */
+  xferUs: number;
+  /** Intervalle entre deux échantillons, en µs. */
+  periodUs: number;
+  /** Pire âge d'échantillon vu par l'ISR, en µs. */
+  ageMaxUs: number;
+  readsOk: number;
+  readsErr: number;
 }
 
 export interface SafetyState {
@@ -259,6 +300,7 @@ export class DeviceCore {
   private aiControl = false;
   private safety: SafetyState | null = null;
   private monitor: MonitorState | null = null;
+  private encoder: EncoderState | null = null;
   private monitorTimer: ReturnType<typeof setInterval> | null = null;
   private monitorBusy = false;
   private vrefWindow: number[] = [];
@@ -327,6 +369,7 @@ export class DeviceCore {
       aiControl: this.aiControl,
       safety: this.safety,
       monitor: this.monitor,
+      encoder: this.encoder,
       telemetry: this.telemetry,
       lastError: this.lastError,
     };
@@ -429,6 +472,7 @@ export class DeviceCore {
     this.dictIntegrity = null;
     this.safety = null;
     this.monitor = null;
+    this.encoder = null;
     this.vrefWindow = [];
     this.connection = 'disconnected';
     if (!quiet) {
@@ -550,6 +594,10 @@ export class DeviceCore {
     const sens = parseFields(await this.askConsole('SENS.ALL?', true));
     const stats = parseFields(await this.askConsole('STATS?', true));
     const drv = parseFields(await this.askConsole('DRV?', true));
+    // `ENC?` n'existe pas avant l'etape 6 : un firmware anterieur repond `ERR CMD`, ce que
+    // `parseFields` rend par `null`. On garde `null` plutot que d'echouer tout le releve —
+    // la supervision des rails n'a pas a dependre de la presence d'un capteur de position.
+    const enc = parseFields(await this.askConsole('ENC?', true));
     if (sens === null || stats === null || drv === null) {
       throw new Error('unreadable monitor reply');
     }
@@ -587,8 +635,35 @@ export class DeviceCore {
       drvEvents: num(drv, 'events'),
     };
 
+    // Les angles arrivent en milliradians : le firmware n'embarque pas de `printf` flottant.
+    const nextEnc: EncoderState | null = enc === null ? null : {
+      present: enc.get('present') === '1',
+      magnetOk: enc.get('magnet') === '1',
+      statusRaw: parseInt(enc.get('status') ?? '0', 16),
+      rawAngle: num(enc, 'raw'),
+      posRad: num(enc, 'pos_mrad') / 1000,
+      velRadS: num(enc, 'vel_mrad_s') / 1000,
+      turns: num(enc, 'turns'),
+      busHz: num(enc, 'bus_hz'),
+      xferUs: num(enc, 'xfer_us'),
+      periodUs: num(enc, 'period_us'),
+      ageMaxUs: num(enc, 'age_max_us'),
+      readsOk: num(enc, 'ok'),
+      readsErr: num(enc, 'err'),
+    };
+
     const prev = this.monitor;
+    const prevEnc = this.encoder;
     this.monitor = next;
+    this.encoder = nextEnc;
+    // Dit une fois, a la bascule, comme la reference instable : c'est un etat de banc, pas
+    // un evenement. Sans aimant l'angle est du bruit, et rien d'autre ne le signalerait.
+    if (nextEnc !== null && nextEnc.present && !nextEnc.magnetOk
+        && (prevEnc === null || prevEnc.magnetOk || !prevEnc.present)) {
+      this.log('warn', 'device',
+        `position sensor reports no usable magnet (STATUS 0x${nextEnc.statusRaw.toString(16)}) — ` +
+        'the angle it returns is noise');
+    }
     if (next.drvFault && (prev === null || !prev.drvFault)) {
       this.log('error', 'device', 'DRV8304 nFAULT asserted');
     }

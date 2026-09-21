@@ -21,6 +21,7 @@ import {
   type ScopeRequest,
 } from './device/DeviceCore.js';
 import { A2N_MCP_DEFAULT_PORT, startA2nMcpHttpServer } from './mcp/http.js';
+import { isIpcChannel, validateIpc } from './ipcSchema.js';
 
 const core = new DeviceCore();
 let mainWindow: BrowserWindow | null = null;
@@ -96,11 +97,29 @@ function createWindow(): void {
 
 /* ------------------------------------------------------------------ IPC */
 
-/** Emballe un handler pour que le renderer reçoive une erreur exploitable, jamais un rejet nu. */
+/**
+ * Emballe un handler : arguments validés, erreur exploitable plutôt qu'un rejet nu.
+ *
+ * Le canal doit figurer dans `IPC_SCHEMA`, et l'absence est une erreur **au démarrage**, pas
+ * une permissivité silencieuse. C'est ce qui fait de la validation une barrière plutôt
+ * qu'une convention : ajouter un canal sans décider de ce qu'il accepte casse l'application
+ * tout de suite, au lieu de laisser passer n'importe quoi jusqu'à la carte.
+ */
 function handle<T>(channel: string, fn: (...args: never[]) => Promise<T> | T): void {
+  if (!isIpcChannel(channel)) {
+    throw new Error(`IPC channel ${channel} has no argument schema — add one in ipcSchema.ts`);
+  }
+  const ch = channel;
   ipcMain.handle(channel, async (_event, ...args) => {
+    const checked = validateIpc(ch, args);
+    if (!checked.ok) {
+      // Journalisé : une commande refusée à la frontière doit se voir, sinon on cherche
+      // le défaut du côté de la carte.
+      core.log('error', 'gui', checked.error);
+      return { ok: false as const, error: checked.error };
+    }
     try {
-      return { ok: true as const, value: await fn(...(args as never[])) };
+      return { ok: true as const, value: await fn(...(checked.value as never[])) };
     } catch (e) {
       return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
     }
@@ -146,6 +165,9 @@ handle('device:saveText', async (suggestedName: string, contents: string) => {
   core.log('info', 'gui', `saved ${result.filePath}`);
   return result.filePath;
 });
+/** Dernière image désignée par l'utilisateur, et la seule que `updateFirmware` accepte. */
+let pickedFirmware: string | null = null;
+
 /**
  * Choisit une image de firmware, puis la programme.
  *
@@ -169,10 +191,18 @@ handle('device:pickFirmware', async () => {
   const chosen = result.filePaths[0];
   if (result.canceled || chosen === undefined) return null;
   const bytes = await readFile(chosen);
+  pickedFirmware = chosen;
   return { path: chosen, size: bytes.byteLength };
 });
 
 handle('device:updateFirmware', async (path: string, version: string) => {
+  // Le schéma dit que c'est une chaîne ; il ne peut pas dire que c'est *le bon fichier*.
+  // Seul un chemin sorti de la boîte de dialogue native est accepté, parce que c'est le
+  // seul dont l'utilisateur ait vu le nom. Sans ce verrou, le renderer désignerait
+  // n'importe quel fichier du disque et le processus principal le programmerait.
+  if (path !== pickedFirmware) {
+    throw new Error('firmware image must be the one chosen in the dialog');
+  }
   // Relu au moment de programmer plutôt que gardé en mémoire depuis la sélection : entre
   // les deux, l'utilisateur a pu recompiler. Programmer une image périmée en affichant le
   // nom de la nouvelle est le genre de confusion qui coûte une demi-journée.

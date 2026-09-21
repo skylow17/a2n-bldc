@@ -145,6 +145,8 @@ export class SimulatedDevice implements Transport {
   private safetyLatched = false;
   private safetyTrips = 0;
   private sensRounds = 0;
+  private encReads = 0;
+  private encMagnet = true;
   private pushSeq = 0;
   private telemSeq = 0;
   private telemTimer: ReturnType<typeof setInterval> | null = null;
@@ -822,6 +824,16 @@ export class SimulatedDevice implements Transport {
     this.safetyTrips += 1;
   }
 
+  /**
+   * Retire ou remet l'aimant devant le capteur. Point d'accroche de test, pas une commande :
+   * le firmware n'en a aucune pour ca — l'aimant est une piece mecanique. En faire une ligne
+   * de console ici creerait une commande que la carte ne connait pas, c'est-a-dire la
+   * divergence exacte que `docs/protocol.md` existe pour empecher.
+   */
+  setMagnet(present: boolean): void {
+    this.encMagnet = present;
+  }
+
   private onLine(line: string): void {
     const [verb = ''] = line.trim().split(/\s+/);
     const upper = verb.toUpperCase();
@@ -880,6 +892,23 @@ export class SimulatedDevice implements Transport {
             `v5_mv=${4920 + wobble(25)} v3v3_mv=${3300 + wobble(12)} ` +
             `csa_raw=2048,2048,2048 csa_mv=1024,1024,1024 ` +
             `mcu_temp_c=${38 + wobble(3)}`,
+        );
+        break;
+      }
+      case 'ENC?': {
+        // Le simulateur porte un aimant et un arbre qui tourne lentement : c'est l'etat
+        // nominal, celui dont on a besoin pour construire une vue. L'etat degrade se force
+        // par `setMagnet(false)` — une interface qui ne sait afficher que le cas sain est
+        // une interface qu'on decouvre en panne au banc.
+        const rev = (Date.now() % 8000) / 8000;            // un tour toutes les 8 s
+        const raw = Math.round(rev * 4096) % 4096;
+        const pos = Math.round(rev * 2 * Math.PI * 1000);
+        this.encReads += 17;
+        this.replyLine(
+          `OK present=1 magnet=${this.encMagnet ? 1 : 0} ` +
+            `status=${this.encMagnet ? '20' : '13'} raw=${raw} turns=0 ` +
+            `pos_mrad=${pos} vel_mrad_s=785 bus_hz=1000000 ` +
+            `xfer_us=57 period_us=59 age_max_us=118 ok=${this.encReads} err=0`,
         );
         break;
       }
