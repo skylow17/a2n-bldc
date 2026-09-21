@@ -21,6 +21,12 @@ import type { SignalDesc } from '../../shared/protocol.js';
 import { TimeSeriesChart, groupByUnit, seriesColor, type YMode } from './Chart.js';
 import { ChartStack } from './ChartStack.js';
 import { Button, Dot, Empty, Panel } from './ui.js';
+import {
+  MAX_SUBSCRIBED,
+  SIGNAL_PRESETS,
+  matchingPreset,
+  resolvePreset,
+} from '../signalPresets.js';
 import { api, useAction, useTelemetryBuffer } from '../useDevice.js';
 
 /* Tableaux vides et stables : passés en props quand les données arrivent par `feed`.
@@ -34,8 +40,8 @@ const WINDOWS = [1, 2, 5, 15, 30] as const;
 /** Cadences proposées. Le firmware impose 100 à 500 Hz — docs/protocol.md §6. */
 const RATES = [100, 200, 500] as const;
 
-/** Le protocole plafonne une souscription à 16 signaux. */
-const MAX_SIGNALS = 16;
+/** Le plafond vient de la spécification, pas d'un nombre recopié ici. */
+const MAX_SIGNALS = MAX_SUBSCRIBED;
 
 export function LiveTelemetry({ state }: { state: DeviceSnapshot }): ReactNode {
   const [signals, setSignals] = useState<SignalDesc[]>([]);
@@ -73,7 +79,10 @@ export function LiveTelemetry({ state }: { state: DeviceSnapshot }): ReactNode {
       .then((list) => {
         if (!alive) return;
         setSignals(list);
-        setPicked(list.slice(0, MAX_SIGNALS).map((s) => s.name));
+        // Le préréglage « Diagnostic » plutôt que les N premiers du dictionnaire : cocher
+        // tout ce qui existe donne seize courbes illisibles, et l'ordre du dictionnaire
+        // n'a aucune raison d'être celui dans lequel on veut regarder.
+        setPicked(resolvePreset(SIGNAL_PRESETS[0]!, list.map((x) => x.name), MAX_SIGNALS));
       })
       .catch(() => undefined);
     return () => {
@@ -104,6 +113,8 @@ export function LiveTelemetry({ state }: { state: DeviceSnapshot }): ReactNode {
           : [...prev, name],
     );
   };
+
+  const activePreset = matchingPreset(picked, signals.map((x) => x.name), MAX_SIGNALS);
 
   const sel = 'rounded-[3px] border border-line bg-raise px-1.5 py-1 font-mono text-[11px] text-fg disabled:opacity-40';
 
@@ -188,6 +199,40 @@ export function LiveTelemetry({ state }: { state: DeviceSnapshot }): ReactNode {
 
   return (
     <Panel title="Live telemetry" right={header} className="h-full">
+      {/* Prereglages. Ils ne decrivent aucun signal — ils en nomment quelques-uns pour dire
+          lesquels vont bien ensemble, et se confrontent au dictionnaire publie par la
+          carte. Un prereglage dont un signal manque en rend moins, il n'echoue pas. */}
+      <div className="flex flex-wrap items-center gap-1.5 border-b border-line-soft px-3 py-2">
+        <span className="font-mono text-[10px] uppercase tracking-wider text-fg-3">preset</span>
+        {SIGNAL_PRESETS.map((p) => {
+          const names = signals.map((x) => x.name);
+          const want = resolvePreset(p, names, MAX_SIGNALS);
+          const active = activePreset?.id === p.id;
+          return (
+            <button
+              key={p.id}
+              type="button"
+              disabled={streaming || want.length === 0}
+              title={`${p.hint} — ${want.length} signal(s)`}
+              onClick={() => setPicked(want)}
+              className={`rounded-[3px] border px-2 py-0.5 font-mono text-[11px] transition-colors disabled:opacity-40 ${
+                active
+                  ? 'border-accent bg-raise text-accent'
+                  : 'border-line-soft bg-transparent text-fg-3 hover:text-fg'
+              }`}
+            >
+              {p.label}
+            </button>
+          );
+        })}
+        {/* Une selection modifiee a la main ne correspond plus a aucun prereglage, et il
+            faut que ca se voie : pretendre le contraire ferait mentir l'affichage sur ce
+            qui est reellement souscrit. */}
+        <span className="ml-1 font-mono text-[11px] text-fg-3">
+          {activePreset === null ? 'custom' : ''} {picked.length}/{MAX_SIGNALS}
+        </span>
+      </div>
+
       <div className="flex flex-wrap gap-x-4 gap-y-1 border-b border-line-soft px-3 py-2">
         {signals.map((s) => {
           const on = picked.includes(s.name);

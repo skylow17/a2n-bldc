@@ -18,6 +18,7 @@ import type { DeviceSnapshot, EncoderState, MonitorState } from '../../main/devi
 import { PROTO_CAP } from '../../shared/protocol.js';
 import { LiveTelemetry } from '../components/LiveTelemetry.js';
 import { Metric, Pill, type Health } from '../components/Metric.js';
+import { ResizableX, ResizableY } from '../components/Resizable.js';
 import { Dot, Empty, Field, Panel } from '../components/ui.js';
 
 const CAPABILITIES: Array<{ bit: number; label: string; since: string }> = [
@@ -412,6 +413,61 @@ export function Dashboard({ state }: { state: DeviceSnapshot }): ReactNode {
   const regions =
     monitor === null ? null : liveRegions(state, monitor);
 
+  /* Identification et capacites : on les lit une fois. Elles font partie du detail,
+     et doivent donc apparaitre dans les deux dispositions — la colonne laterale et
+     la suite verticale. Les laisser dans la seule colonne les faisait disparaitre
+     sous 1280 px, ou la colonne n'existe pas. */
+  const identity = (
+    <>
+    {/* Identification : on la lit une fois, elle tient en un panneau et passe en dessous. */}
+    <Panel title="Device">
+      <Field label="Product">{info.product}</Field>
+      <Field label="Firmware">{info.fwVersion}</Field>
+      <Field label="Protocol">
+        {info.protocolMajor}.{info.protocolMinor}
+      </Field>
+      <Field label="UID">{info.uid.map((u) => u.toString(16).padStart(8, '0')).join('-')}</Field>
+      <Field label="Link">{state.portDescription ?? '—'}</Field>
+      <Field label="Parameters">
+        {info.paramCount} entries · {hex(info.paramDictHash)}
+        {state.dictIntegrity === false && (
+          <span className="ml-2 text-fault">
+            <Dot tone="fault" /> hash mismatch
+          </span>
+        )}
+      </Field>
+      {[...byGroup].map(([group, n]) => (
+        <Field key={group} label={`Group “${group}”`}>
+          {n}
+        </Field>
+      ))}
+    </Panel>
+
+    <Panel title="Announced capabilities">
+      <div className="p-1">
+        {CAPABILITIES.map((c) => {
+          const on = (info.capabilities & c.bit) !== 0;
+          return (
+            <div
+              key={c.label}
+              className="flex items-center justify-between gap-3 px-2 py-1.5 odd:bg-panel-2/40"
+            >
+              <span className={`text-[12px] ${on ? 'text-fg' : 'text-fg-3'}`}>
+                <Dot tone={on ? 'ok' : 'idle'} /> {c.label}
+              </span>
+              <span className="font-mono text-[11px] text-fg-3">{on ? 'available' : c.since}</span>
+            </div>
+          );
+        })}
+      </div>
+      <p className="border-t border-line-soft px-3 py-2 text-[11px] leading-relaxed text-fg-3">
+        The firmware only raises a bit once the feature actually exists. A missing capability is
+        not a failure — it is a milestone not yet reached.
+      </p>
+    </Panel>
+    </>
+  );
+
   return (
     /* Deux regions, deux regles de dimensionnement, deux defilements.
      *
@@ -446,62 +502,30 @@ export function Dashboard({ state }: { state: DeviceSnapshot }): ReactNode {
               {regions.metrics}
             </div>
           )}
-          <div className="h-[55vh] min-h-0 xl:h-auto xl:flex-1">
+          <ResizableY storageKey="dash.telemetry.h" label="Resize the plot" min={180} max={1400}>
             <LiveTelemetry state={state} />
-          </div>
+          </ResizableY>
         </section>
 
-        {/* Detail et identification */}
-        <aside className="flex flex-col gap-3 xl:w-[23rem] xl:shrink-0 xl:overflow-auto xl:pr-0.5">
+        {/* Detail et identification. Chaque panneau porte sa propre poignee : leurs hauteurs
+            naturelles n'ont rien a voir entre elles, et c'est justement pour ca qu'une
+            grille les ecrasait les uns les autres. */}
+        <ResizableX
+          storageKey="dash.aside.w"
+          defaultW={368}
+          label="Resize the detail column"
+          className="hidden flex-col gap-3 overflow-auto pr-0.5 xl:flex"
+        >
           {regions !== null && regions.details}
 
-      {/* Identification : on la lit une fois, elle tient en un panneau et passe en dessous. */}
-      <Panel title="Device">
-        <Field label="Product">{info.product}</Field>
-        <Field label="Firmware">{info.fwVersion}</Field>
-        <Field label="Protocol">
-          {info.protocolMajor}.{info.protocolMinor}
-        </Field>
-        <Field label="UID">{info.uid.map((u) => u.toString(16).padStart(8, '0')).join('-')}</Field>
-        <Field label="Link">{state.portDescription ?? '—'}</Field>
-        <Field label="Parameters">
-          {info.paramCount} entries · {hex(info.paramDictHash)}
-          {state.dictIntegrity === false && (
-            <span className="ml-2 text-fault">
-              <Dot tone="fault" /> hash mismatch
-            </span>
-          )}
-        </Field>
-        {[...byGroup].map(([group, n]) => (
-          <Field key={group} label={`Group “${group}”`}>
-            {n}
-          </Field>
-        ))}
-      </Panel>
+        </ResizableX>
 
-      <Panel title="Announced capabilities">
-        <div className="p-1">
-          {CAPABILITIES.map((c) => {
-            const on = (info.capabilities & c.bit) !== 0;
-            return (
-              <div
-                key={c.label}
-                className="flex items-center justify-between gap-3 px-2 py-1.5 odd:bg-panel-2/40"
-              >
-                <span className={`text-[12px] ${on ? 'text-fg' : 'text-fg-3'}`}>
-                  <Dot tone={on ? 'ok' : 'idle'} /> {c.label}
-                </span>
-                <span className="font-mono text-[11px] text-fg-3">{on ? 'available' : c.since}</span>
-              </div>
-            );
-          })}
+        {/* En dessous de `xl` la colonne laterale n'a pas la place d'exister : les memes
+            panneaux reprennent leur suite sous le trace, et la page defile. */}
+        <div className="flex flex-col gap-3 xl:hidden">
+          {regions !== null && regions.details}
+          {identity}
         </div>
-        <p className="border-t border-line-soft px-3 py-2 text-[11px] leading-relaxed text-fg-3">
-          The firmware only raises a bit once the feature actually exists. A missing capability is
-          not a failure — it is a milestone not yet reached.
-        </p>
-      </Panel>
-        </aside>
       </div>
     </div>
   );

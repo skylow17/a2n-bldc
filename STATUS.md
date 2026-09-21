@@ -882,6 +882,47 @@ par le PC — tout dans la console commune.
 les outils s'appellent `device_connect`, `param_set`. Les clients MCP courants n'acceptent que
 `[a-zA-Z0-9_-]` dans un nom d'outil. Les familles sont inchangées, seul le séparateur diffère.
 
+### Les tailles se règlent à la main, et la télémétrie a des préréglages (2026-09-21)
+
+Suite du même sujet. Découper la vue en deux régions ne suffisait pas : des constantes
+choisies pour un écran ne conviennent à aucun autre, et affiner indéfiniment des nombres
+n'est pas une réponse. **On rend la main.**
+
+Un composant `Resizable` porte les deux axes : la largeur de la colonne de détail, et la
+hauteur de chaque panneau, tracé compris. Trois règles :
+
+- **on ne peut pas se coincer** — toute taille est bornée des deux côtés, et le plafond de la
+  colonne latérale se calcule sur la largeur réelle de la fenêtre, donc élargir le détail ne
+  peut jamais réduire l'instrument à rien ;
+- **un réglage se retrouve** — chaque taille est mémorisée sous sa propre clef, parce que la
+  reperdre à chaque lancement est ce qui fait qu'on cesse d'y toucher ;
+- **le défaut reste atteignable** — un double-clic sur la poignée y revient.
+
+La poignée est focalisable et les flèches la déplacent, `Shift` accélère. Ce n'est pas une
+politesse : c'est la seule façon d'ajuster finement sur un banc où l'on n'a pas toujours les
+deux mains libres.
+
+La hauteur du tracé vaut `null` par défaut, c'est-à-dire « prends ce qui reste ». Tant que
+personne n'a tiré la poignée, c'est mieux que n'importe quel nombre.
+
+**Préréglages de télémétrie.** Seize signaux sont souscriptibles, mais en cocher seize donne
+seize courbes illisibles et la palette n'a que huit teintes distinctes. Quatre préréglages :
+`Diagnostic` (par défaut), `Currents`, `Position`, `Loop health`. La sélection à la connexion
+était « les N premiers du dictionnaire » — un ordre qui n'a aucune raison d'être celui dans
+lequel on veut regarder.
+
+Un préréglage **ne décrit aucun signal** : il en nomme quelques-uns pour dire lesquels vont
+bien ensemble, et `resolvePreset` les confronte au dictionnaire que la carte publie. La règle
+« les signaux viennent du firmware » (`AGENTS.md` §3) tient donc toujours : un firmware
+antérieur à l'étape 4 ne publie pas les courants centrés, et le préréglage en rend simplement
+moins au lieu d'échouer. Une sélection modifiée à la main s'affiche `custom` — prétendre qu'un
+préréglage est actif alors qu'on a décoché un signal ferait mentir l'affichage sur ce qui est
+réellement souscrit.
+
+**Une correction de fait au passage.** Le plafond de souscription est **16**, pas 8 :
+`docs/protocol.md` §6 (`u8 count 0..16`) et `proto.c:261` (`count > 16U` → `ERR_ARG`) le
+disent tous les deux. C'est le **scope** qui est limité à 4 signaux (`u8 signal_count 1..4`).
+
 ### Le tableau de bord n'avait pas de mise en page, seulement une grille (2026-09-21)
 
 Trois corrections de taille successives — hauteurs de graphe, hauteur de console, échelles —
