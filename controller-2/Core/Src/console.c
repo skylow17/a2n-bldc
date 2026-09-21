@@ -522,16 +522,26 @@ static void CmdDrvLoop(const char *arg)
   if (ms == 0UL) { ms = 2000UL; }
   if (ms > 20000UL) { ms = 20000UL; }
 
+  /* Mot emis brut, reponse brute, sans masquage. `Drv8304_ReadReg` ne rend que les 11 bits
+   * de donnees, et c'est ce masquage qui cachait l'information utile : `0x0000` (ligne tenue
+   * basse), `0xFFFF` (elle flotte haute, le composant ne repond pas) et un echo du mot emis
+   * (les deux lignes en court-circuit) donnent tous les trois une donnee nulle.
+   *
+   * La trame de lecture du registre 0 vaut `0x8000` : adresse nulle et **donnees nulles**.
+   * On emet donc en plus `0x5555`, qui n'a aucun bit en commun avec elle, pour que l'echo
+   * eventuel se voie. */
   const uint32_t t0 = HAL_GetTick();
   uint32_t n = 0U, ok = 0U;
-  uint16_t last = 0U;
+  uint16_t rx_read = 0U, rx_pat = 0U;
   while ((HAL_GetTick() - t0) < ms) {
     uint16_t v = 0U;
-    if (Drv8304_ReadReg(DRV_REG_FAULT_STATUS_1, &v)) { ok++; last = v; }
+    if (Drv8304_TransferRaw(0x8000U, &v)) { ok++; rx_read = v; }
     n++;
   }
-  Link_TxPrintf("OK reads=%lu ok=%lu last=%03X ms=%lu\r\n",
-                (unsigned long)n, (unsigned long)ok, last, (unsigned long)ms);
+  (void)Drv8304_TransferRaw(0x5555U, &rx_pat);
+
+  Link_TxPrintf("OK reads=%lu ok=%lu tx=8000 rx=%04X tx=5555 rx=%04X ms=%lu\r\n",
+                (unsigned long)n, (unsigned long)ok, rx_read, rx_pat, (unsigned long)ms);
 }
 
 static void CmdVrefRatio(void)

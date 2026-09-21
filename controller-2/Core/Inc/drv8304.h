@@ -80,6 +80,16 @@ void Drv8304_Init(void);
 /** Lecture d'un registre. Faux si SPI en erreur ou adresse hors carte. */
 bool Drv8304_ReadReg(uint8_t reg, uint16_t *value);
 
+/**
+ * Un echange SPI brut, sans masquage ni interpretation. Diagnostic uniquement.
+ *
+ * `Drv8304_ReadReg` ne rend que les 11 bits de donnees, et c'est precisement ce masquage qui
+ * cachait l'information utile : un mot recu a 0x0000 (la ligne est tenue basse), a 0xFFFF
+ * (elle flotte haute, le composant ne repond pas) ou egal au mot emis (les deux lignes sont
+ * en court-circuit) donnent tous les trois `value = 0x000`.
+ */
+bool Drv8304_TransferRaw(uint16_t tx, uint16_t *rx);
+
 /** Écriture d'un registre (11 bits utiles). Faux si SPI en erreur ou adresse hors carte. */
 bool Drv8304_WriteReg(uint8_t reg, uint16_t value);
 

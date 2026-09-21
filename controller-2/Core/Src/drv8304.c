@@ -124,6 +124,11 @@ static bool Transfer(uint16_t tx, uint16_t *rx)
   return true;
 }
 
+bool Drv8304_TransferRaw(uint16_t tx, uint16_t *rx)
+{
+  return (rx != NULL) && Transfer(tx, rx);
+}
+
 bool Drv8304_ReadReg(uint8_t reg, uint16_t *value)
 {
   uint16_t rx;
