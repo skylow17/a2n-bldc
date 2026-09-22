@@ -8,7 +8,7 @@ Ce fichier ne contient **aucun chiffre volatil** (nombre de tests, occupation fl
 Ces valeurs se mesurent, elles ne se recopient pas : `python tools/status.py` les relève sur le
 dépôt réel. Une valeur écrite à la main est fausse le lendemain.
 
-Dernière revue : 2026-09-21, sur carte — deux causes matérielles trouvées dans les datasheets, la retouche de la référence vérifiée, les étapes 4 et 6 mesurées, et une passe de fond sur l'interface.
+Dernière revue : 2026-09-22, sur carte — le SPI du DRV retesté après ressoudage : la panne est côté commande et il ne reste que deux fils à contrôler.
 
 > **Reprise suivante — par où commencer.** Les deux défauts matériels sont **expliqués**, et
 > aucun des deux n'est une panne : ce sont deux erreurs de conception, l'une et l'autre
@@ -279,7 +279,8 @@ Mesuré ensuite à l'oscilloscope, le même jour :
   d'échantillonnage de l'ADC qui fait sauter un nœud en haute impédance à chaque conversion,
   ce qu'une sortie d'amplificateur (< 1 kΩ) ne laisserait jamais voir.
 - `CAL` haut par la broche pendant 5 s, puis `CSA_CAL_A/B/C` par SPI pendant 5 s, deux fois :
-  **SOA n'a pas bougé d'un millivolt.**
+  **SOA n'a pas bougé d'un millivolt.** *(La moitié « par SPI » ne vaut rien : on a découvert le
+  2026-09-22 que le DRV ne reçoit aucune commande. La moitié « par la broche », elle, tient.)*
 
 Conclusion tirée ce jour-là, et **infirmée depuis** : la section analogique de U3 serait morte.
 L'utilisateur a dessoudé U3 et soudé un DRV8304 neuf le 2026-09-20. **Rien n'a changé.** La
@@ -646,13 +647,15 @@ coûteraient à refaire.
    il est franc. `sck=0,1` et `mosi=0,1` suivent librement, `nCS` est haut au repos. Le câblage
    est sain au repos.
 
-Ce qui reste, et que je ne peux pas départager sans oscilloscope : le périphérique termine ses
-trames, `MISO` est tiré haut au repos, et pourtant la donnée reçue est nulle — il faut donc que
-quelque chose tire la ligne bas **pendant** la trame. `DRV.LOOP` existe pour ça : elle martèle
+Ce qui restait à départager : le périphérique termine ses trames, `MISO` est tiré haut au repos,
+et pourtant la donnée reçue est nulle — il faut donc que quelque chose tire la ligne bas
+**pendant** la trame. *Répondu le 2026-09-22, voir plus bas : c'est le DRV lui-même, et c'est
+normal.* `DRV.LOOP` existe pour ça : elle martèle
 une lecture pendant quelques secondes, de quoi déclencher un oscilloscope sur les quatre lignes.
 
-**Prochaine mesure, dans cet ordre :** `DRV.LOOP 5000`, sondes sur `nCS`, `SCK`, `MOSI`, `SDO`
-aux broches 29, 28, 27 et 26 de `U3` — ce sont des broches de bord, accessibles. On cherche : est-ce
+*Plan dépassé par la mesure du 2026-09-22 : il n'y a plus que deux fils à contrôler, au
+multimètre. Conservé parce qu'il reste le recours si la continuité est bonne.* **Mesure, dans cet
+ordre :** `DRV.LOOP 5000`, sondes sur `nCS`, `SCK`, `MOSI`, `SDO` aux broches 29, 28, 27 et 26 de `U3` — ce sont des broches de bord, accessibles. On cherche : est-ce
 que `nCS` descend ? est-ce que l'horloge arrive au composant ? est-ce que `SDO` bouge ? Trois
 réponses, trois pannes différentes. La carte a été retouchée à la main sur ces lignes
 (`AGENTS.md` §2) et `U3` a été remplacé depuis la dernière validation : ce sont les deux suspects.
@@ -660,6 +663,44 @@ réponses, trois pannes différentes. La carte a été retouchée à la main sur
 **Rien ne doit alimenter l'étage de puissance tant que ce n'est pas compris.** Pas pour une
 question de sécurité — `nFAULT` tient — mais parce qu'on ne saurait ni lire une faute par SPI ni
 régler le gain des amplis.
+
+#### Le DRV ne reçoit rien : la panne est côté commande, pas côté lecture (2026-09-22)
+
+Le fil a été ressoudé, et les trois symptômes sont revenus identiques. Mais une mesure nouvelle
+a déplacé la frontière de l'enquête, et elle vaut d'être notée parce qu'elle **se passe
+d'oscilloscope**.
+
+**Ce qui est maintenant prouvé, et qui ne l'était pas.** Une écriture de registre n'a d'effet
+observable que si elle traverse `SDI` **et** `SCLK` ; et le registre `CSA_CONTROL` a des bits
+dont l'effet se lit sur une mesure analogique, sans jamais relire le SPI. Deux ont été essayés :
+`VREF_DIV = 0`, qui déplacerait le repos des trois sorties `SOx` de la mi-échelle vers le bas de
+l'échelle, et `CSA_CAL_A = 1`, qui court-circuiterait les entrées de la seule phase A et
+effondrerait son bruit comme le fait la broche `CAL`. **Ni l'un ni l'autre n'a changé quoi que ce
+soit** — moyennes identiques au count près, bruit inchangé sur les trois phases. Le composant ne
+reçoit donc **aucune commande**. Le chemin de lecture n'est plus en cause : il n'a rien à lire.
+
+**Le mystère de la ligne tirée bas pendant la trame est résolu, et ce n'est pas un défaut.**
+`DRV.BITBANG` donne `cs=0` et `idle=1` : `SDO` est haut au repos, descend **à la descente de
+`nCS`, avant le moindre coup d'horloge**, et remonte à la remontée. C'est le DRV lui-même qui
+tient la ligne pendant qu'il est sélectionné et qu'on ne lui décale rien. Il n'y a ni
+court-circuit ni tirage manquant. Au passage, cela prouve que `nCS` et `SDO` arrivent bien au
+boîtier et que le composant est alimenté et réveillé.
+
+**Un piège de lecture à ne pas refaire.** `DRV?` affiche `nfault=0`, et ce champ vaut
+`nfault_low` : zéro veut dire **broche haute, aucune faute**. `FAULT_STATUS` vaut donc
+légitimement zéro, et une relecture nulle du registre 0 ne prouve rien à elle seule — c'est
+exactement la même ambiguïté que celle qui avait laissé passer la panne le 2026-09-20.
+
+**Ce qui reste à départager : `SCLK` et `SDI`, rien d'autre.** Les deux hypothèses restantes sont
+indiscernables par le protocole, parce qu'une trame reçue toute à zéro est lue comme une écriture
+au registre 0, qui est en lecture seule : sans horloge comme sans donnée, l'effet observable est
+le même. Deux fils, deux broches voisines : `U3` **28** (`SCLK`) et `U3` **27** (`SDI`). Un
+contrôle de continuité au multimètre suffit maintenant, l'oscilloscope n'est plus nécessaire.
+
+**Et l'étiquette du schéma est le suspect numéro un.** Le firmware câble `PB13` en `SCK` et
+`PB15` en `MOSI` (`board.h`), ce qui est la réalité de la carte ; le schéma porte l'inverse
+(« Écarts connus du schéma »). Un fil ressoudé en suivant l'étiquette part donc du mauvais point.
+**À vérifier en continuité : `PB13` → `U3` broche 28, et `PB15` → `U3` broche 27.**
 
 ### Étape 6 — l'AS5600 lu en DMA, et le retard enfin chiffré (2026-09-21)
 
