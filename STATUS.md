@@ -691,6 +691,17 @@ boîtier et que le composant est alimenté et réveillé.
 légitimement zéro, et une relecture nulle du registre 0 ne prouve rien à elle seule — c'est
 exactement la même ambiguïté que celle qui avait laissé passer la panne le 2026-09-20.
 
+**Une mesure de plus est écrite mais pas encore prise : `DRV.NCS` (2026-09-22).** Elle lève un
+doute que j'avais laissé passer. `DRV.BITBANG` rend `cs=0 idle=1`, c'est-à-dire que `MISO` suit
+exactement le niveau de `nCS` — j'en avais conclu que le DRV pilotait `SDO` parce qu'il se voyait
+sélectionné, mais **deux lignes qui se touchent donnent la même trace**, sans qu'aucun composant
+ne fasse quoi que ce soit. Tant que ce doute tient, « le composant est vivant » n'est pas acquis.
+La commande relit `nCS` et `MISO` ensemble, en entrée, tirages opposés — aucune sortie pilotée,
+donc aucun conflit — et rend trois verdicts qui envoient à trois endroits : `ALIVE` (lignes
+séparées, le DRV a répondu : le défaut est bien sur `SCLK` ou `SDI`), `MUTE` (lignes séparées, le
+DRV n'a pas répondu : regarder son alimentation), `TIED` (`nCS` touche `SDO`). **À lancer dès que
+la carte est reflashée.**
+
 **Ce qui reste à départager : `SCLK` et `SDI`, rien d'autre.** Les deux hypothèses restantes sont
 indiscernables par le protocole, parce qu'une trame reçue toute à zéro est lue comme une écriture
 au registre 0, qui est en lecture seule : sans horloge comme sans donnée, l'effet observable est

@@ -497,8 +497,11 @@ static void CmdDrvPins(void)
   g.Pin       = PIN_SPI_SCK | PIN_SPI_MOSI;
   g.Pull      = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &g);
-  g.Pin  = PIN_SPI_MISO;
-  g.Pull = GPIO_PULLUP;
+  /* Sans tirage, comme `Drv8304_Init` : la resistance externe existe et une seconde en
+   * parallele ne ferait que deplacer le niveau continu du bus. Laisser la commande de
+   * diagnostic poser une configuration que le firmware ne choisit nulle part est
+   * exactement le genre d'ecart qui se paie deux jours plus tard. */
+  g.Pin = PIN_SPI_MISO;
   HAL_GPIO_Init(GPIOB, &g);
 
   Link_TxPrintf("OK miso=%lu,%lu sck=%lu,%lu mosi=%lu,%lu ncs=%lu\r\n",
@@ -510,6 +513,74 @@ static void CmdDrvPins(void)
                 (unsigned long)((up   & PIN_SPI_MOSI) != 0U),
                 (unsigned long)(HAL_GPIO_ReadPin(PIN_DRV_NCS_PORT, PIN_DRV_NCS) ==
                                 GPIO_PIN_SET));
+}
+
+/* `nCS` et `SDO` relus ensemble, en entree, avec des tirages opposes.
+ *
+ * Ecrite parce qu'une hypothese manquait a l'appel et qu'elle expliquait tout autrement.
+ * `DRV.BITBANG` rend `cs=0 idle=1` : `MISO` suit exactement le niveau de `nCS`. On en a
+ * conclu que le DRV pilotait `SDO` parce qu'il se voyait selectionne — mais **deux lignes
+ * reliees entre elles donnent la meme trace**, sans qu'aucun composant ne fasse quoi que
+ * ce soit. Tant que ce doute tient, « le composant est vivant » n'est pas acquis, et on
+ * enverrait quelqu'un verifier deux fils alors que le defaut serait ailleurs.
+ *
+ * Le montage separe les deux cas sans jamais piloter quoi que ce soit — que des entrees,
+ * donc aucun conflit possible :
+ *
+ *   `nCS` en entree tiree vers le **bas**. Si le fil ne va qu'au DRV, dont l'entree est en
+ *   haute impedance, rien ne s'oppose au tirage : la broche lit 0 et le DRV se croit
+ *   selectionne.
+ *   `MISO` en entree tiree vers le **haut**, en plus de sa resistance externe. Seul un
+ *   pilotage actif peut encore la faire descendre.
+ *
+ * Trois verdicts, et ils envoient a trois endroits differents :
+ *
+ *   `ncs=0 miso=0`  ALIVE : lignes separees, et le DRV a bien reagi a la selection en
+ *                   tirant `SDO` bas contre le tirage. Le composant est alimente et
+ *                   reveille, et le defaut est sur `SCLK` ou `SDI`.
+ *   `ncs=0 miso=1`  MUTE : lignes separees, et le DRV n'a pas repondu. Ce n'est plus une
+ *                   histoire de fil de bus — il faut regarder son alimentation.
+ *   `ncs=1 ...`     TIED : quelque chose tient `nCS` haut alors que rien ne devrait. La
+ *                   resistance externe de `SDO` en est la source la plus probable, ce qui
+ *                   veut dire que les deux lignes se touchent.
+ *
+ * Restaure `nCS` en sortie haute et `MISO` a l'alternate sans tirage, c'est-a-dire l'etat
+ * exact que pose `Drv8304_Init` — sinon le bus resterait dans une configuration que le
+ * firmware ne choisit nulle part. */
+static void CmdDrvNcs(void)
+{
+  GPIO_InitTypeDef g = {0};
+
+  g.Mode  = GPIO_MODE_INPUT;
+  g.Speed = GPIO_SPEED_FREQ_LOW;
+  g.Pull  = GPIO_PULLDOWN;
+  g.Pin   = PIN_DRV_NCS;
+  HAL_GPIO_Init(PIN_DRV_NCS_PORT, &g);
+  g.Pull  = GPIO_PULLUP;
+  g.Pin   = PIN_SPI_MISO;
+  HAL_GPIO_Init(PIN_SPI_MISO_PORT, &g);
+  /* Le DRV8304 met quelques microsecondes a prendre la main sur `SDO` apres la selection ;
+   * deux millisecondes couvrent ca et la constante de temps du bus avec une large marge. */
+  HAL_Delay(2U);
+
+  const uint32_t ncs =
+      (HAL_GPIO_ReadPin(PIN_DRV_NCS_PORT, PIN_DRV_NCS) == GPIO_PIN_SET) ? 1U : 0U;
+  const uint32_t miso =
+      (HAL_GPIO_ReadPin(PIN_SPI_MISO_PORT, PIN_SPI_MISO) == GPIO_PIN_SET) ? 1U : 0U;
+
+  HAL_GPIO_WritePin(PIN_DRV_NCS_PORT, PIN_DRV_NCS, GPIO_PIN_SET);
+  g.Mode = GPIO_MODE_OUTPUT_PP;
+  g.Pull = GPIO_NOPULL;
+  g.Pin  = PIN_DRV_NCS;
+  HAL_GPIO_Init(PIN_DRV_NCS_PORT, &g);
+  g.Mode      = GPIO_MODE_AF_PP;
+  g.Alternate = GPIO_AF5_SPI2;
+  g.Pin       = PIN_SPI_MISO;
+  HAL_GPIO_Init(PIN_SPI_MISO_PORT, &g);
+
+  Link_TxPrintf("OK ncs=%lu miso=%lu verdict=%s\r\n", (unsigned long)ncs,
+                (unsigned long)miso,
+                (ncs != 0U) ? "TIED" : ((miso != 0U) ? "MUTE" : "ALIVE"));
 }
 
 /* Martele une lecture de registre pendant quelques secondes, pour qu'on puisse poser un
@@ -1040,6 +1111,8 @@ void Console_ExecuteLine(const char *line)
     CmdDrvLoop(arg);
   } else if (Match(line, "DRV.PINS", NULL)) {
     CmdDrvPins();
+  } else if (Match(line, "DRV.NCS", NULL)) {
+    CmdDrvNcs();
   } else if (Match(line, "DRV.PROBE", NULL)) {
     /* Critère de l'étape 2 : une écriture se relit. Ne laisse aucune trace dans le DRV. */
     Reply(Drv8304_Probe() ? "OK" : "ERR DRV");

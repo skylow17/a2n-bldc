@@ -64,6 +64,7 @@ export const CONSOLE_GROUPS: ConsoleGroup[] = [
       { verb: 'DRV.CAL', syntax: 'DRV.CAL <ON|OFF>', summary: 'Drives the CAL pin, which shorts the shunt amplifier inputs for offset calibration.' },
       { verb: 'DRV.CLR', syntax: 'DRV.CLR', summary: 'Clears latched driver faults over SPI.' },
       { verb: 'DRV.PINS', syntax: 'DRV.PINS', summary: 'Reads the three SPI lines as digital inputs, pulled down then up, plus nCS. Says whether a line is free, held low or held high.' },
+      { verb: 'DRV.NCS', syntax: 'DRV.NCS', summary: 'Reads nCS and SDO together as inputs with opposite pulls. Tells a driver that answers its own select apart from two lines that simply touch, which look identical otherwise.' },
       { verb: 'DRV.BITBANG', syntax: 'DRV.BITBANG [<tx_hex>]', summary: 'Drives one 16-bit frame by hand at 10 us per bit, sampling MISO on both clock edges. Says whether the part answers at all, and whether the hardware SPI is half a clock out.' },
       { verb: 'DRV.LOOP', syntax: 'DRV.LOOP [<ms>]', summary: 'Hammers a register read for a few seconds so a scope can trigger on the SPI lines. Counts the transfers that completed and what they returned.' },
     ],
