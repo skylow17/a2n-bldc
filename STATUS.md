@@ -8,7 +8,7 @@ Ce fichier ne contient **aucun chiffre volatil** (nombre de tests, occupation fl
 Ces valeurs se mesurent, elles ne se recopient pas : `python tools/status.py` les relève sur le
 dépôt réel. Une valeur écrite à la main est fausse le lendemain.
 
-Dernière revue : 2026-09-22, sur carte — le SPI du DRV retesté après ressoudage : la panne est côté commande et il ne reste que deux fils à contrôler.
+Dernière revue : 2026-09-22, sur carte — le SPI du DRV retesté après ressoudage : la panne est côté commande, et une mesure de plus doit passer avant le fer à souder.
 
 > **Reprise suivante — par où commencer.** Les deux défauts matériels sont **expliqués**, et
 > aucun des deux n'est une panne : ce sont deux erreurs de conception, l'une et l'autre
@@ -20,14 +20,30 @@ Dernière revue : 2026-09-22, sur carte — le SPI du DRV retesté après ressou
 > `csa_raw` groupés à 2 counts près autour de la mi-échelle, et l'oscillation a disparu avec
 > son oscillateur. L'étape 4 n'est plus bloquée par le matériel.
 >
+> **À faire en premier, avant toute mesure : couper et rétablir l'alimentation de la carte.**
+> Un flux de mise à jour a été interrompu en plein écriture le 2026-09-22. La carte énumère
+> en USB mais ne répond plus — ni console applicative, ni bootloader. Rien n'est perdu :
+> l'écriture porte sur le slot **inactif**, le slot actif n'est jamais touché, et les
+> métadonnées sont protégées par CRC, donc un candidat incomplet est rejeté au démarrage.
+> Un cycle d'alimentation suffit. Ensuite, reflasher : `DRV.NCS` est écrite mais n'a jamais
+> tourné.
+>
 > **Un défaut a été trouvé dans la foulée : le SPI du DRV ne répond plus.** Tous les
 > registres se relisent à zéro. Constaté le 2026-09-21, mais la dernière preuve qu'il
 > fonctionnait date du 2026-09-16, **avant le remplacement de `U3`** : les zéros lus après
-> ce remplacement avaient été pris pour « aucune faute ». Premier suspect, donc, la soudure
-> de `U3` broches 26 à 29. Deux hypothèses ont été formulées et réfutées par la mesure ; il
-> faut maintenant un oscilloscope. `DRV.LOOP 5000` martèle une lecture pour qu'on puisse déclencher dessus,
-> sondes sur `U3` broches 29, 28, 27 et 26 — toutes en bord de boîtier. Détail et ordre des
-> vérifications dans « Le SPI du DRV ne répond plus ».
+> ce remplacement avaient été pris pour « aucune faute ».
+>
+> **Le 2026-09-22, le ressoudage n'a rien changé et une mesure a déplacé la frontière.**
+> Deux écritures de registre dont l'effet se lit sur une mesure **analogique**, sans jamais
+> relire le SPI, n'ont produit aucun changement : le DRV ne reçoit **aucune commande**, et le
+> chemin de lecture n'est plus en cause. Restent `SCLK` et `SDI`, que le protocole ne peut pas
+> départager — un contrôle de continuité suffit, `PB13` → `U3` **28** et `PB15` → `U3` **27**,
+> en se rappelant que le schéma étiquette ces deux-là à l'envers.
+>
+> **Mais une hypothèse restait ouverte, et elle passe avant le fer à souder.** `MISO` suit
+> exactement le niveau de `nCS`, ce qui se lit aussi bien « le DRV répond à sa sélection » que
+> « les deux lignes se touchent ». `DRV.NCS` tranche les deux en une mesure, sans rien piloter.
+> **C'est le premier geste après le reflash.** Détail dans « Le SPI du DRV ne répond plus ».
 >
 > **Ne pas alimenter l'étage de puissance avant d'avoir compris** : `nFAULT` tient et la
 > coupure ne passe pas par le SPI, mais on ne saurait ni lire une faute ni régler le gain
