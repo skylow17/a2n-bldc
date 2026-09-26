@@ -10,7 +10,8 @@ sert à le régler et à l'instrumenter.
 | `docs/protocol.md` | La liaison USB CDC entre les deux. **Seule autorité** : toute évolution y passe d'abord. |
 | `docs/Schematics.pdf` | Schéma du PCB (KiCad, rev A). |
 | `AGENTS.md` | Le contrat de travail : matériel, protocole, règles de sécurité, conventions. À lire en premier. |
-| `STATUS.md` | Où en est le projet, jalon par jalon, et ce qui reste à valider sur matériel. |
+| `STATUS.md` | Où en est le projet, jalon par jalon, et ce qui reste à valider sur matériel. **Commencer par sa section « Reprise ».** |
+| `docs/hardware-revB.md` | Ce que la carte rev A a appris : la liste de travail de la révision matérielle suivante. |
 
 Le firmware historique `a2n-bldc-controller` est **gelé** et vit dans un dépôt séparé ; il sert de
 référence matérielle, pas de base de travail. Voir `AGENTS.md` §1.
@@ -165,10 +166,13 @@ npm run build      # empaquetage dans out/
 ```
 
 Elle se connecte au choix à une carte ou au device simulé, par le même sélecteur. Ce qui
-est visible correspond à ce que le firmware sait faire : les vues **Control**, **Scope**,
-**Recipes** et **Firmware** restent grisées tant que leurs workflows UI ne sont pas raccordés.
-Le codec de capture et la première cible bootloader existent déjà en dessous.
-Proposer des boutons qui échoueraient serait pire que de ne rien proposer.
+est visible correspond à ce que le firmware sait faire : **Dashboard**, **Tuning**, **Control**
+(armement, boucle ouverte, boucles de courant, de vitesse et de position), **Scope** et
+**Firmware** sont raccordés ; seule **Recipes** reste grisée. Proposer des boutons qui
+échoueraient serait pire que de ne rien proposer.
+
+**L'application tourne depuis `out/`** quand on la lance par `electron .` : après une
+modification, `npm run build` puis relancer — sinon on regarde l'ancienne version.
 
 ### Le serveur MCP
 

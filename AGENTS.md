@@ -249,6 +249,8 @@ type ; elle s'est déjà produite et a dû être reprise.
 
 **À faire**
 
+- Commencer une session par la section **« Reprise »** de `STATUS.md` : état, stack, commandes,
+  limites, points ouverts et pièges connus, en une page.
 - Lire `docs/protocol.md` avant toute modification de la liaison, des deux côtés.
 - Reproduire d'abord sur le **simulateur** de l'interface : il parle le même protocole et permet de
   valider une séquence sans risque matériel.

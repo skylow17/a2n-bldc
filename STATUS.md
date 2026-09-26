@@ -10,51 +10,147 @@ dépôt réel. Une valeur écrite à la main est fausse le lendemain.
 
 Dernière revue : 2026-09-26, sur carte — M2 complet ; M3 complet rotor libre : boucle ouverte, boucles de courant, de vitesse et de position validées.
 
-> **Reprise suivante — par où commencer.** Les deux défauts matériels sont **expliqués**, et
-> aucun des deux n'est une panne : ce sont deux erreurs de conception, l'une et l'autre
-> lisibles dans la datasheet du composant concerné. Voir
-> [« Une référence à 2,048 V, deux composants qui ne peuvent pas s'en contenter »](#une-référence-à-2048-v-deux-composants-qui-ne-peuvent-pas-sen-contenter).
->
-> **C'est fait, et ça a marché.** `U5` est déposé, ses pastilles 1 et 6 pontées, le net
-> `VREF` est passé à 3,3 V : les trois amplis de shunt fonctionnent pour la première fois,
-> `csa_raw` groupés à 2 counts près autour de la mi-échelle, et l'oscillation a disparu avec
-> son oscillateur. L'étape 4 n'est plus bloquée par le matériel.
->
-> **Le SPI du DRV répond de nouveau (2026-09-26), prouvé de bout en bout.** Panne constatée
-> le 2026-09-21, localisée par la mesure sur `SCLK` ou `SDI` sans oscilloscope, réparée à la
-> main : **le fil `SCLK` était soudé du mauvais côté de la piste coupée**. `DRV.PROBE` passe, les registres se relisent aux valeurs de reset de la fiche
-> technique, et surtout **une écriture change une mesure analogique** : `VREF_DIV = 0` fait
-> monter les trois `SOx` à `VREF − 0,3 V`, `SPI_CAL = 1` effondre leur bruit, et tout revient au
-> count près. Le gain des amplis relu est bien **20 V/V**. Détail dans « Le SPI du DRV ne
-> répond plus ».
->
-> **Ne pas alimenter l'étage de puissance avant d'avoir compris** : `nFAULT` tient et la
-> coupure ne passe pas par le SPI, mais on ne saurait ni lire une faute ni régler le gain
-> des amplis.
->
-> **Côté interface, les deux fonctions qui manquaient** — naviguer dans la télémétrie figée
-> et l'exporter en CSV — sont faites depuis le 2026-09-26 ; voir « À reprendre sur
-> l'interface ».
->
-> Côté logiciel, rien n'attend. Le **watchdog de flux de commandes** est en place des deux
-> côtés et éprouvé sur carte : c'était le dernier prérequis de M3 (`AGENTS.md` §4.3). Le
-> tableau de bord montre enfin ce que la carte mesure, et la console se filtre.
->
-> L'**étape 6 est écrite, mesurée et validée à titre provisoire** (AS5600 en DMA à 1 MHz),
-> hors séquence. La réserve sur l'aimant est **levée le 2026-09-26** : il est bien vu, mais
-> faible — gain automatique en butée — et les bits de `STATUS` le déclarent absent à tort.
-> La validité de l'angle se fonde désormais sur la magnitude du champ. Reste le taux
-> d'erreurs I²C sur longue durée, à surveiller. Détail dans la section de l'étape 6.
->
-> **Le firmware a été stabilisé le 2026-09-26**, et c'est de là que repart la suite : les deux
-> slots portent la même image, construite depuis un clone frais du dépôt, et cinq défauts
-> trouvés en regardant la carte tourner sont corrigés. Voir « Stabilisation du firmware ».
+## Reprise — à lire en premier (2026-09-26)
 
-> **Cette revue a repris des états faux.** La passe du 2026-09-15 a marqué « validé sur carte » des
-> jalons dont le code n'a jamais été commité. Le détail est plus bas, section
-> [« Ce que la revue du 2026-09-16 a trouvé »](#ce-que-la-revue-du-2026-09-16-a-trouvé). La règle
-> qui en sort : un état ne se note ici qu'après avoir été **mesuré sur le dépôt**, pas sur un arbre
-> de travail local.
+Ce bloc est écrit pour qu'un autre agent, ou une session sans mémoire, reprenne le projet sans
+rien omettre. Il résume ; les sections datées plus bas donnent les mesures et le raisonnement.
+Lire ensuite `AGENTS.md` (contrat, matériel, règles de sécurité), `docs/protocol.md` (seule
+autorité sur la liaison) et `docs/hardware-revB.md` (ce que la carte rev A a appris).
+
+### Où en est le projet
+
+- **M0 à M2 complets** sur la carte rev A retouchée : squelette temps réel, liaison USB,
+  protocole binaire et dictionnaire, télémétrie et scope, bootloader A/B, étage de puissance,
+  chaîne de courant calibrée, encodeur, paramètres moteur mesurés et **persistés en NVM**.
+- **M3 complet, rotor libre** : boucle ouverte (étape 10), boucle de courant Id/Iq (11), boucle
+  de vitesse (12), boucle de position (13) — la cascade complète. **Pas d'essai sous charge**, ni
+  de perturbation appliquée à la main : la raideur du maintien n'est pas mesurée.
+- **Interface** : application Electron complète — Dashboard, Tuning, **Control** (armement,
+  boucle ouverte, courant, vitesse, position), Scope, Firmware — plus une CLI et un serveur MCP.
+  Seule la vue *Recipes* reste à faire.
+
+### État de la carte au moment d'écrire
+
+- Les deux slots A et B portent le même build, commité. Bootloader installé : **`boot-1.0.0`**.
+  `boot-1.1.0` (garde ECC des métadonnées) est compilé mais **pas installé** : il se flashe par
+  SWD, en présence de l'utilisateur, avec la commande donnée dans « Persistance des
+  paramètres » — **jamais** par `make install-bootloader`, dont le `-e all` effacerait aussi la
+  calibration et les deux slots.
+- NVM : `motor.pole_pairs` 7, `motor.r_ohm` 3,6, `motor.l_h` 0,0011, `enc.elec_offset_rad`
+  3,108, `enc.direction` −1, `imot.scale_a` 0,00182. `NVM?` doit rendre `valid=1 … loaded=6`.
+- Matériel retouché à la main : `U5` déposé et ponté (VREF = 3,3 V), SPI2 recâblé par fils —
+  **le fil `SCLK` est le point fragile** (signature de panne dans `AGENTS.md` §2).
+
+### Stack
+
+**Firmware** (`controller-2/`) — C, HAL STM32G4, `make`, toolchain GNU Arm de STM32CubeIDE.
+STM32G473, 144 MHz, PWM centrée 20 kHz, ISR de contrôle déclenchée par l'ADC injecté.
+
+| Module | Rôle |
+|---|---|
+| `ctrl.c` | ISR 20 kHz : ADC → encodeur → courants → sécurité → FOC → boucle ouverte → stats/scope |
+| `foc.c` | Mesure Id/Iq (Clarke, Park, sin/cos par le **CORDIC**), PI de courant, de vitesse, de position, compensation du temps mort |
+| `openloop.c` | Boucle ouverte (étape 10) |
+| `safety.c` | Barrière : armement, surintensité, survitesse, watchdog de flux, fautes latchées |
+| `imot.c` | Zéro et gains par voie de la chaîne de courant, reconstruction de la zone morte |
+| `encoder.c` | AS5600 en I²C DMA, position congrue à `RAW_ANGLE`, vitesse estimée |
+| `pwm.c`, `adc_sync.c`, `drv8304.c`, `sensors.c` | Étage de puissance, synchro ADC, driver SPI, rails |
+| `nvm.c` | Persistance du dictionnaire, deux pages alternées, garde ECC |
+| `wdg.c` | IWDG applicatif (200 ms, hors probation) et cause du démarrage |
+| `boot_shared.c` | Passage de relais avec le bootloader, probation, marque de marche |
+| `console.c`, `link_usb.c` | Console ASCII, transport USB CDC |
+| `comm/` | Protocole binaire : trames, dictionnaire de paramètres, signaux, scope, autotest |
+| `Boot/` | Bootloader A/B séparé (32 Ko), mise à jour et rollback |
+
+Le chemin de l'ISR est compilé en `-O2` et **exécuté depuis la CCM SRAM**, protégée en écriture
+(`ISR_PATH` du Makefile et `.ccmram_text` des linkers : les deux listes vont ensemble).
+
+**Interface** (`interface/`) — TypeScript, Node ≥ 20, Electron + React 19 + Tailwind + uPlot,
+`zod` sur la frontière IPC, `serialport`, SDK MCP, tests `vitest`.
+
+| Dossier | Rôle |
+|---|---|
+| `src/shared/` | Codec du protocole, `client.ts` (DeviceClient), **simulateur** de carte |
+| `src/node/serial.ts` | Transport série |
+| `src/main/device/DeviceCore.ts` | État partagé de l'application, battement de sécurité à 80 ms |
+| `src/main/mcp/` | Serveur MCP sur `http://127.0.0.1:4817/mcp`, mêmes chemins que l'UI |
+| `src/renderer/` | Vues React |
+| `src/cli/main.ts` | CLI de bring-up : `check`, `firmware-update`, `scope`, `telem`, `console`… |
+
+### Commandes de travail
+
+```
+# firmware — PATH : make de STM32CubeIDE (voir README)
+cd controller-2
+make app-slot-a | make app-slot-b     # images pour le bootloader, une par slot
+make                                  # image autonome de bring-up (0x08000000), jamais dans un slot
+make bootloader
+
+# flasher sans sonde : écrit le slot inactif, vérifie, probation, audit
+cd interface
+npx tsx src/cli/main.ts boot-check --port COM3          # quel slot est actif
+npx tsx src/cli/main.ts firmware-update ../controller-2/build/slot-b/a2n-bldc-slot-b.bin 2.0.0-m2a --port COM3
+npx tsx src/cli/main.ts check --port COM3               # validation protocole de bout en bout
+
+# interface
+npm test && npm run typecheck && npm run build          # l'app tourne sur out/ : rebuild + relance
+./node_modules/electron/dist/electron.exe .             # lancement (ou npm run dev)
+```
+
+La règle de vérification complète est en fin de fichier ; ses **six étapes passent** au
+2026-09-26, l'étape 4 grâce au clang du paquet Python `ziglang`.
+
+### Limites du firmware — toutes dans le firmware, aucune dans le PC
+
+| Limite | Valeur | Où |
+|---|---|---|
+| Armement | Rien n'alimente l'étage sans `ARM` ; reset, faute, perte d'hôte, `STOP`, `DISARM` désarment | `safety.c` |
+| Watchdog de flux | 250 ms sans message de l'hôte, sorties actives : coupure latchée `cmd_timeout` | `safety.c` |
+| Surintensité | 500 counts corrigés ≈ 0,9 A, dans l'ISR, latchée `overcurrent` | `safety.h` |
+| Survitesse | 25 rad/s mécaniques pendant 2 ms, tout mode, latchée `overspeed` | `safety.h` |
+| Angle perdu | Boucle de courant active et angle invalide : latchée `angle_lost` | `foc.c` |
+| PWM d'essai | Rapports 0–800 ‰, écart entre bras ≤ 100 ‰, impulsion 1–200 ms | `pwm.h` |
+| Tension de commande | ≤ 57 ‰ du rail (≈ 0,85 V à 15 V), boucle ouverte et boucle de courant | `openloop.h` |
+| Boucle ouverte | ≤ 57 ‰, ≤ 20 Hz électriques, ≤ 10 s | `openloop.h` |
+| Boucle de courant | ≤ 300 mA par axe, ≤ 10 s ; PI à 500 Hz calculés de R et L | `foc.h` |
+| Boucle de vitesse | ≤ 20 rad/s, Iq ≤ 150 mA, ≤ 10 s ; 30 Hz par défaut (1–40) | `foc.h` |
+| Boucle de position | ≤ 2 tours par commande, vitesse ≤ 10 rad/s, ≤ 10 s ; 3 Hz (0,5–5) | `foc.h` |
+| Paramètres | `requires_disarm` refusés sorties actives ; entrées calibrées épargnées par la remise à zéro | `param.c` |
+| IWDG applicatif | 200 ms, rafraîchi par la superloop, jamais en probation | `wdg.h` |
+| MCP | Aucun mouvement ni armement exposé ; écritures soumises à « AI control » | `server.ts` |
+
+Toutes les boucles coupent les sorties au terme de leur durée : l'arbre n'est plus tenu.
+
+### Ce qui reste ouvert, par priorité
+
+1. **Installer `boot-1.1.0`** par SWD (garde ECC des métadonnées du bootloader).
+2. **Essais sous charge** des boucles de vitesse et de position ; la bande passante de vitesse
+   repose sur l'inertie du **rotor libre** (≈ 1,1·10⁻⁴ A par rad/s²).
+3. **Relever la tension de commande** (57 ‰) une fois le banc validé en charge : c'est elle qui
+   plafonne la vitesse, pas le moteur. Décision de sécurité, à l'utilisateur.
+4. Maintien de position sans limite de durée : même nature de décision.
+5. Boucle ouverte sur le CORDIC (`cosf`/`sinf` en flash la portent à 12,8 µs au pire).
+6. Scripts d'essai des étapes 10 à 13, restés hors du dépôt : en faire des commandes du CLI.
+7. Chemin `nFAULT` → coupure jamais provoqué physiquement (décision utilisateur).
+8. Pic d'âge d'encodeur de ≈ 65 ms vu une fois après une mise à jour : cause inconnue.
+9. Vue *Recipes* de l'interface.
+10. Tout ce qui est matériel : `docs/hardware-revB.md`.
+
+### Pièges connus — ils ont tous coûté du temps
+
+- **L'image autonome n'entre jamais dans un slot.** L'hôte le refuse désormais d'après la
+  marque de liaison ; le bootloader, lui, l'a acceptée une fois.
+- **La CLI `console` ferme le port à chaque commande** : l'hôte disparaît, la carte désarme.
+  Tout essai qui arme demande une session qui garde le port ouvert (script, interface).
+- **L'interface tourne depuis `out/`** : après un changement, `npm run build` puis relancer l'app.
+- **Un seul client sur `COM3`** : déconnecter l'interface (outil MCP `device_disconnect`) avant
+  la CLI, reconnecter après.
+- **Édition de fichiers depuis bash** : les heredocs avalent les barres obliques inverses, et
+  `sed` avec `\|` est une alternance GNU. Écrire les scripts Python par l'outil d'écriture.
+- **Derrière le bootloader, les drapeaux de reset du RCC sont vides** : `RESET?` le dit
+  (`cause=cleared`) et `prev=` complète.
+- **Les chiffres de ce fichier sont datés** : ils décrivent la carte rev A retouchée, ce moteur,
+  ce jour. Les remesurer avant de s'y fier.
 
 ---
 
