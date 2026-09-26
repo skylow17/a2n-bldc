@@ -256,6 +256,33 @@ export function groupByUnit(
   return [...byUnit.entries()];
 }
 
+/**
+ * Données avec lesquelles un graphe est **créé**. Fonction pure, testée, parce que c'est ici
+ * qu'est né le défaut qu'elle corrige.
+ *
+ * Le graphe naissait toujours vide, et une capture n'y entrait que par l'effet de données —
+ * lequel ne se relance que si la capture change. Or le graphe se recrée pour d'autres
+ * raisons : au premier affichage, `ChartStack` n'a pas encore mesuré sa place et donne la
+ * hauteur plancher, puis la mesure arrive et changeait la hauteur. Le graphe recréé restait
+ * vide, la capture étant la même : **la première capture ne s'affichait jamais**, les
+ * suivantes si, puisque la hauteur était alors connue (2026-09-26).
+ *
+ * Un flux, lui, repeint à chaque trame et n'a rien à recevoir ici.
+ */
+export function initialPlotData(
+  t: readonly number[],
+  series: readonly (readonly number[])[],
+  count: number,
+  hasFeed: boolean,
+): number[][] {
+  if (hasFeed || t.length === 0) {
+    return [[], ...Array.from({ length: count }, () => [])];
+  }
+  // Exactement une série par libellé : uPlot suppose l'alignement, et une série manquante
+  // se remplace par du vide plutôt que de décaler les suivantes.
+  return [t as number[], ...Array.from({ length: count }, (_, i) => (series[i] ?? []) as number[])];
+}
+
 /* Jetons du thème, lus une fois. uPlot dessine sur un canvas : il lui faut des couleurs
  * résolues, une variable CSS ne lui sert à rien. */
 function token(name: string, fallback: string): string {
@@ -289,8 +316,21 @@ export function TimeSeriesChart({
   // a comparer des identites toujours neuves : uPlot etait detruit et reconstruit trente
   // fois par seconde, et c'est exactement ce que l'en-tete de ce fichier dit qu'il ne faut
   // pas faire. On compare donc leur contenu, et on lit les tableaux par reference.
-  const cfg = useRef({ labels, colors, series });
-  cfg.current = { labels, colors, series };
+  const cfg = useRef({ labels, colors, series, t });
+  cfg.current = { labels, colors, series, t };
+  // La hauteur change quand `ChartStack` mesure sa place ou quand la fenêtre bouge. Elle
+  // passe par `setSize` : reconstruire le graphe pour elle perdait le zoom, et la capture
+  // avec, avant la correction d'`initialPlotData`.
+  const heightRef = useRef(height);
+  heightRef.current = height;
+  // `feed` est une fonction que l'appelant recree a chaque rendu : la mettre dans les
+  // dependances relancerait la boucle d'affichage pour rien. Seule compte sa presence, et
+  // la fonction elle-meme est lue par reference a chaque trame.
+  const hasFeed = feed !== null && feed !== undefined;
+  const hasFeedRef = useRef(hasFeed);
+  hasFeedRef.current = hasFeed;
+  /* Identite du tableau de temps deja confie au graphe — voir l'effet de donnees statiques. */
+  const lastT = useRef<readonly number[] | null>(null);
   const labelsKey = labels.join('|');
   const colorsKey = colors.join('|');
   // Le repère est lu à chaque tracé : il passe par une référence pour que le greffon n'ait
@@ -320,7 +360,7 @@ export function TimeSeriesChart({
     const u = new uPlot(
       {
         width: el.clientWidth || 600,
-        height,
+        height: heightRef.current,
         // Le temps est un écoulement en secondes depuis le début du flux, pas une date.
         scales: {
           x: { time: false },
@@ -382,15 +422,17 @@ export function TimeSeriesChart({
           })),
         ],
       },
-      [[], ...cfg.current.labels.map(() => [])] as uPlot.AlignedData,
+      initialPlotData(cfg.current.t, cfg.current.series, cfg.current.labels.length,
+        hasFeedRef.current) as uPlot.AlignedData,
       el,
     );
     plot.current = u;
+    lastT.current = hasFeedRef.current ? null : cfg.current.t;
 
     // Le panneau se redimensionne avec la fenêtre : sans cela le canvas garde sa largeur
     // initiale et la courbe se retrouve tronquée ou perdue dans du vide.
     const ro = new ResizeObserver(() => {
-      u.setSize({ width: el.clientWidth || 600, height });
+      u.setSize({ width: el.clientWidth || 600, height: heightRef.current });
     });
     ro.observe(el);
 
@@ -403,12 +445,15 @@ export function TimeSeriesChart({
     // dependances via `labelsKey` et `colorsKey`, et leurs identites changent a chaque
     // rendu. Les y remettre reconstruirait le canvas en continu.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [labelsKey, colorsKey, unit, height, showXLabel, xLabel, interactive, syncKey]);
+  }, [labelsKey, colorsKey, unit, showXLabel, xLabel, interactive, syncKey]);
 
-  // `feed` est une fonction que l'appelant recree a chaque rendu : la mettre dans les
-  // dependances relancerait la boucle d'affichage pour rien. Seule compte sa presence, et
-  // la fonction elle-meme est lue par reference a chaque trame.
-  const hasFeed = feed !== null && feed !== undefined;
+  // Changer de hauteur redimensionne, et ne reconstruit pas : le zoom et la capture restent.
+  useEffect(() => {
+    const u = plot.current;
+    const el = host.current;
+    if (u === null || el === null) return;
+    u.setSize({ width: el.clientWidth || 600, height });
+  }, [height]);
 
   /* Source statique — une capture.
    *
@@ -417,7 +462,6 @@ export function TimeSeriesChart({
    * le zoom et le deplacement se perdaient donc au moindre rendu du parent, sans qu'aucun
    * geste de l'utilisateur ne l'explique. On compare l'identite du tableau de temps, qui est
    * stable tant que la capture ne change pas, et on lit les series par reference. */
-  const lastT = useRef<readonly number[] | null>(null);
   useEffect(() => {
     const u = plot.current;
     if (u === null || hasFeed) return;
