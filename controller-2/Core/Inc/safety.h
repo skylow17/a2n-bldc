@@ -37,18 +37,24 @@ typedef enum
   SAFETY_OVERCURRENT = 5,  /**< un courant centré a dépassé `SAFETY_OC_LIMIT_COUNTS`  */
 } SafetyReason_t;
 
-/* Limite de courant, en counts centrés, sur chacune des trois phases. 20 V/V sur 10 mΩ
- * donnent 0,2 V/A, soit 4,03 mA par count sous une référence de 3,3 V : 500 counts font
- * ≈ 2,0 A. C'est la limite de l'étape 5, sur banc, alimentation limitée en courant.
+/* Limite de courant, en counts centrés et corrigés (échelle de la voie C, `imot.h`), sur
+ * chacune des trois phases. **500 counts font ≈ 0,9 A réels** : l'échelle absolue, mesurée à
+ * l'étape 7 contre un ampèremètre, vaut ≈ 1,82 mA par count à ±15 %, et non les 4,03 mA que
+ * donneraient 20 V/V sur 10 mΩ — les trois voies lisent trop haut, résistances parasites dans
+ * le chemin des shunts. La limite annoncée en conception était 2 A ; elle est donc plus
+ * stricte que prévu, et elle le reste : la relever sur une mesure à ±15 % serait élargir une
+ * limite sur une estimation.
  *
  * Une limite, pas un réglage (`AGENTS.md` §4) : elle ne se change pas depuis l'hôte, et
  * elle ne vaut que pour le gain qu'elle suppose — d'où la relecture de `CSA_CONTROL` à
  * chaque activation. À 5 V/V les mêmes 500 counts feraient 8 A, et la limite se serait
  * élargie sans que personne n'y touche.
  *
- * C'est une seconde ligne. L'ISR ne voit qu'un échantillon toutes les 50 µs, et un bobinage
- * de faible inductance peut dépasser la limite entre deux : la première ligne est la limite
- * de courant de l'alimentation. */
+ * L'ISR ne voit qu'un échantillon toutes les 50 µs. Sur ce moteur l'inductance borne la
+ * montée à quelques counts par période sous l'écart de rapport cyclique autorisé, et la coupure
+ * arrive bien avant la limite. La limite de courant de l'alimentation, elle, ne protège **pas**
+ * les phases : le courant de phase circule en roue libre dans les transistors bas, et
+ * l'alimentation n'en fournit que l'écart de rapport cyclique, quelques pour cent. */
 #define SAFETY_OC_LIMIT_COUNTS  500
 
 /* Durée maximale d'une impulsion d'essai. Sous les 250 ms du watchdog de flux : une

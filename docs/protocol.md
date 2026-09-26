@@ -252,7 +252,7 @@ Signaux présents à M2 :
 | 7 | `enc.pos_rad` | `rad` | AS5600, angle mécanique **extrapolé** à l'instant de l'ISR. Vaut 0 quand `enc.valid` vaut 0 |
 | 8 | `enc.vel_rad_s` | `rad/s` | vitesse mécanique estimée depuis deux angles consécutifs, filtrée. Vaut 0 quand `enc.valid` vaut 0 |
 | 9 | `enc.age_us` | `us` | âge de l'échantillon d'angle au moment où l'ISR l'a lu |
-| 10 | `current.ia_count` | `count` | ADC1 IN1 **moins l'offset mesuré, corrigé du gain de sa voie**, signé. Les trois voies n'ont pas le même gain sur cette carte (B lit 0,656 et C 1,195 fois ce que lit A, mesuré à l'étape 5) : chacune est ramenée à l'**échelle de la voie C**, la plus sensible, pour que les trois courants soient comparables entre eux. En counts et non en ampères : on sait quelles voies s'accordent, pas encore laquelle dit vrai. À l'échelle nominale — 20 V/V sur 10 mΩ — un count vaut 4,03 mA |
+| 10 | `current.ia_count` | `count` | ADC1 IN1 **moins l'offset mesuré, corrigé du gain de sa voie**, signé. Les trois voies n'ont pas le même gain sur cette carte (B lit 0,656 et C 1,195 fois ce que lit A, mesuré à l'étape 5) : chacune est ramenée à l'**échelle de la voie C**, la plus sensible, pour que les trois courants soient comparables entre eux. En counts et non en ampères : l'échelle absolue n'est connue qu'à ±15 %. L'échelle absolue, mesurée à l'étape 7 contre un ampèremètre, vaut ≈ 1,82 mA par count à ±15 % — et non les 4,03 mA nominaux de 20 V/V sur 10 mΩ : les trois voies lisent trop haut |
 | 11 | `current.ib_count` | `count` | ADC1 IN2, centré et corrigé, même échelle |
 | 12 | `current.ic_count` | `count` | ADC1 IN3, centré, voie de référence de l'échelle |
 | 13 | `enc.valid` | `bool` | 1 quand l'ISR dispose d'un angle exploitable : échantillon cohérent **et** champ suffisant, c'est-à-dire `MAGNITUDE` du capteur au moins égale à 256 (4 mesuré sans aimant, 1818 avec l'aimant de la carte). À 0, les signaux 7 et 8 valent 0 et ne doivent pas être lus comme une mesure |
@@ -551,12 +551,14 @@ s'élargit pour faire passer un essai (`AGENTS.md` §4).
 - **Coupure sur surintensité, dans l'ISR.** Si un courant centré et corrigé dépasse
   **500 counts** sur l'une des trois phases, `MOE` tombe dans
   le cycle même et la faute `overcurrent` est latchée. Les counts sont à l'échelle de la
-  voie C, la plus sensible des trois : on ignore encore laquelle dit vrai, et à cette échelle
-  500 counts font **au plus 2 A réels quelle que soit la réponse** — 2 A si c'est C, 1,7 A si
-  c'est A, 1,3 A si c'est B. La limite ne peut qu'être plus stricte que prévu, jamais plus
-  large. C'est une seconde ligne : l'ISR ne voit
-  qu'un échantillon toutes les 50 µs, et un bobinage de faible inductance peut dépasser la
-  limite entre deux. **La première ligne est la limite de courant de l'alimentation de labo.**
+  voie C, la plus sensible des trois. **500 counts font ≈ 0,9 A réels** : l'étape 7 a mesuré
+  l'échelle absolue contre un ampèremètre, ≈ 1,82 mA par count à ±15 %, et non les 4,03 mA
+  nominaux — les trois voies lisent trop haut. La limite est plus stricte que les 2 A prévus en
+  conception, et elle le reste : la relever sur une mesure à ±15 % serait élargir une limite
+  sur une estimation. L'ISR ne voit qu'un échantillon toutes les 50 µs ; l'inductance du
+  moteur borne la montée bien sous la limite par période. **La limite de courant de
+  l'alimentation ne protège pas les phases** : le courant de phase circule en roue libre dans
+  les transistors bas, et l'alimentation n'en fournit que l'écart de rapport cyclique.
 - **Pas d'activation sans zéro mesuré.** La surveillance compare le courant à l'offset de
   la chaîne ; sans offset mesuré (`IMOT?` `measured=0`), elle ne voudrait rien dire. Refus :
   `ERR NOZERO`.
@@ -567,7 +569,7 @@ s'élargit pour faire passer un essai (`AGENTS.md` §4).
 | `PWM ON` | `OK` / `ERR DRV` / `ERR FAULT` / `ERR LATCHED` / `ERR LINK` / `ERR NOZERO` / `ERR CAL` / `ERR CSA` | Lève `MOE`. Refusé si le DRV8304 ne répond pas ou signale une faute, avec une faute latchée, sans hôte — et chaque fois que la surveillance du courant ne pourrait pas fonctionner : zéro jamais mesuré (`NOZERO`), broche `CAL` levée ou campagne d'offset en cours (`CAL`, les amplis ne voient plus les shunts), `CSA_CONTROL` hors de 20 V/V, `VREF_DIV` à 1 et `SPI_CAL` à 0 (`CSA`, relu à chaque activation : la limite en counts ne vaut 2 A que pour ce gain) |
 | `PWM.PULSE <a> <b> <c> <ms>` | mêmes réponses que `PWM ON`, plus `ERR ARG` / `ERR LIMIT` / `ERR BUSY` | **L'essai de l'étape 5.** Pose les rapports cycliques, lève `MOE`, et le rabaisse de lui-même au bout de `<ms>`, **1 à 200 ms**, décomptés dans l'ISR à 20 kHz : la durée ne dépend ni de l'hôte ni de la superloop. 200 ms reste sous les 250 ms du watchdog de flux, qu'une impulsion n'a donc jamais besoin d'alimenter. Répond dès que `MOE` est levé ; la fin se lit dans `PWM?` et `SAFETY?` (`reason=requested`, non latchée). Une surintensité l'interrompt comme n'importe quoi d'autre. `ERR BUSY` si les sorties sont déjà actives : une impulsion ne se greffe pas sur un `PWM ON` |
 | `PWM OFF` | `OK` | Coupe `MOE`, comme `STOP` |
-| `PWM?` | `OK enabled=<0/1> a=<‰> b=<‰> c=<‰> host=<0/1> peak=<a>,<b>,<c>` | État. `peak` est le pire courant absolu vu par phase depuis la dernière activation, en counts centrés (≈ 4,03 mA par count) — la mesure de l'étape 5 sans passer par le scope |
+| `PWM?` | `OK enabled=<0/1> a=<‰> b=<‰> c=<‰> host=<0/1> peak=<a>,<b>,<c>` | État. `peak` est le pire courant absolu vu par phase depuis la dernière activation, en counts centrés et corrigés (≈ 1,82 mA par count, mesuré à l'étape 7) — la mesure de l'étape 5 sans passer par le scope |
 
 **`host`** est la présence de l'hôte vue du firmware : DTR levé par le port ouvert côté PC et
 bus USB actif. Elle retombe quand le port se ferme, quand le câble part ou quand le bus se

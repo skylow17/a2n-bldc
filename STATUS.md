@@ -8,7 +8,7 @@ Ce fichier ne contient **aucun chiffre volatil** (nombre de tests, occupation fl
 Ces valeurs se mesurent, elles ne se recopient pas : `python tools/status.py` les relève sur le
 dépôt réel. Une valeur écrite à la main est fausse le lendemain.
 
-Dernière revue : 2026-09-26, sur carte — étape 5 : gains par voie corrigés, somme à 4,5 % ; étapes 8 et 9 validées : 7 paires de pôles, décalage électrique 178,1°.
+Dernière revue : 2026-09-26, sur carte — M2 presque complet : étape 5 close, étape 7 mesurée (R ≈ 3,6 Ω, L ≈ 1,1 mH, NVM à faire), étapes 8 et 9 validées.
 
 > **Reprise suivante — par où commencer.** Les deux défauts matériels sont **expliqués**, et
 > aucun des deux n'est une panne : ce sont deux erreurs de conception, l'une et l'autre
@@ -68,7 +68,7 @@ Dernière revue : 2026-09-26, sur carte — étape 5 : gains par voie corrigés,
 | **M1c** | Télémétrie souscrite + buffer scope | **Validé sur carte le 2026-09-16** : `telem` sans trou, `scope` 2048 points sur 4 signaux à la cadence de boucle | Coût de l'échantillonnage scope dans l'ISR, voir la piste plus bas |
 | **M1d** | CLI de bring-up | Validé sur simulateur **et sur carte** — toutes les commandes, `firmware-update` compris | — |
 | **Boot** | Bootloader A/B, probation et rollback | **Validé sur carte le 2026-09-16** : installation SWD, `BOOT_INFO`, mise à jour nominale promue, rollback sur image qui ne confirme jamais | Rien ; un défaut trouvé sur carte, corrigé, rejoué |
-| **M2** | Étage de puissance et capteurs (étapes 2 à 9) | **Étape 2 : validée le 2026-09-16, régression du 2026-09-21 réparée et revalidée le 2026-09-26** — écriture-relecture par `DRV.PROBE`, et une écriture de registre dont l'effet se lit sur la mesure analogique. Voir plus bas. Pour mémoire, la validation d'origine : le DRV8304 répond en SPI, sept registres relus cohérents avec la fiche technique, écriture-relecture par `DRV.PROBE`, fautes lisibles. **Étape 3 validée à l'oscilloscope le 2026-09-18** : trois bras complémentaires à 20 kHz, temps mort 500 ns aux deux fronts, rapports 20/50/80 % suivis, aucune conduction croisée — après avoir trouvé que les sorties basses n'avaient jamais été activées. **Étape 4 entamée le 2026-09-18**, puis reprise le 2026-09-20 après remplacement de U3 : un défaut d'acquisition corrigé, et **deux défauts matériels isolés** — voir plus bas | Étape 4 : **offsets et bruit mesurés et documentés le 2026-09-21** — zéro de chaîne à 1–11 counts de la mi-échelle, répétable à ±1 count sur quatre campagnes, écart-type de 1,4 à 2,0 counts avec `CAL` levé. Ni SPI ni sortie de puissance requis. Gain relu à 20 V/V le 2026-09-26. **Depuis le 2026-09-26 le zéro est mesuré à chaque démarrage**, sorties coupées, et refusé s'il n'est pas plausible. Pour mémoire, ce qui bloquait avant : D'abord `VREF` qui oscille de ±370 mV, ce qui fausse toute mesure de tension de la carte ; ensuite les trois entrées de courant flottantes, que le remplacement du DRV n'a pas corrigées — continuité et masse à vérifier à l'ohmmètre. Le chemin nFAULT → coupure de `MOE` est écrit mais **jamais déclenché** : **décision de l'utilisateur le 2026-09-26, on passe à l'étape 5 sans l'éprouver physiquement** — voir « Décisions ». **Étape 5 le 2026-09-26** : limites de courant éprouvées, gains par voie corrigés, somme des courants à 4,5 % ; reste l'échelle absolue. **Étapes 8 et 9 validées sur carte le 2026-09-26** : 7 paires de pôles sur quatre essais, décalage électrique 178,1° reproductible à 0,1°, redémarrage compris. Reste l'étape 7, mesure de R et L, qui attend l'échelle absolue du courant. **Étape 6 écrite hors séquence et éprouvée sur carte** (2026-09-21) puisqu'elle ne dépend ni de 4 ni de 5 : AS5600 en DMA à 1 MHz, transfert 57 µs, un échantillon toutes les 59 µs, ISR à 2,60 µs au pire. **Verte à titre provisoire** : le critère « angle monotone à la main » a été validé par l'utilisateur, aimant monté, et je n'ai pas assisté à la mesure — une réserve reste à lever, voir la section de l'étape 6 |
+| **M2** | Étage de puissance et capteurs (étapes 2 à 9) | **Étape 2 : validée le 2026-09-16, régression du 2026-09-21 réparée et revalidée le 2026-09-26** — écriture-relecture par `DRV.PROBE`, et une écriture de registre dont l'effet se lit sur la mesure analogique. Voir plus bas. Pour mémoire, la validation d'origine : le DRV8304 répond en SPI, sept registres relus cohérents avec la fiche technique, écriture-relecture par `DRV.PROBE`, fautes lisibles. **Étape 3 validée à l'oscilloscope le 2026-09-18** : trois bras complémentaires à 20 kHz, temps mort 500 ns aux deux fronts, rapports 20/50/80 % suivis, aucune conduction croisée — après avoir trouvé que les sorties basses n'avaient jamais été activées. **Étape 4 entamée le 2026-09-18**, puis reprise le 2026-09-20 après remplacement de U3 : un défaut d'acquisition corrigé, et **deux défauts matériels isolés** — voir plus bas | Étape 4 : **offsets et bruit mesurés et documentés le 2026-09-21** — zéro de chaîne à 1–11 counts de la mi-échelle, répétable à ±1 count sur quatre campagnes, écart-type de 1,4 à 2,0 counts avec `CAL` levé. Ni SPI ni sortie de puissance requis. Gain relu à 20 V/V le 2026-09-26. **Depuis le 2026-09-26 le zéro est mesuré à chaque démarrage**, sorties coupées, et refusé s'il n'est pas plausible. Pour mémoire, ce qui bloquait avant : D'abord `VREF` qui oscille de ±370 mV, ce qui fausse toute mesure de tension de la carte ; ensuite les trois entrées de courant flottantes, que le remplacement du DRV n'a pas corrigées — continuité et masse à vérifier à l'ohmmètre. Le chemin nFAULT → coupure de `MOE` est écrit mais **jamais déclenché** : **décision de l'utilisateur le 2026-09-26, on passe à l'étape 5 sans l'éprouver physiquement** — voir « Décisions ». **Étape 5 close le 2026-09-26** : limites de courant éprouvées, gains par voie corrigés, somme des courants à 4,5 %, échelle absolue ≈ 1,82 mA par count à ±15 % mesurée à l'étape 7. **Étape 7 mesurée le 2026-09-26** : R ≈ 3,6 Ω et L ≈ 1,1 mH par phase ; pas close, la NVM n'existe pas encore. **Étapes 8 et 9 validées sur carte le 2026-09-26** : 7 paires de pôles sur quatre essais, décalage électrique 178,1° reproductible à 0,1°, redémarrage compris. **Étape 6 écrite hors séquence et éprouvée sur carte** (2026-09-21) puisqu'elle ne dépend ni de 4 ni de 5 : AS5600 en DMA à 1 MHz, transfert 57 µs, un échantillon toutes les 59 µs, ISR à 2,60 µs au pire. **Verte à titre provisoire** : le critère « angle monotone à la main » a été validé par l'utilisateur, aimant monté, et je n'ai pas assisté à la mesure — une réserve reste à lever, voir la section de l'étape 6 |
 | **M3** | Asservissements (étapes 10 à 13) | Pas commencé | — |
 
 **Aucun moteur n'a encore tourné**, et les sorties restent en haute impédance.
@@ -1349,6 +1349,67 @@ constate rien. D'où les deux règles ci-dessous.
 
 ---
 
+## Étape 7 — R ≈ 3,6 Ω, L ≈ 1,1 mH par phase, et l'échelle absolue du courant (2026-09-26)
+
+**La méthode.** Deux paliers tenus 10 s, A dominante — 600/500/500 puis 550/500/500 —,
+sorties sous le watchdog de flux (un message toutes les 100 ms, coupure en 250 ms si l'hôte se
+tait), limite de surintensité active. Le firmware mesure lui-même le courant moyen de chaque
+palier (`IMOT.NOISE`, utilisable sorties actives). L'utilisateur lit un **ampèremètre en série
+avec l'alimentation** : 30 mA au repos, 51 mA au palier 1, 35 mA au palier 2.
+
+| | Ia | Ib | Ic | Somme |
+|---|---|---|---|---|
+| Palier 1, 600/500/500 | +124,9 | −62,9 | −62,0 | **0,0** |
+| Palier 2, 550/500/500 | +50,2 | −12,8 | −24,5 | +12,9 |
+
+Le palier 1 est la meilleure validation de la correction des gains : somme exactement nulle,
+et B et C se partagent le retour à parts égales. Au palier 2, Ib vaut exactement la valeur
+bloquée à 2048 — (2048 − 2055) × 1,822 = −12,75 : voir la zone morte plus bas.
+
+**R, par différence entre paliers**, sur la seule voie A — positive, loin de la zone morte :
+0,74 V de plus (50 ‰ × 14,80 V) pour 136 mA de plus. Le temps mort retranche une tension à peu
+près constante, que la différence élimine ; elle vaut 0,24 V, soit 1,6 % de Vbus, et les
+écarts de rapport cyclique effectifs sont donc 8,4 % et 3,4 % — rapport 2,47, contre 2,49 lu
+sur les courants.
+
+**L'échelle absolue.** Le courant d'alimentation vaut l'écart effectif fois Ia, plus un courant
+fixe de commande de grilles. Deux paliers, deux inconnues : Ia = 227 mA au palier 1, 91 mA au
+palier 2, grilles 1,9 mA. Contrôle indépendant par le bilan de puissance : 0,283 W fournis au
+moteur, I²R = 0,28 W. **≈ 1,82 mA par count corrigé, à ±15 %** — la lecture « environ » de
+l'ampèremètre domine l'incertitude.
+
+**Toutes les voies lisent trop haut**, jamais trop bas — la signature de résistances parasites
+dans le chemin de mesure des shunts, que l'étape 5 soupçonnait :
+
+| Voie | mA par count brut | Sur-lecture | Résistance vue |
+|---|---|---|---|
+| A | 2,17 | ×1,86 | ≈ 18,6 mΩ |
+| B | 3,31 | ×1,22 | ≈ 12,2 mΩ |
+| C | 1,82 | ×2,2 | ≈ 22 mΩ |
+
+**Résultats :**
+
+| Grandeur | Entre A et B ∥ C | Par phase |
+|---|---|---|
+| R | 5,44 Ω | **≈ 3,6 Ω** |
+| L | ≈ 1,6 mH | **≈ 1,1 mH**, ±25 % |
+| τ = L/R | ≈ 0,3 ms | |
+
+L est la valeur la moins sûre : τ se lit sur la montée du courant d'une capture scope, qui ne
+descend pas sous 50 µs par point — cinq à sept points sur le front. Une mesure dédiée, par
+injection d'une tension alternative, la précisera avant la boucle de courant.
+
+**Conséquence de sécurité, dans le bon sens.** La limite de 500 counts fait **≈ 0,9 A réels**,
+pas les 2 A prévus en conception : plus stricte, sans danger. Elle n'est pas relevée — ce serait
+élargir une limite sur une mesure à ±15 %. La documentation, qui annonçait 2 A, est corrigée
+(`safety.h`, `docs/protocol.md` §9).
+
+**Critère de l'étape (`controller-2/AGENTS.md` §5) :** « valeurs plausibles, stockées en NVM ».
+Plausibles : oui. **Stockées en NVM : non** — la mémoire non volatile des paramètres moteur
+n'existe pas encore ; elle recevra R, L, p et φ ensemble. **Étape 7 : mesurée, pas close.**
+
+**Et l'étape 5 est close** avec elle : l'échelle absolue était ce qui lui manquait.
+
 ## Étapes 9 et 8 — 7 paires de pôles, décalage électrique 178,1° (2026-09-26)
 
 Faites dans la foulée de l'étape 5, parce qu'elles n'ont besoin que d'un champ, pas
@@ -1405,7 +1466,7 @@ le firmware n'avait **aucune limite de courant**.
 **Ce qui est en place, et dont aucune partie ne se règle depuis l'hôte :**
 
 - **Coupure sur surintensité dans l'ISR** : un courant centré au-delà de 500 counts
-  (≈ 2,0 A) coupe `MOE` dans le cycle même, faute `overcurrent` latchée. Seconde ligne : la
+  (prévu ≈ 2,0 A ; **≈ 0,9 A réels** d'après l'étape 7) coupe `MOE` dans le cycle même, faute `overcurrent` latchée. Seconde ligne : la
   première est la limite de courant de l'alimentation, parce que 50 µs entre deux
   échantillons suffisent à un bobinage peu inductif pour dépasser la limite.
 - **Rapports cycliques bornés** : 0 à 900 ‰ par bras, 100 ‰ d'écart au plus (1,5 V sous
@@ -1493,7 +1554,8 @@ différentielle), la correction est logicielle :
   B 0,656, C 1,195 relativement à A, confirmés à la décimale près par la première estimation.
   Les trois voies sont **ramenées à l'échelle de la voie C**, la plus sensible.
 - **La limite s'applique aux courants corrigés.** On ignore quelle voie dit vrai ; à l'échelle
-  de C, 500 counts font 2 A réels si c'est C, 1,7 A si c'est A, 1,3 A si c'est B. **La limite
+  de C, 500 counts font 2 A réels si c'est C, 1,7 A si c'est A, 1,3 A si c'est B — et l'étape 7
+  a tranché depuis : aucune ne dit vrai, toutes lisent trop haut, et 500 counts font ≈ 0,9 A. **La limite
   ne peut qu'être plus stricte qu'annoncée, sur les trois phases.**
 - **Vérifié** : la même campagne rejouée sur les courants corrigés trouve des gains relatifs
   de 1,003 et 1,014, et la somme tient à **4,5 % en écart quadratique, 5,8 % au pire** — contre
@@ -1512,9 +1574,8 @@ du DRV8304 écrête à la référence quand son entrée est au zéro avec un off
 négatif. Conséquence : une zone morte de quelques counts autour de zéro, surtout sur C. Sans
 effet sur la limite ni sur les étapes 8 et 9 ; à comprendre avant d'asservir de petits courants.
 
-**Ce qui reste pour clore l'étape 5 :** l'échelle absolue — laquelle des voies dit vrai. Une
-lecture de l'afficheur de l'alimentation pendant un maintien de quelques secondes suffit :
-elle fournit alors l'écart de rapport cyclique fois le courant de phase, ≈ 43 mA à 100 ‰.
+**Ce qui restait pour clore l'étape 5, l'échelle absolue, a été mesuré à l'étape 7** : ≈ 1,82 mA
+par count corrigé, à ±15 %. Étape 5 close.
 
 **Critères (`controller-2/AGENTS.md` §5) :** somme Ia + Ib + Ic ≈ 0 ; cohérence avec le
 courant d'alimentation. Le second ne se lit pas sur une impulsion de 50 ms — l'afficheur de
