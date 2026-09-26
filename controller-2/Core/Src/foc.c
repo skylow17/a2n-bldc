@@ -153,9 +153,29 @@ void Foc_Process(void)
   }
 }
 
-/* Un passage de régulation : PI par axe, limite de tension en module, puis Park inverse et
- * modulation sinusoïdale autour de 50 %. Les rapports posés ici valent pour la période
- * suivante — les CCR sont préchargés. */
+/* Compensation du temps mort. Pendant le temps mort, la sortie d'un bras suit le sens de son
+ * courant, pas la commande : sur chaque période, la phase perd ≈ Vbus · td / T dans le sens
+ * opposé à son courant — 0,15 V à 15 V, 500 ns et 20 kHz. Mesuré sans compensation le
+ * 2026-09-26 : la tension de régime valait R·I plus ≈ 0,18 V, chutes des transistors
+ * comprises. On la rajoute dans le sens du courant.
+ *
+ * Le sens vient de la **consigne**, pas de la mesure : la mesure est bruitée à ±15 mA et
+ * aveugle dans la zone morte des amplis, justement là où le signe bascule. Et il bascule en
+ * douceur, linéairement sous `FOC_DT_I0_A` : un créneau à chaque passage par zéro
+ * injecterait un harmonique que la boucle devrait ensuite corriger. La compensation part
+ * avant la limite de tension, qui la borne avec le reste. */
+#define FOC_DT_S      ((float)PWM_DEADTIME_DTG / (float)BOARD_SYSCLK_HZ)
+#define FOC_DT_I0_A   0.02f
+
+static float SoftSign(float i)
+{
+  const float x = i * (1.0f / FOC_DT_I0_A);
+  return (x > 1.0f) ? 1.0f : ((x < -1.0f) ? -1.0f : x);
+}
+
+/* Un passage de régulation : PI par axe, compensation du temps mort, limite de tension en
+ * module, puis modulation sinusoïdale autour de 50 %. Les rapports posés ici valent pour la
+ * période suivante — les CCR sont préchargés. */
 static void Regulate(float c, float s, float id, float iq)
 {
   const float kp = s_cfg.kp;
@@ -170,12 +190,30 @@ static void Regulate(float c, float s, float id, float iq)
   float vd = (kp * ed) + int_d;
   float vq = (kp * eq) + int_q;
 
-  /* Limite en module, direction conservée. Quand elle mord, l'intégrateur n'avance pas :
-   * sinon il continuerait d'accumuler une erreur que la tension ne peut plus corriger, et
-   * relâcherait tout d'un coup une fois la saturation levée. */
-  const float m2 = (vd * vd) + (vq * vq);
+  /* Park inverse de la sortie des PI. */
+  float va = (vd * c) - (vq * s);
+  float vb = (vd * s) + (vq * c);
+
+  /* Temps mort : courants de phase de consigne, puis tension par phase, ramenée en αβ par
+   * Clarke — la part homopolaire, sans effet sur les courants, disparaît en chemin. */
+  const float ia_r = (s_id_ref * c) - (s_iq_ref * s);
+  const float ib_r = (s_id_ref * s) + (s_iq_ref * c);
+  const float h_r  = FOC_SQRT3_2 * ib_r;
+  const float vdt  = vbus * FOC_DT_S * (float)PWM_FREQ_HZ;
+  const float ua = vdt * SoftSign(ia_r);
+  const float ub = vdt * SoftSign((-0.5f * ia_r) + h_r);
+  const float uc = vdt * SoftSign((-0.5f * ia_r) - h_r);
+  va += ((2.0f * ua) - ub - uc) * (1.0f / 3.0f);
+  vb += (ub - uc) * FOC_INV_SQRT3;
+
+  /* Limite en module, direction conservée, sur la tension totale. Quand elle mord,
+   * l'intégrateur n'avance pas : sinon il continuerait d'accumuler une erreur que la tension
+   * ne peut plus corriger, et relâcherait tout d'un coup une fois la saturation levée. */
+  const float m2 = (va * va) + (vb * vb);
   if (m2 > (vmax * vmax)) {
     const float g = vmax / Sqrt(m2);
+    va *= g;
+    vb *= g;
     vd *= g;
     vq *= g;
     s_sat_ticks++;
@@ -183,14 +221,15 @@ static void Regulate(float c, float s, float id, float iq)
     s_int_d = int_d;
     s_int_q = int_q;
   }
+  /* Ce que demandent les PI, sans la compensation : c'est la grandeur qui se compare à R·I. */
   s_vd = vd;
   s_vq = vq;
 
-  /* Park inverse, puis rapport au rail : une tension de phase v donne un rapport ½ + v/Vbus
-   * en modulation sinusoïdale, la même que la boucle ouverte. */
+  /* Rapport au rail : une tension de phase v donne un rapport ½ + v/Vbus en modulation
+   * sinusoïdale, la même que la boucle ouverte. */
   const float inv = (vbus > 0.0f) ? (1.0f / vbus) : 0.0f;
-  const float na = ((vd * c) - (vq * s)) * inv;
-  const float nb = ((vd * s) + (vq * c)) * inv;
+  const float na = va * inv;
+  const float nb = vb * inv;
   const float h  = FOC_SQRT3_2 * nb;
   const float arr1 = (float)(PWM_ARR + 1UL);
   const float da = 0.5f + na;

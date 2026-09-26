@@ -692,8 +692,10 @@ coprocesseur CORDIC du G473, pas de la bibliothèque mathématique. Voir les sig
 **Boucle de courant** (M3, étape 11) — deux régulateurs PI, un par axe, tiennent Id et Iq à
 leur consigne. Ils sont réglés **dans le firmware** par compensation du pôle électrique du
 moteur, à partir de `motor.r_ohm` et `motor.l_h` : Kp = L·ωc, Ki = R·ωc, bande passante
-ωc = 2π × 500 Hz. Sortie en tension, transformée inverse de Park puis modulation sinusoïdale
-autour de 50 %, rapportée à la tension du rail moteur mesurée. Mêmes barrières que `PWM ON`,
+ωc = 2π × 500 Hz. Sortie en tension, transformée inverse de Park, plus une **compensation du
+temps mort** — Vbus · td / T par phase dans le sens du courant de consigne, ≈ 0,15 V —, puis
+modulation sinusoïdale autour de 50 %, rapportée à la tension du rail moteur mesurée. `vd_mv`
+et `vq_mv` sont la sortie des PI, sans la compensation : en régime, elles valent R·I. Mêmes barrières que `PWM ON`,
 plus :
 
 - **tension ≤ 57 ‰ du rail**, la limite de la boucle ouverte : l'écart entre bras reste sous

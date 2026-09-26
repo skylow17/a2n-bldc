@@ -69,7 +69,7 @@ Dernière revue : 2026-09-26, sur carte — M2 complet ; M3 : étape 10 validée
 | **M1d** | CLI de bring-up | Validé sur simulateur **et sur carte** — toutes les commandes, `firmware-update` compris | — |
 | **Boot** | Bootloader A/B, probation et rollback | **Validé sur carte le 2026-09-16** : installation SWD, `BOOT_INFO`, mise à jour nominale promue, rollback sur image qui ne confirme jamais | Rien ; un défaut trouvé sur carte, corrigé, rejoué |
 | **M2** | Étage de puissance et capteurs (étapes 2 à 9) | **Étape 2 : validée le 2026-09-16, régression du 2026-09-21 réparée et revalidée le 2026-09-26** — écriture-relecture par `DRV.PROBE`, et une écriture de registre dont l'effet se lit sur la mesure analogique. Voir plus bas. Pour mémoire, la validation d'origine : le DRV8304 répond en SPI, sept registres relus cohérents avec la fiche technique, écriture-relecture par `DRV.PROBE`, fautes lisibles. **Étape 3 validée à l'oscilloscope le 2026-09-18** : trois bras complémentaires à 20 kHz, temps mort 500 ns aux deux fronts, rapports 20/50/80 % suivis, aucune conduction croisée — après avoir trouvé que les sorties basses n'avaient jamais été activées. **Étape 4 entamée le 2026-09-18**, puis reprise le 2026-09-20 après remplacement de U3 : un défaut d'acquisition corrigé, et **deux défauts matériels isolés** — voir plus bas | Étape 4 : **offsets et bruit mesurés et documentés le 2026-09-21** — zéro de chaîne à 1–11 counts de la mi-échelle, répétable à ±1 count sur quatre campagnes, écart-type de 1,4 à 2,0 counts avec `CAL` levé. Ni SPI ni sortie de puissance requis. Gain relu à 20 V/V le 2026-09-26. **Depuis le 2026-09-26 le zéro est mesuré à chaque démarrage**, sorties coupées, et refusé s'il n'est pas plausible. Pour mémoire, ce qui bloquait avant : D'abord `VREF` qui oscille de ±370 mV, ce qui fausse toute mesure de tension de la carte ; ensuite les trois entrées de courant flottantes, que le remplacement du DRV n'a pas corrigées — continuité et masse à vérifier à l'ohmmètre. Le chemin nFAULT → coupure de `MOE` est écrit mais **jamais déclenché** : **décision de l'utilisateur le 2026-09-26, on passe à l'étape 5 sans l'éprouver physiquement** — voir « Décisions ». **Étape 5 close le 2026-09-26** : limites de courant éprouvées, gains par voie corrigés, somme des courants à 4,5 %, échelle absolue ≈ 1,82 mA par count à ±15 % mesurée à l'étape 7. **Étape 7 close le 2026-09-26** : R ≈ 3,6 Ω et L ≈ 1,1 mH par phase, stockés en NVM avec p, φ, le sens et l'échelle de courant — la persistance du dictionnaire est implémentée et éprouvée. **Étapes 8 et 9 validées sur carte le 2026-09-26** : 7 paires de pôles sur quatre essais, décalage électrique 178,1° reproductible à 0,1°, redémarrage compris. **Étape 6 écrite hors séquence et éprouvée sur carte** (2026-09-21) puisqu'elle ne dépend ni de 4 ni de 5 : AS5600 en DMA à 1 MHz, transfert 57 µs, un échantillon toutes les 59 µs, ISR à 2,60 µs au pire. **Verte à titre provisoire** : le critère « angle monotone à la main » a été validé par l'utilisateur, aimant monté, et je n'ai pas assisté à la mesure — une réserve reste à lever, voir la section de l'étape 6 |
-| **M3** | Asservissements (étapes 10 à 13) | **Étape 10 validée sur carte le 2026-09-26** : la boucle ouverte tourne de 2 à 20 Hz électriques dans les deux sens, vitesse à 1 % près, courant maîtrisé ; l'armement existe, watchdog et `STOP` éprouvés en rotation | Étape 11 — **boucle de courant fermée le 2026-09-26** : Id et Iq tenus à leur consigne, erreur de régime nulle, montée ≈ 1 ms, rotor immobile sous Id, couple dans le bon sens sous Iq. Coupure en survitesse en place. Reste : compensation du temps mort |
+| **M3** | Asservissements (étapes 10 à 13) | **Étape 10 validée sur carte le 2026-09-26** : la boucle ouverte tourne de 2 à 20 Hz électriques dans les deux sens, vitesse à 1 % près, courant maîtrisé ; l'armement existe, watchdog et `STOP` éprouvés en rotation | Étape 11 — **boucle de courant fermée le 2026-09-26** : Id et Iq tenus à leur consigne, erreur de régime nulle, montée ≈ 1 ms, rotor immobile sous Id, couple dans le bon sens sous Iq. Coupure en survitesse et compensation du temps mort en place : montée 0,4 ms, les PI ne demandent plus que R·I. Suite : étape 12, boucle de vitesse |
 
 **Le moteur tourne depuis le 2026-09-26** : en boucle ouverte — étape 10 —, puis sous la
 **boucle de courant**, première boucle fermée du projet — étape 11. Ni vitesse ni position ne
@@ -1383,10 +1383,19 @@ perte du temps mort. **200 mA ne sont pas atteignables à l'arrêt** — il faud
 de la limite.
 
 **Ce qui reste imparfait.**
-- La montée, ≈ 1 ms, est plus lente que les ≈ 0,7 ms d'un premier ordre à 500 Hz. Les
-  300 premières µs, le courant ne décolle presque pas alors que la tension est déjà là : la
-  zone morte et le coude des amplis, qui lisent zéro ou moitié sous ≈ 50 mA, et le temps mort,
-  qui pèse le plus à faible courant. Une compensation du temps mort est la suite logique.
+- La montée, ≈ 1 ms, était plus lente que les ≈ 0,7 ms d'un premier ordre à 500 Hz — corrigé
+  le même jour par une **compensation du temps mort** : Vbus · td / T par phase, dans le sens
+  du courant de consigne, avec un passage par zéro linéaire sous 20 mA, ajoutée avant la
+  limite de tension qui la borne avec le reste. Résultat, rotor libre :
+
+  | Échelon | Montée, avant → après | Tension des PI en régime | R·I |
+  |---|---|---|---|
+  | Id 100 mA | 1,1 ms → **0,40 ms** | 0,557 → **0,347 V** | 0,36 V |
+  | Id 150 mA | 0,9 ms → **0,55 ms** | 0,717 → **0,530 V** | 0,54 V |
+  | Iq ±40 mA | — | — | montée 0,30–0,35 ms, régime à 4 % |
+
+  Les PI ne demandent plus que R·I : le modèle du moteur tient. Sous Iq, le rotor libre
+  atteint 25 rad/s en moins de 100 ms, et la coupure en survitesse joue à chaque fois.
 - **Aucune limite de vitesse en boucle de courant** — corrigé le même jour. Avec Iq, le rotor
   accélérait jusqu'à ce que la force contre-électromotrice prenne toute la tension : la limite
   a mordu sur 82 % des passages à 50 mA, vers 27 rad/s mécaniques. **Coupure en survitesse**
@@ -1397,7 +1406,7 @@ de la limite.
   +20 rad/s autour de sa moyenne.
 - Le protocole n'a pas de désarmement du scope : un scope armé qui ne se déclenche pas refuse
   toute nouvelle configuration jusqu'à ce qu'il se déclenche. Vu pendant ces essais.
-- Coût de l'ISR en régulation : 6,5 µs, 8,7 µs au pire.
+- Coût de l'ISR en régulation : 6,5 µs, 9,7 µs au pire avec la compensation.
 
 ## M3, étape 11 — premier point : Id et Iq mesurés, vérifiés en boucle ouverte (2026-09-26)
 
