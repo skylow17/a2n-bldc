@@ -1351,6 +1351,10 @@ constate rien. D'où les deux règles ci-dessous.
 
 ## Étape 7 — R ≈ 3,6 Ω, L ≈ 1,1 mH par phase, et l'échelle absolue du courant (2026-09-26)
 
+*Les essais du 2026-09-26 — étapes 5, 7, 8 et 9, gains et zéro — sont repris avec leurs données,
+leurs graphiques et leur méthode dans `docs/reports/M2_essais_2026-09-26.xlsx`. Les formules s'y
+recalculent à l'ouverture dans Excel : un aperçu sans calcul montre des cellules vides.*
+
 **La méthode.** Deux paliers tenus 10 s, A dominante — 600/500/500 puis 550/500/500 —,
 sorties sous le watchdog de flux (un message toutes les 100 ms, coupure en 250 ms si l'hôte se
 tait), limite de surintensité active. Le firmware mesure lui-même le courant moyen de chaque
