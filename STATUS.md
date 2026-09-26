@@ -8,7 +8,7 @@ Ce fichier ne contient **aucun chiffre volatil** (nombre de tests, occupation fl
 Ces valeurs se mesurent, elles ne se recopient pas : `python tools/status.py` les relève sur le
 dépôt réel. Une valeur écrite à la main est fausse le lendemain.
 
-Dernière revue : 2026-09-26, sur carte — `DRV.NCS` rend `ALIVE` : le DRV est vivant, la panne SPI est sur `SCLK` ou `SDI` et se règle au multimètre.
+Dernière revue : 2026-09-26, sur carte — le SPI du DRV réparé et prouvé par une écriture qui change la mesure analogique ; gain des amplis relu à 20 V/V.
 
 > **Reprise suivante — par où commencer.** Les deux défauts matériels sont **expliqués**, et
 > aucun des deux n'est une panne : ce sont deux erreurs de conception, l'une et l'autre
@@ -20,23 +20,13 @@ Dernière revue : 2026-09-26, sur carte — `DRV.NCS` rend `ALIVE` : le DRV est 
 > `csa_raw` groupés à 2 counts près autour de la mi-échelle, et l'oscillation a disparu avec
 > son oscillateur. L'étape 4 n'est plus bloquée par le matériel.
 >
-> **Un défaut a été trouvé dans la foulée : le SPI du DRV ne répond plus.** Tous les
-> registres se relisent à zéro. Constaté le 2026-09-21, mais la dernière preuve qu'il
-> fonctionnait date du 2026-09-16, **avant le remplacement de `U3`** : les zéros lus après
-> ce remplacement avaient été pris pour « aucune faute ».
->
-> **Le 2026-09-22, le ressoudage n'a rien changé et une mesure a déplacé la frontière.**
-> Deux écritures de registre dont l'effet se lit sur une mesure **analogique**, sans jamais
-> relire le SPI, n'ont produit aucun changement : le DRV ne reçoit **aucune commande**, et le
-> chemin de lecture n'est plus en cause. Restent `SCLK` et `SDI`, que le protocole ne peut pas
-> départager — un contrôle de continuité suffit, `PB13` → `U3` **28** et `PB15` → `U3` **27**,
-> en se rappelant que le schéma étiquette ces deux-là à l'envers.
->
-> **Le dernier doute est levé (2026-09-26) : le composant est vivant.** `MISO` suivait
-> exactement `nCS`, ce qui se lisait aussi bien « le DRV répond à sa sélection » que « les deux
-> lignes se touchent ». `DRV.NCS` a tranché, trois fois sur trois : `ALIVE`. **Il ne reste que
-> deux fils**, et c'est au multimètre que ça se règle. Détail dans « Le SPI du DRV ne répond
-> plus ».
+> **Le SPI du DRV répond de nouveau (2026-09-26), prouvé de bout en bout.** Panne constatée
+> le 2026-09-21, localisée par la mesure sur `SCLK` ou `SDI` sans oscilloscope, réparée à la
+> main. `DRV.PROBE` passe, les registres se relisent aux valeurs de reset de la fiche
+> technique, et surtout **une écriture change une mesure analogique** : `VREF_DIV = 0` fait
+> monter les trois `SOx` à `VREF − 0,3 V`, `SPI_CAL = 1` effondre leur bruit, et tout revient au
+> count près. Le gain des amplis relu est bien **20 V/V**. Détail dans « Le SPI du DRV ne
+> répond plus ».
 >
 > **Ne pas alimenter l'étage de puissance avant d'avoir compris** : `nFAULT` tient et la
 > coupure ne passe pas par le SPI, mais on ne saurait ni lire une faute ni régler le gain
@@ -74,7 +64,7 @@ Dernière revue : 2026-09-26, sur carte — `DRV.NCS` rend `ALIVE` : le DRV est 
 | **M1c** | Télémétrie souscrite + buffer scope | **Validé sur carte le 2026-09-16** : `telem` sans trou, `scope` 2048 points sur 4 signaux à la cadence de boucle | Coût de l'échantillonnage scope dans l'ISR, voir la piste plus bas |
 | **M1d** | CLI de bring-up | Validé sur simulateur **et sur carte** — toutes les commandes, `firmware-update` compris | — |
 | **Boot** | Bootloader A/B, probation et rollback | **Validé sur carte le 2026-09-16** : installation SWD, `BOOT_INFO`, mise à jour nominale promue, rollback sur image qui ne confirme jamais | Rien ; un défaut trouvé sur carte, corrigé, rejoué |
-| **M2** | Étage de puissance et capteurs (étapes 2 à 9) | **Étape 2 : validée le 2026-09-16, EN RÉGRESSION** — tous les registres se relisent à zéro. Constaté le 2026-09-21, mais la dernière preuve date d'avant le remplacement de `U3` : rien n'atteste que le SPI ait fonctionné depuis. Voir plus bas. Pour mémoire, la validation d'origine : le DRV8304 répond en SPI, sept registres relus cohérents avec la fiche technique, écriture-relecture par `DRV.PROBE`, fautes lisibles. **Étape 3 validée à l'oscilloscope le 2026-09-18** : trois bras complémentaires à 20 kHz, temps mort 500 ns aux deux fronts, rapports 20/50/80 % suivis, aucune conduction croisée — après avoir trouvé que les sorties basses n'avaient jamais été activées. **Étape 4 entamée le 2026-09-18**, puis reprise le 2026-09-20 après remplacement de U3 : un défaut d'acquisition corrigé, et **deux défauts matériels isolés** — voir plus bas | Étape 4 : **offsets et bruit mesurés et documentés le 2026-09-21** — zéro de chaîne à 1–11 counts de la mi-échelle, répétable à ±1 count sur quatre campagnes, écart-type de 1,4 à 2,0 counts avec `CAL` levé. Ni SPI ni sortie de puissance requis. Reste à confirmer que le gain vaut bien 20 V/V, ce qui demande le SPI. Pour mémoire, ce qui bloquait avant : D'abord `VREF` qui oscille de ±370 mV, ce qui fausse toute mesure de tension de la carte ; ensuite les trois entrées de courant flottantes, que le remplacement du DRV n'a pas corrigées — continuité et masse à vérifier à l'ohmmètre. Le chemin nFAULT → coupure de `MOE` est écrit mais **jamais déclenché** . **Étape 6 écrite hors séquence et éprouvée sur carte** (2026-09-21) puisqu'elle ne dépend ni de 4 ni de 5 : AS5600 en DMA à 1 MHz, transfert 57 µs, un échantillon toutes les 59 µs, ISR à 2,60 µs au pire. **Verte à titre provisoire** : le critère « angle monotone à la main » a été validé par l'utilisateur, aimant monté, et je n'ai pas assisté à la mesure — une réserve reste à lever, voir la section de l'étape 6 |
+| **M2** | Étage de puissance et capteurs (étapes 2 à 9) | **Étape 2 : validée le 2026-09-16, régression du 2026-09-21 réparée et revalidée le 2026-09-26** — écriture-relecture par `DRV.PROBE`, et une écriture de registre dont l'effet se lit sur la mesure analogique. Voir plus bas. Pour mémoire, la validation d'origine : le DRV8304 répond en SPI, sept registres relus cohérents avec la fiche technique, écriture-relecture par `DRV.PROBE`, fautes lisibles. **Étape 3 validée à l'oscilloscope le 2026-09-18** : trois bras complémentaires à 20 kHz, temps mort 500 ns aux deux fronts, rapports 20/50/80 % suivis, aucune conduction croisée — après avoir trouvé que les sorties basses n'avaient jamais été activées. **Étape 4 entamée le 2026-09-18**, puis reprise le 2026-09-20 après remplacement de U3 : un défaut d'acquisition corrigé, et **deux défauts matériels isolés** — voir plus bas | Étape 4 : **offsets et bruit mesurés et documentés le 2026-09-21** — zéro de chaîne à 1–11 counts de la mi-échelle, répétable à ±1 count sur quatre campagnes, écart-type de 1,4 à 2,0 counts avec `CAL` levé. Ni SPI ni sortie de puissance requis. Reste à confirmer que le gain vaut bien 20 V/V, ce qui demande le SPI. Pour mémoire, ce qui bloquait avant : D'abord `VREF` qui oscille de ±370 mV, ce qui fausse toute mesure de tension de la carte ; ensuite les trois entrées de courant flottantes, que le remplacement du DRV n'a pas corrigées — continuité et masse à vérifier à l'ohmmètre. Le chemin nFAULT → coupure de `MOE` est écrit mais **jamais déclenché** . **Étape 6 écrite hors séquence et éprouvée sur carte** (2026-09-21) puisqu'elle ne dépend ni de 4 ni de 5 : AS5600 en DMA à 1 MHz, transfert 57 µs, un échantillon toutes les 59 µs, ISR à 2,60 µs au pire. **Verte à titre provisoire** : le critère « angle monotone à la main » a été validé par l'utilisateur, aimant monté, et je n'ai pas assisté à la mesure — une réserve reste à lever, voir la section de l'étape 6 |
 | **M3** | Asservissements (étapes 10 à 13) | Pas commencé | — |
 
 **Aucun moteur n'a encore tourné**, et les sorties restent en haute impédance.
@@ -270,7 +260,7 @@ trois voies, trois `JDR` vivants. Le mot « scan » n'a aucun effet matériel su
 
 **Le second est dans le matériel.** Une fois les trois voies converties, elles lisent des
 valeurs statiques, différentes par voie (0,9 / 0,8 / 0,06 V), qui ne réagissent à **rien** :
-ni la calibration des CSA par la broche `CAL`, ni par SPI (`CSA_CAL_x`), ni les transistors bas
+ni la calibration des CSA par la broche `CAL`, ni par SPI (`SPI_CAL`), ni les transistors bas
 passants (vecteur nul, `PWM 0 0 0` + `MOE`), ni les hauts, ni `MOE` coupé. Un CSA alimenté sort
 VREF/2 ≈ 1,02 V dans tous ces cas. Puis `ADC.PROBE` a tranché : en entrée numérique, les trois
 broches **suivent la résistance de tirage interne** — un nœud flottant, pas une sortie
@@ -287,7 +277,7 @@ Mesuré ensuite à l'oscilloscope, le même jour :
   SOC à 0 V — **identiques côté U4 (MCU)**. La piste est bonne ; le carré est le condensateur
   d'échantillonnage de l'ADC qui fait sauter un nœud en haute impédance à chaque conversion,
   ce qu'une sortie d'amplificateur (< 1 kΩ) ne laisserait jamais voir.
-- `CAL` haut par la broche pendant 5 s, puis `CSA_CAL_A/B/C` par SPI pendant 5 s, deux fois :
+- `CAL` haut par la broche pendant 5 s, puis `SPI_CAL` par SPI pendant 5 s, deux fois :
   **SOA n'a pas bougé d'un millivolt.** *(La moitié « par SPI » ne vaut rien : on a découvert le
   2026-09-22 que le DRV ne reçoit aucune commande. La moitié « par la broche », elle, tient.)*
 
@@ -325,7 +315,9 @@ qui balaie **1,70 V à 2,43 V**. Quatre faits enlèvent l'ambiguïté :
   **saturent** — elles ne font pas foi, `vin` et `vmot` si.)
 - **La séquence brute est une sinusoïde repliée**, pas un nuage. Une oscillation entretenue.
 - **Ni l'ADC ni le DRV n'y sont pour rien.** `ADC.HOLD ON` fige le groupe injecté : identique au
-  count près. Broche `CAL`, `CSA_CAL` par SPI, `VREF_DIV`, `COAST` : onze balayages superposables.
+  count près. Broche `CAL`, `SPI_CAL` par SPI, `VREF_DIV`, `COAST` : onze balayages superposables.
+  *(Les trois écritures SPI ne prouvent rien : on sait depuis le 2026-09-22 qu'aucune commande
+  n'atteignait le DRV. La broche `CAL`, elle, tient, et la conclusion avec.)*
 - **Et ce n'est pas l'échantillonnage qui pompe le nœud.** `VREF.SCAN <écart_µs>` espace les
   conversions : de 0 à 2000 µs, la dispersion ne bouge pas d'un millième. Un nœud pompé par
   l'ADC se rétablirait entre deux conversions.
@@ -619,8 +611,10 @@ Trois signaux de télémétrie arrivent avec : `current.ia_count`, `ib`, `ic`, l
 l'offset. **En counts et non en ampères**, délibérément : la conversion demande un gain qu'on
 ne peut pas relire, et un signal en ampères serait faux sans le dire.
 
-**Ce qui reste pour clore l'étape 4 :** vérifier que le gain vaut bien 20 V/V, ce qui demande
-le SPI. Les offsets et le bruit, eux, sont mesurés et documentés.
+**Ce qui restait pour clore l'étape 4 :** vérifier que le gain vaut bien 20 V/V, ce qui demandait
+le SPI. **Fait le 2026-09-26** : `CSA_GAIN` relu à `10b`, soit 20 V/V, et une écriture dans le
+même registre prouvée par son effet sur la mesure. Les offsets et le bruit étaient déjà mesurés.
+Le gain *effectif* se vérifiera avec un courant connu, à l'étape 5.
 
 ### Le SPI du DRV ne répond plus, et c'est un défaut nouveau (2026-09-21)
 
@@ -682,9 +676,11 @@ d'oscilloscope**.
 **Ce qui est maintenant prouvé, et qui ne l'était pas.** Une écriture de registre n'a d'effet
 observable que si elle traverse `SDI` **et** `SCLK` ; et le registre `CSA_CONTROL` a des bits
 dont l'effet se lit sur une mesure analogique, sans jamais relire le SPI. Deux ont été essayés :
-`VREF_DIV = 0`, qui déplacerait le repos des trois sorties `SOx` de la mi-échelle vers le bas de
-l'échelle, et `CSA_CAL_A = 1`, qui court-circuiterait les entrées de la seule phase A et
-effondrerait son bruit comme le fait la broche `CAL`. **Ni l'un ni l'autre n'a changé quoi que ce
+`VREF_DIV = 0`, qui déplacerait le repos des trois sorties `SOx` loin de la mi-échelle, et le
+bit 4, qui effondrerait leur bruit comme le fait la broche `CAL`. *(Deux erreurs corrigées le
+2026-09-26, sans effet sur la conclusion puisque les deux effets attendus sont énormes : la
+sortie **monte** à `VREF − 0,3 V` et ne descend pas, et le bit 4 du DRV8304 s'appelle `SPI_CAL`
+et calibre **les trois** amplis — c'est le DRV8323 qui a un bit par phase, `CSA_CAL_A/B/C`.)* **Ni l'un ni l'autre n'a changé quoi que ce
 soit** — moyennes identiques au count près, bruit inchangé sur les trois phases. Le composant ne
 reçoit donc **aucune commande**. Le chemin de lecture n'est plus en cause : il n'a rien à lire.
 
@@ -719,6 +715,26 @@ alimenté, réveillé, et `nCS` comme `SDO` lui arrivent. **La panne est sur `SC
 nulle part ailleurs.**
 
 
+
+**Réparé et revalidé le 2026-09-26.** Après la reprise à la main des deux fils désignés, tout
+répond, et la preuve ne repose plus sur des relectures qui pourraient être des zéros :
+
+| Écriture dans `CSA_CONTROL` | Moyennes `SOx`, counts | Écart-type, counts |
+|---|---|---|
+| Aucune, valeur de reset `0x283` | 2063, 2067, 2058 | 3,7 à 4,0 |
+| `VREF_DIV = 0` (`0x083`) | **3744, 3753, 3744** | inchangé |
+| `SPI_CAL = 1` (`0x293`) | 2051, 2059, 2049 | **1,3 à 1,8** |
+| Retour à `0x283` | 2063, 2068, 2059 | 2,9 à 3,9 |
+
+`VREF_DIV = 0` donne 3,02 V, soit `VREF − 0,3 V` au millivolt près de ce que prévoit la fiche
+technique. `SPI_CAL = 1` rend le zéro vrai des trois amplis et le même bruit que la broche `CAL`
+le 2026-09-21 — deux chemins indépendants vers la même calibration qui concordent. Le retour est
+exact. `DRV.PROBE` passe, et les sept registres se relisent à leurs valeurs de reset, dont
+`CSA_GAIN = 10b`, soit **20 V/V : le point laissé ouvert à l'étape 4 est clos côté configuration**.
+Le gain effectif, lui, se mesure avec un courant connu, à l'étape 5.
+
+`DRV.BITBANG` et `DRV.LOOP` rendent toujours zéro, et c'est correct : ils lisent `FAULT_STATUS`,
+qui vaut zéro quand il n'y a aucune faute. C'est justement pourquoi ils ne pouvaient pas trancher.
 
 **Un incident de procédure, corrigé dans son explication (2026-09-26).** Le 2026-09-22, on a
 cru avoir interrompu une mise à jour en pleine écriture et laissé la carte muette. **Faux**, et la
