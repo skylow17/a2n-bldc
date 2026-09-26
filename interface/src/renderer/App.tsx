@@ -19,6 +19,7 @@ import { Dashboard } from './views/Dashboard.js';
 import { Scope } from './views/Scope.js';
 import { Firmware } from './views/Firmware.js';
 import { Tuning } from './views/Tuning.js';
+import { Control } from './views/Control.js';
 
 type ViewId = 'dashboard' | 'control' | 'tuning' | 'recipes' | 'scope' | 'firmware';
 
@@ -65,12 +66,7 @@ function loadConsoleH(): number {
 const VIEWS: ViewDef[] = [
   { id: 'dashboard', label: 'Dashboard', pending: null },
   { id: 'tuning', label: 'Tuning', pending: null },
-  {
-    id: 'control',
-    label: 'Control',
-    pending: 'M3',
-    why: 'The firmware has no control loop yet: no motion command exists at this milestone.',
-  },
+  { id: 'control', label: 'Control', pending: null },
   {
     id: 'scope',
     label: 'Scope',
@@ -373,6 +369,7 @@ export function App(): ReactNode {
           <div className="min-h-0 flex-1 overflow-hidden">
             {view === 'dashboard' && <Dashboard state={state} />}
             {view === 'tuning' && <Tuning state={state} />}
+            {view === 'control' && <Control state={state} />}
             {view === 'scope' && currentBlocked === null && <Scope state={state} />}
             {view === 'firmware' && currentBlocked === null && <Firmware state={state} />}
             {currentBlocked !== null && (
