@@ -8,7 +8,7 @@ Ce fichier ne contient **aucun chiffre volatil** (nombre de tests, occupation fl
 Ces valeurs se mesurent, elles ne se recopient pas : `python tools/status.py` les relève sur le
 dépôt réel. Une valeur écrite à la main est fausse le lendemain.
 
-Dernière revue : 2026-09-22, sur carte — le SPI du DRV retesté après ressoudage : la panne est côté commande, et une mesure de plus doit passer avant le fer à souder.
+Dernière revue : 2026-09-26, sur carte — `DRV.NCS` rend `ALIVE` : le DRV est vivant, la panne SPI est sur `SCLK` ou `SDI` et se règle au multimètre.
 
 > **Reprise suivante — par où commencer.** Les deux défauts matériels sont **expliqués**, et
 > aucun des deux n'est une panne : ce sont deux erreurs de conception, l'une et l'autre
@@ -19,14 +19,6 @@ Dernière revue : 2026-09-22, sur carte — le SPI du DRV retesté après ressou
 > `VREF` est passé à 3,3 V : les trois amplis de shunt fonctionnent pour la première fois,
 > `csa_raw` groupés à 2 counts près autour de la mi-échelle, et l'oscillation a disparu avec
 > son oscillateur. L'étape 4 n'est plus bloquée par le matériel.
->
-> **À faire en premier, avant toute mesure : couper et rétablir l'alimentation de la carte.**
-> Un flux de mise à jour a été interrompu en plein écriture le 2026-09-22. La carte énumère
-> en USB mais ne répond plus — ni console applicative, ni bootloader. Rien n'est perdu :
-> l'écriture porte sur le slot **inactif**, le slot actif n'est jamais touché, et les
-> métadonnées sont protégées par CRC, donc un candidat incomplet est rejeté au démarrage.
-> Un cycle d'alimentation suffit. Ensuite, reflasher : `DRV.NCS` est écrite mais n'a jamais
-> tourné.
 >
 > **Un défaut a été trouvé dans la foulée : le SPI du DRV ne répond plus.** Tous les
 > registres se relisent à zéro. Constaté le 2026-09-21, mais la dernière preuve qu'il
@@ -40,10 +32,11 @@ Dernière revue : 2026-09-22, sur carte — le SPI du DRV retesté après ressou
 > départager — un contrôle de continuité suffit, `PB13` → `U3` **28** et `PB15` → `U3` **27**,
 > en se rappelant que le schéma étiquette ces deux-là à l'envers.
 >
-> **Mais une hypothèse restait ouverte, et elle passe avant le fer à souder.** `MISO` suit
-> exactement le niveau de `nCS`, ce qui se lit aussi bien « le DRV répond à sa sélection » que
-> « les deux lignes se touchent ». `DRV.NCS` tranche les deux en une mesure, sans rien piloter.
-> **C'est le premier geste après le reflash.** Détail dans « Le SPI du DRV ne répond plus ».
+> **Le dernier doute est levé (2026-09-26) : le composant est vivant.** `MISO` suivait
+> exactement `nCS`, ce qui se lisait aussi bien « le DRV répond à sa sélection » que « les deux
+> lignes se touchent ». `DRV.NCS` a tranché, trois fois sur trois : `ALIVE`. **Il ne reste que
+> deux fils**, et c'est au multimètre que ça se règle. Détail dans « Le SPI du DRV ne répond
+> plus ».
 >
 > **Ne pas alimenter l'étage de puissance avant d'avoir compris** : `nFAULT` tient et la
 > coupure ne passe pas par le SPI, mais on ne saurait ni lire une faute ni régler le gain
@@ -707,7 +700,7 @@ boîtier et que le composant est alimenté et réveillé.
 légitimement zéro, et une relecture nulle du registre 0 ne prouve rien à elle seule — c'est
 exactement la même ambiguïté que celle qui avait laissé passer la panne le 2026-09-20.
 
-**Une mesure de plus est écrite mais pas encore prise : `DRV.NCS` (2026-09-22).** Elle lève un
+**Une mesure de plus, écrite le 2026-09-22 et prise le 2026-09-26 : `DRV.NCS`.** Elle lève un
 doute que j'avais laissé passer. `DRV.BITBANG` rend `cs=0 idle=1`, c'est-à-dire que `MISO` suit
 exactement le niveau de `nCS` — j'en avais conclu que le DRV pilotait `SDO` parce qu'il se voyait
 sélectionné, mais **deux lignes qui se touchent donnent la même trace**, sans qu'aucun composant
@@ -715,8 +708,29 @@ ne fasse quoi que ce soit. Tant que ce doute tient, « le composant est vivant �
 La commande relit `nCS` et `MISO` ensemble, en entrée, tirages opposés — aucune sortie pilotée,
 donc aucun conflit — et rend trois verdicts qui envoient à trois endroits : `ALIVE` (lignes
 séparées, le DRV a répondu : le défaut est bien sur `SCLK` ou `SDI`), `MUTE` (lignes séparées, le
-DRV n'a pas répondu : regarder son alimentation), `TIED` (`nCS` touche `SDO`). **À lancer dès que
-la carte est reflashée.**
+DRV n'a pas répondu : regarder son alimentation), `TIED` (`nCS` touche `SDO`).
+
+**Résultat : `ncs=0 miso=0 verdict=ALIVE`, trois fois sur trois**, et `DRV.PINS` relu juste après
+est identique à avant — la commande rend bien le bus dans l'état où elle l'a trouvé. `nCS`, tiré
+seulement par le tirage interne vers le bas, lit 0 : rien d'externe ne le tient, donc il ne
+touche pas `SDO`. Et `MISO`, tirée vers le haut à la fois en interne et en externe, lit 0 malgré
+tout : quelque chose la pilote activement — le DRV, qui s'est vu sélectionné. Le composant est
+alimenté, réveillé, et `nCS` comme `SDO` lui arrivent. **La panne est sur `SCLK` ou `SDI`, et
+nulle part ailleurs.**
+
+
+
+**Un incident de procédure, corrigé dans son explication (2026-09-26).** Le 2026-09-22, on a
+cru avoir interrompu une mise à jour en pleine écriture et laissé la carte muette. **Faux**, et la
+vraie cause coûterait cher à redécouvrir : l'image envoyée était l'image **autonome**
+(`build/a2n-bldc-controller-2.bin`, liée à `0x08000000`), et non celle du **slot inactif**. Le
+bootloader l'a écrite en entier puis l'a refusée à la vérification — il contrôle que le vecteur de
+reset pointe dans le slot — en répondant `ERR_FLASH`. Il a eu raison, et le slot actif n'a jamais
+été touché. Deux défauts du CLI ont ensuite déguisé ce refus en blocage : sur erreur,
+`firmware-update` **ne referme pas le port**, donc le processus ne se termine jamais ; et il
+n'examine pas l'image avant d'effacer le slot, alors que le vecteur de reset se lit sur l'hôte.
+**La bonne commande :** lire le slot actif, construire l'autre (`make app-slot-a` ou
+`make app-slot-b`), puis `firmware-update build/slot-x/a2n-bldc-slot-x.bin <version>`.
 
 **Ce qui reste à départager : `SCLK` et `SDI`, rien d'autre.** Les deux hypothèses restantes sont
 indiscernables par le protocole, parce qu'une trame reçue toute à zéro est lue comme une écriture
