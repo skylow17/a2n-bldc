@@ -114,6 +114,37 @@ export function parseSl(reply: string): SlStatus | null {
   };
 }
 
+export interface PlStatus {
+  active: boolean;
+  targetRad: number | null;
+  posRad: number | null;
+  errMrad: number | null;
+  wRefRadS: number | null;
+  /** Part des passages où le plafond de vitesse a mordu, 0..1 ; `null` avant tout passage. */
+  wSatRatio: number | null;
+  leftMs: number | null;
+}
+
+export function parsePl(reply: string): PlStatus | null {
+  const m = parseKv(reply);
+  if (m === null || !m.has('active')) return null;
+  const milli = (k: string): number | null => {
+    const v = get(m, k);
+    return v === null ? null : v / 1000;
+  };
+  const ticks = get(m, 'ticks');
+  const sat = get(m, 'w_sat_ticks');
+  return {
+    active: m.get('active') === 1,
+    targetRad: milli('target_mrad'),
+    posRad: milli('pos_mrad'),
+    errMrad: get(m, 'err_mrad'),
+    wRefRadS: milli('w_ref_mrad_s'),
+    wSatRatio: ticks !== null && sat !== null && ticks > 0 ? sat / ticks : null,
+    leftMs: get(m, 'left_ms'),
+  };
+}
+
 export interface FocStatus {
   valid: boolean;
   cfg: boolean;

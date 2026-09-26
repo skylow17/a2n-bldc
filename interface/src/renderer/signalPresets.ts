@@ -109,6 +109,14 @@ export const SIGNAL_PRESETS: readonly SignalPreset[] = [
     hint: 'Speed, the Iq the speed loop asks for, and the Iq the current loop delivers.',
     names: ['enc.vel_rad_s', 'foc.iq_ref_a', 'foc.iq_a', 'foc.vq_v', 'foc.valid'],
   },
+  {
+    // La cascade entière : la position, la vitesse que la boucle de position demande, celle
+    // obtenue, et le couple qu'il a fallu pour l'obtenir.
+    id: 'position-loop',
+    label: 'Position loop',
+    hint: 'Position, the speed the position loop asks for, the speed obtained, and the Iq it took.',
+    names: ['enc.pos_rad', 'foc.w_ref_rad_s', 'enc.vel_rad_s', 'foc.iq_ref_a', 'foc.valid'],
+  },
 ];
 
 /** Plafond du protocole — `docs/protocol.md` §6, `u8 count 0..16`. */

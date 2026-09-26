@@ -343,6 +343,57 @@ static void CmdSpeedLoop(const char *arg)
   ReplyLoop(Foc_SlStart((int32_t)w, (uint32_t)ms, bw, &en), en);
 }
 
+/* `PL <mrad> <ms> [bw_hz]`, `PL STOP` — la boucle de position de l'étape 13, par-dessus la
+ * boucle de vitesse. Mêmes contrôles du DRV. */
+static void CmdPositionLoop(const char *arg)
+{
+  if (strcasecmp(arg, "STOP") == 0) {
+    Foc_ClStop();
+    Reply("OK");
+    return;
+  }
+  char *end = NULL;
+  const long target = strtol(arg, &end, 10);
+  if (end == arg) { Reply("ERR ARG"); return; }
+  const char *p = end;
+  const unsigned long ms = strtoul(p, &end, 10);
+  if (end == p) { Reply("ERR ARG"); return; }
+  float bw = FOC_PL_BW_HZ;
+  while (*end == ' ') { end++; }
+  if (*end != '\0') {
+    p = end;
+    bw = strtof(p, &end);
+    if (end == p) { Reply("ERR ARG"); return; }
+    while (*end == ' ') { end++; }
+    if (*end != '\0') { Reply("ERR ARG"); return; }
+  }
+
+  if (!Pwm_IsEnabled()) {
+    Drv8304_Status_t st;
+    if (!Drv8304_ReadFaults()) { Reply("ERR DRV"); return; }
+    Drv8304_GetStatus(&st);
+    if (st.nfault_low || ((st.fault_status_1 & DRV_FS1_FAULT) != 0U)) {
+      Reply("ERR FAULT");
+      return;
+    }
+  }
+  SafetyEnable_t en = SAFETY_EN_OK;
+  ReplyLoop(Foc_PlStart((int32_t)target, (uint32_t)ms, bw, &en), en);
+}
+
+static void CmdPositionLoopStatus(void)
+{
+  Foc_PlStatus_t s;
+  Foc_PlGetStatus(&s);
+  Link_TxPrintf("OK active=%u target_mrad=%ld pos_mrad=%ld err_mrad=%ld w_ref_mrad_s=%ld "
+                "w_sat_ticks=%lu ticks=%lu left_ms=%lu kp_mrad_s_rad=%ld\r\n",
+                s.active ? 1U : 0U, (long)(s.target * 1000.0f), (long)(s.pos * 1000.0f),
+                (long)(s.err * 1000.0f), (long)(s.w_ref * 1000.0f),
+                (unsigned long)s.w_sat_ticks, (unsigned long)s.ticks,
+                (unsigned long)(s.active ? Safety_PulseLeftMs() : 0UL),
+                (long)(s.kp * 1000.0f));
+}
+
 static void CmdSpeedLoopStatus(void)
 {
   Foc_SlStatus_t s;
@@ -1290,6 +1341,10 @@ void Console_ExecuteLine(const char *line)
                   f.valid ? 1U : 0U, Foc_ConfigOk() ? 1U : 0U,
                   (long)(f.theta_e_rad * 1000.0f), (long)(f.id_a * 1000.0f),
                   (long)(f.iq_a * 1000.0f));
+  } else if (Match(line, "PL?", NULL)) {
+    CmdPositionLoopStatus();
+  } else if (Match(line, "PL", &arg)) {
+    CmdPositionLoop(arg);
   } else if (Match(line, "SL?", NULL)) {
     CmdSpeedLoopStatus();
   } else if (Match(line, "SL", &arg)) {

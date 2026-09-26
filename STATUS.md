@@ -8,7 +8,7 @@ Ce fichier ne contient **aucun chiffre volatil** (nombre de tests, occupation fl
 Ces valeurs se mesurent, elles ne se recopient pas : `python tools/status.py` les relève sur le
 dépôt réel. Une valeur écrite à la main est fausse le lendemain.
 
-Dernière revue : 2026-09-26, sur carte — M2 complet ; M3 : étapes 10 à 12 validées — boucle ouverte, boucle de courant, boucle de vitesse. Reste l'étape 13, la position.
+Dernière revue : 2026-09-26, sur carte — M2 complet ; M3 complet rotor libre : boucle ouverte, boucles de courant, de vitesse et de position validées.
 
 > **Reprise suivante — par où commencer.** Les deux défauts matériels sont **expliqués**, et
 > aucun des deux n'est une panne : ce sont deux erreurs de conception, l'une et l'autre
@@ -69,11 +69,12 @@ Dernière revue : 2026-09-26, sur carte — M2 complet ; M3 : étapes 10 à 12 v
 | **M1d** | CLI de bring-up | Validé sur simulateur **et sur carte** — toutes les commandes, `firmware-update` compris | — |
 | **Boot** | Bootloader A/B, probation et rollback | **Validé sur carte le 2026-09-16** : installation SWD, `BOOT_INFO`, mise à jour nominale promue, rollback sur image qui ne confirme jamais | Rien ; un défaut trouvé sur carte, corrigé, rejoué |
 | **M2** | Étage de puissance et capteurs (étapes 2 à 9) | **Étape 2 : validée le 2026-09-16, régression du 2026-09-21 réparée et revalidée le 2026-09-26** — écriture-relecture par `DRV.PROBE`, et une écriture de registre dont l'effet se lit sur la mesure analogique. Voir plus bas. Pour mémoire, la validation d'origine : le DRV8304 répond en SPI, sept registres relus cohérents avec la fiche technique, écriture-relecture par `DRV.PROBE`, fautes lisibles. **Étape 3 validée à l'oscilloscope le 2026-09-18** : trois bras complémentaires à 20 kHz, temps mort 500 ns aux deux fronts, rapports 20/50/80 % suivis, aucune conduction croisée — après avoir trouvé que les sorties basses n'avaient jamais été activées. **Étape 4 entamée le 2026-09-18**, puis reprise le 2026-09-20 après remplacement de U3 : un défaut d'acquisition corrigé, et **deux défauts matériels isolés** — voir plus bas | Étape 4 : **offsets et bruit mesurés et documentés le 2026-09-21** — zéro de chaîne à 1–11 counts de la mi-échelle, répétable à ±1 count sur quatre campagnes, écart-type de 1,4 à 2,0 counts avec `CAL` levé. Ni SPI ni sortie de puissance requis. Gain relu à 20 V/V le 2026-09-26. **Depuis le 2026-09-26 le zéro est mesuré à chaque démarrage**, sorties coupées, et refusé s'il n'est pas plausible. Pour mémoire, ce qui bloquait avant : D'abord `VREF` qui oscille de ±370 mV, ce qui fausse toute mesure de tension de la carte ; ensuite les trois entrées de courant flottantes, que le remplacement du DRV n'a pas corrigées — continuité et masse à vérifier à l'ohmmètre. Le chemin nFAULT → coupure de `MOE` est écrit mais **jamais déclenché** : **décision de l'utilisateur le 2026-09-26, on passe à l'étape 5 sans l'éprouver physiquement** — voir « Décisions ». **Étape 5 close le 2026-09-26** : limites de courant éprouvées, gains par voie corrigés, somme des courants à 4,5 %, échelle absolue ≈ 1,82 mA par count à ±15 % mesurée à l'étape 7. **Étape 7 close le 2026-09-26** : R ≈ 3,6 Ω et L ≈ 1,1 mH par phase, stockés en NVM avec p, φ, le sens et l'échelle de courant — la persistance du dictionnaire est implémentée et éprouvée. **Étapes 8 et 9 validées sur carte le 2026-09-26** : 7 paires de pôles sur quatre essais, décalage électrique 178,1° reproductible à 0,1°, redémarrage compris. **Étape 6 écrite hors séquence et éprouvée sur carte** (2026-09-21) puisqu'elle ne dépend ni de 4 ni de 5 : AS5600 en DMA à 1 MHz, transfert 57 µs, un échantillon toutes les 59 µs, ISR à 2,60 µs au pire. **Verte à titre provisoire** : le critère « angle monotone à la main » a été validé par l'utilisateur, aimant monté, et je n'ai pas assisté à la mesure — une réserve reste à lever, voir la section de l'étape 6 |
-| **M3** | Asservissements (étapes 10 à 13) | **Étape 10 validée sur carte le 2026-09-26** : la boucle ouverte tourne de 2 à 20 Hz électriques dans les deux sens, vitesse à 1 % près, courant maîtrisé ; l'armement existe, watchdog et `STOP` éprouvés en rotation | Étape 11 — **boucle de courant fermée le 2026-09-26** : Id et Iq tenus à leur consigne, erreur de régime nulle, montée ≈ 1 ms, rotor immobile sous Id, couple dans le bon sens sous Iq. Coupure en survitesse et compensation du temps mort en place : montée 0,4 ms, les PI ne demandent plus que R·I. **Étape 12 validée le même jour** : la boucle de vitesse tient de 2 à 15 rad/s dans les deux sens, à 0,1–0,5 % dès 5 rad/s. Suite : étape 13, boucle de position |
+| **M3** | Asservissements (étapes 10 à 13) | **Étape 10 validée sur carte le 2026-09-26** : la boucle ouverte tourne de 2 à 20 Hz électriques dans les deux sens, vitesse à 1 % près, courant maîtrisé ; l'armement existe, watchdog et `STOP` éprouvés en rotation | Étape 11 — **boucle de courant fermée le 2026-09-26** : Id et Iq tenus à leur consigne, erreur de régime nulle, montée ≈ 1 ms, rotor immobile sous Id, couple dans le bon sens sous Iq. Coupure en survitesse et compensation du temps mort en place : montée 0,4 ms, les PI ne demandent plus que R·I. **Étape 12 validée le même jour** : la boucle de vitesse tient de 2 à 15 rad/s dans les deux sens, à 0,1–0,5 % dès 5 rad/s. **Étape 13 validée le même jour** : la boucle de position rejoint sa cible dans les deux sens et la tient à ±2 counts, 0,18°. **M3 complet sur banc, rotor libre.** Reste : essais sous charge, raideur du maintien |
 
 **Le moteur tourne depuis le 2026-09-26** : en boucle ouverte — étape 10 —, puis sous la
 **boucle de courant**, première boucle fermée du projet — étape 11 —, et sous la **boucle de
-vitesse** — étape 12. La position n'est pas encore régulée.
+vitesse** — étape 12 —, et sous la **boucle de position** — étape 13 : la cascade complète
+tourne, rotor libre.
 
 La seconde passe du 2026-09-16 a rejoué sur la carte tout ce que la première n'avait fait que
 compiler : les huit étapes de la [règle de vérification](#règle-de-vérification-avant-dannoncer-un-jalon),
@@ -1350,6 +1351,45 @@ travail local n'existe pas. Un outil de constat qui ne distingue pas l'absence d
 constate rien. D'où les deux règles ci-dessous.
 
 ---
+
+## M3, étape 13 — la boucle de position tient sa cible à ±2 counts (2026-09-26)
+
+**La cascade complète** : un régulateur proportionnel de position calcule la consigne de la
+boucle de vitesse, qui calcule celle de la boucle de courant. Pas d'intégrateur de position —
+celui de la boucle de vitesse tient déjà le couple contre le frottement. Kp = 2π · f, **3 Hz
+par défaut**, dix fois sous la vitesse. Position : l'angle mécanique non replié de l'encodeur,
+congru à `RAW_ANGLE`. Commande `PL <mrad> <ms> [bw_hz]`, cible absolue, **à 2 tours au plus de
+la position de départ**, consigne de vitesse plafonnée à **10 rad/s**, ≤ 10 s ; au terme les
+sorties tombent et l'arbre est libre. Signal `foc.w_ref_rad_s`. Refus vérifiés sur carte :
+désarmée, cible à plus de 2 tours dans les deux sens, durée, bande passante, arguments.
+
+**Résultats, rotor libre**, capture de 1 s à 2 kHz dès le départ ; 1 count de l'AS5600 vaut
+1,53 mrad, 0,088° :
+
+| Déplacement | Bande passante | Dépassement | Établi à ±5 mrad | Erreur finale | Au plafond de vitesse |
+|---|---|---|---|---|---|
+| +1 rad | 3 Hz | 13 mrad | ≈ 280 ms | 0,5 ± 1,0 mrad | 50 ms |
+| −1 rad | 3 Hz | 13 mrad | 273 ms | −0,4 ± 0,8 mrad | 50 ms |
+| +50 mrad | 3 Hz | 12 mrad | 107 ms | −0,5 ± 0,9 mrad | — |
+| +1 tour | 3 Hz | 0,4 mrad | 847 ms | −1,1 ± 0,6 mrad | 581 ms |
+| −1 tour | 3 Hz | 0,8 mrad | 886 ms | +2,5 ± 0,8 mrad | 581 ms |
+| +1 rad | 1 Hz | 10 mrad | 970 ms | 2,0 ± 1,7 mrad | — |
+| +1 rad | 5 Hz | 13 mrad | 209 ms | −1,1 ± 1,3 mrad | 72 ms |
+
+**Ce que ces chiffres établissent.** L'arbre rejoint sa cible dans les deux sens et la tient à
+±2 counts, avec ≈ 10 mA d'Iq pour résister au couple de détente. La trajectoire d'un
+déplacement de 1 rad se lit dans la capture : 50 ms au plafond de 10 rad/s, approche
+exponentielle, cible atteinte vers 300 ms. Le dépassement, ≈ 12 mrad, ne dépend pas de
+l'amplitude — il est le même à 50 mrad et à 1 rad, et disparaît sur un tour, où l'arrivée se
+fait au plafond de vitesse puis en décélération : c'est l'arrivée sur un cran de détente, pas un
+défaut de réglage.
+
+**Ce qui reste.** Au terme de la durée, les sorties tombent et l'arbre, libre, glisse vers le
+cran le plus proche — 93 mrad observés. Un maintien sans limite de durée demanderait de lever
+la durée maximale, décision de sécurité qui n'est pas prise ici. Pas d'essai sous charge ni de
+perturbation appliquée à la main : la raideur du maintien n'est pas mesurée. Interface :
+panneau « Position loop » dans l'onglet Control — déplacement relatif en rad —, préréglage de
+courbes du même nom.
 
 ## M3, étape 12 — la boucle de vitesse tient ses consignes (2026-09-26)
 

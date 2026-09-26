@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { parseCl, parseFoc, parseKv, parseOl, parseSl } from '../controlStatus.js';
+import { parseCl, parseFoc, parseKv, parseOl, parsePl, parseSl } from '../controlStatus.js';
 
 describe('réponses d état de la vue Control', () => {
   it('refuse ce qui n est pas une réponse OK', () => {
@@ -40,6 +40,16 @@ describe('réponses d état de la vue Control', () => {
     expect(s.velAvgRadS).toBeCloseTo(14.931);
     expect(s.iqSatRatio).toBeCloseTo(164 / 29999);
     expect(s.kpMaRadS).toBeCloseTo(20.734);
+  });
+
+  it('lit PL? en radians', () => {
+    const s = parsePl(
+      'OK active=0 target_mrad=3831 pos_mrad=3738 err_mrad=2 w_ref_mrad_s=41 ' +
+        'w_sat_ticks=995 ticks=39999 left_ms=0 kp_mrad_s_rad=18849',
+    )!;
+    expect(s.targetRad).toBeCloseTo(3.831);
+    expect(s.errMrad).toBe(2);
+    expect(s.wSatRatio).toBeCloseTo(995 / 39999);
   });
 
   it('lit OL? en hertz', () => {

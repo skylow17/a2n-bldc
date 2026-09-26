@@ -58,6 +58,7 @@ static float ReadFocValid(const Signal_Snapshot_t *snap) { return (float)snap->f
 static float ReadVd(const Signal_Snapshot_t *snap)       { return snap->vd_v; }
 static float ReadVq(const Signal_Snapshot_t *snap)       { return snap->vq_v; }
 static float ReadIqRef(const Signal_Snapshot_t *snap)    { return snap->iq_ref_a; }
+static float ReadWRef(const Signal_Snapshot_t *snap)     { return snap->w_ref_rad_s; }
 
 static float ReadEncAgeUs(const Signal_Snapshot_t *snap)
 {
@@ -114,6 +115,7 @@ static const SignalDesc_t s_signals[] = {
   { 19U, "foc.vd_v",            "V",     ReadVd                },
   { 20U, "foc.vq_v",            "V",     ReadVq                },
   { 21U, "foc.iq_ref_a",        "A",     ReadIqRef             },
+  { 22U, "foc.w_ref_rad_s",     "rad/s", ReadWRef              },
 };
 
 #define SIGNAL_COUNT  ((uint16_t)(sizeof(s_signals) / sizeof(s_signals[0])))

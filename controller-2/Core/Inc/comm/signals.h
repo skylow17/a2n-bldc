@@ -75,6 +75,7 @@ typedef struct
   float    vd_v;         /**< tension d'axe d demandee                          */
   float    vq_v;         /**< tension d'axe q demandee                          */
   float    iq_ref_a;     /**< consigne d'Iq                                     */
+  float    w_ref_rad_s;  /**< consigne de vitesse                               */
 } Signal_Snapshot_t;
 
 /**

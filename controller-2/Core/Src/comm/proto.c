@@ -338,6 +338,7 @@ static void ProcessTelemetry(void)
     .vd_v = stats.vd_v,
     .vq_v = stats.vq_v,
     .iq_ref_a = stats.iq_ref_a,
+    .w_ref_rad_s = stats.w_ref_rad_s,
   };
 
   size_t o = 0U;

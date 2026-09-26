@@ -39,6 +39,7 @@ typedef struct
   float    vd_v;           /**< tension d'axe d demandée, 0 hors boucle de courant  */
   float    vq_v;           /**< tension d'axe q demandée                            */
   float    iq_ref_a;       /**< consigne d'Iq, 0 hors boucle de courant             */
+  float    w_ref_rad_s;    /**< consigne de vitesse, 0 hors boucle de vitesse       */
 } Ctrl_Stats_t;
 
 void Ctrl_Init(void);

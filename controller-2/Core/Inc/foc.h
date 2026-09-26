@@ -56,6 +56,15 @@ extern "C" {
 #define FOC_SL_MAX_MRAD_S   20000L     /**< sous la coupure en survitesse, 25 rad/s      */
 #define FOC_SL_IQ_MAX_A     0.15f      /**< plafond de la consigne d'Iq                  */
 
+/* Boucle de position, étape 13. Proportionnelle : l'intégrateur de la boucle de vitesse tient
+ * déjà le couple contre le frottement, un second intégrateur en cascade n'ajouterait qu'un
+ * dépassement. Bande passante par défaut dix fois sous celle de la vitesse. */
+#define FOC_PL_BW_HZ        3.0f
+#define FOC_PL_BW_MIN_HZ    0.5f
+#define FOC_PL_BW_MAX_HZ    5.0f
+#define FOC_PL_MAX_MOVE_MRAD 12566L    /**< deux tours entre la position de départ et la cible */
+#define FOC_PL_W_MAX_RAD_S  10.0f      /**< plafond de la consigne de vitesse              */
+
 typedef struct
 {
   bool  valid;       /**< angle valide et paramètres moteur plausibles                */
@@ -65,6 +74,7 @@ typedef struct
   float vd_v;        /**< tension d'axe d demandée, 0 hors boucle de courant            */
   float vq_v;        /**< tension d'axe q demandée                                      */
   float iq_ref_a;    /**< consigne d'Iq, celle de `CL` ou de la boucle de vitesse       */
+  float w_ref_rad_s; /**< consigne de vitesse, celle de `SL` ou de la boucle de position */
 } Foc_Meas_t;
 
 typedef enum
@@ -101,9 +111,10 @@ void Foc_Init(void);
 void Foc_Process(void);
 
 /** ISR 20 kHz. Courants en counts corrigés, `turn` l'angle mécanique absolu en tours,
- *  `vel_rad_s` la vitesse mécanique estimée — celle que régule la boucle de vitesse. */
+ *  `vel_rad_s` la vitesse mécanique estimée — celle que régule la boucle de vitesse —, et
+ *  `pos_rad` la position mécanique non repliée — celle que régule la boucle de position. */
 void Foc_OnControlTick(int16_t ia, int16_t ib, int16_t ic, bool enc_ok, float turn,
-                       float vel_rad_s, Foc_Meas_t *out);
+                       float vel_rad_s, float pos_rad, Foc_Meas_t *out);
 
 /** Lance la boucle de courant. Depuis la superloop, mêmes barrières que la boucle ouverte.
  *  @param enable rempli avec le refus de la barrière quand le résultat est `FOC_CL_ERR_ENABLE`. */
@@ -132,6 +143,25 @@ typedef struct
 Foc_ClResult_t Foc_SlStart(int32_t mrad_s, uint32_t ms, float bw_hz, SafetyEnable_t *enable);
 
 void Foc_SlGetStatus(Foc_SlStatus_t *out);
+
+typedef struct
+{
+  bool     active;
+  float    target;        /**< rad */
+  float    pos;           /**< dernière position vue, rad */
+  float    err;           /**< rad */
+  float    w_ref;         /**< rad/s */
+  uint32_t ticks;
+  uint32_t w_sat_ticks;   /**< passages où le plafond de vitesse a mordu */
+  float    kp;            /**< rad/s par rad */
+} Foc_PlStatus_t;
+
+/** Lance la boucle de position vers une cible absolue — vitesse et courant dessous. Mêmes
+ *  refus que `Foc_SlStart`, plus `FOC_CL_ERR_LIMIT` si la cible est trop loin, et
+ *  `FOC_CL_ERR_ANGLE` sans position valide au départ. */
+Foc_ClResult_t Foc_PlStart(int32_t target_mrad, uint32_t ms, float bw_hz, SafetyEnable_t *enable);
+
+void Foc_PlGetStatus(Foc_PlStatus_t *out);
 
 /** Dernière mesure de l'ISR, copiée d'un bloc. */
 void Foc_GetMeas(Foc_Meas_t *out);

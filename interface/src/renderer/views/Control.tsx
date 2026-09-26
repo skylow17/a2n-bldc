@@ -1,9 +1,9 @@
 /**
- * Vue Control — armement, boucle ouverte, boucle de courant, boucle de vitesse (M3, étapes
- * 10 à 12).
+ * Vue Control — armement, boucle ouverte, boucles de courant, de vitesse et de position (M3,
+ * étapes 10 à 13).
  *
  * Tout passe par la console du firmware, les mêmes lignes qu'on taperait à la main : `ARM`,
- * `OL`, `CL`, `SL`, et leurs lectures d'état. Aucun chemin dédié, et donc aucune limite recopiée
+ * `OL`, `CL`, `SL`, `PL`, et leurs lectures d'état. Aucun chemin dédié, et donc aucune limite recopiée
  * ici — amplitude, fréquence, consignes, durées sont bornées par le firmware (`AGENTS.md`
  * §3), qui répond `ERR LIMIT` au-delà. La vue affiche ce refus tel quel plutôt que de le
  * devancer : une limite recopiée côté PC finit toujours par diverger de la vraie.
@@ -19,10 +19,12 @@ import {
   parseCl,
   parseFoc,
   parseOl,
+  parsePl,
   parseSl,
   type ClStatus,
   type FocStatus,
   type OlStatus,
+  type PlStatus,
   type SlStatus,
 } from '../controlStatus.js';
 import { Pill } from '../components/Metric.js';
@@ -30,7 +32,7 @@ import { Button, Empty, Field, Panel, fmt } from '../components/ui.js';
 import { api, useAction } from '../useDevice.js';
 
 /** Cadence de relecture des états. Assez vive pour suivre une rampe, assez lente pour ne
- *  pas noyer la console commune : quatre lignes toutes les 250 ms. */
+ *  pas noyer la console commune : cinq lignes toutes les 250 ms. */
 const POLL_MS = 250;
 
 function NumberInput({
@@ -86,6 +88,7 @@ export function Control({ state }: { state: DeviceSnapshot }): ReactNode {
   const [cl, setCl] = useState<ClStatus | null>(null);
   const [foc, setFoc] = useState<FocStatus | null>(null);
   const [sl, setSl] = useState<SlStatus | null>(null);
+  const [pl, setPl] = useState<PlStatus | null>(null);
   const [reply, setReply] = useState<string | null>(null);
 
   const [olAmp, setOlAmp] = useState('40');
@@ -96,6 +99,8 @@ export function Control({ state }: { state: DeviceSnapshot }): ReactNode {
   const [clMs, setClMs] = useState('1000');
   const [slW, setSlW] = useState('2');
   const [slMs, setSlMs] = useState('3000');
+  const [plMove, setPlMove] = useState('1');
+  const [plMs, setPlMs] = useState('2000');
 
   /* Relecture périodique, séquentielle : la console n'a qu'une file, et trois requêtes
    * lancées en parallèle se serialiseraient de toute façon. */
@@ -108,8 +113,10 @@ export function Control({ state }: { state: DeviceSnapshot }): ReactNode {
         const c = parseCl(await api().console('CL?'));
         const f = parseFoc(await api().console('FOC?'));
         const w = parseSl(await api().console('SL?'));
+        const q = parsePl(await api().console('PL?'));
         if (!alive) return;
         setSl(w);
+        setPl(q);
         setOl(o);
         setCl(c);
         setFoc(f);
@@ -316,6 +323,52 @@ export function Control({ state }: { state: DeviceSnapshot }): ReactNode {
             </Field>
             {sl.active && <Field label="Time left">{sl.leftMs === null ? '—' : `${sl.leftMs} ms`}</Field>}
             <Field label="Gain Kp">{sl.kpMaRadS === null ? '—' : `${fmt(sl.kpMaRadS, 4)} mA per rad/s`}</Field>
+          </>
+        )}
+      </Panel>
+      <Panel
+        title="Position loop"
+        right={
+          <Pill tone={pl?.active === true ? 'warn' : 'idle'}>
+            {pl === null ? 'n/a' : pl.active ? 'holding' : 'idle'}
+          </Pill>
+        }
+      >
+        {pl === null ? (
+          <p className="px-3 py-2 text-[12px] text-fg-3">This firmware has no position loop.</p>
+        ) : (
+          <>
+            <p className="px-3 py-2 text-[12px] leading-relaxed text-fg-2">
+              Moves the shaft by the given angle from where it stands, then holds it there
+              until the duration ends; the shaft is free again after that. Position sets the
+              speed, speed sets Iq: every cap and cut of the loops below still applies.
+            </p>
+            <NumberInput label="Move" unit="rad" value={plMove} onChange={setPlMove} disabled={act.busy} />
+            <NumberInput label="Duration" unit="ms" value={plMs} onChange={setPlMs} disabled={act.busy} />
+            <div className="flex gap-2 px-3 py-2">
+              <Button
+                tone="accent"
+                disabled={act.busy || !armed || live || pl.posRad === null}
+                title={armed ? 'Refused by the firmware beyond its limits' : 'ARM first'}
+                onClick={() => {
+                  // La console attend une cible absolue en milliradians. Le déplacement saisi
+                  // s'ajoute à la dernière position lue ; le firmware juge seul de la distance.
+                  const d = Number(plMove.trim());
+                  const target = Number.isFinite(d) ? Math.round((pl.posRad! + d) * 1000) : NaN;
+                  send(`PL ${Number.isFinite(target) ? target : plMove.trim()} ${plMs.trim()}`);
+                }}
+              >
+                Move
+              </Button>
+              <Button disabled={act.busy || !pl.active} onClick={() => send('PL STOP')}>
+                Stop
+              </Button>
+            </div>
+            <Field label="Position">{pl.posRad === null ? '—' : `${fmt(pl.posRad, 5)} rad`}</Field>
+            <Field label="Target">{pl.targetRad === null ? '—' : `${fmt(pl.targetRad, 5)} rad`}</Field>
+            <Field label="Error">{pl.errMrad === null ? '—' : `${pl.errMrad} mrad`}</Field>
+            <Field label="Speed setpoint">{pl.wRefRadS === null ? '—' : `${fmt(pl.wRefRadS, 3)} rad/s`}</Field>
+            {pl.active && <Field label="Time left">{pl.leftMs === null ? '—' : `${pl.leftMs} ms`}</Field>}
           </>
         )}
       </Panel>

@@ -55,6 +55,12 @@ static float    s_w_ref, s_w_int, s_w_last, s_w_sum;
 static uint32_t s_sl_ticks, s_iq_sat_ticks;
 static float    s_sl_kp, s_sl_ki_ts;   /* A par rad/s ; A par rad, fois Ts */
 
+/* Boucle de position, au-dessus de la boucle de vitesse : elle n'écrit que `s_w_ref`. */
+static volatile bool s_pl_active;
+static float    s_p_ref, s_p_err, s_pl_kp;
+static uint32_t s_pl_ticks, s_w_sat_ticks;
+static float    s_pos_last;            /* dernière position vue par l'ISR, rad */
+
 /* Cosinus et sinus d'un angle en tours, [0, 1). Le CORDIC prend l'angle en Q1.31 sur
  * [−π, π) : un tour vaut 2^32, et la conversion en entier signé replie d'elle-même
  * [½, 1) sur [−½, 0). Deux arguments écrits — l'angle puis le module 1 — et deux résultats
@@ -248,6 +254,23 @@ static void Regulate(float c, float s, float id, float iq)
 /* Un passage de la boucle de vitesse : PI, plafond d'Iq, intégrateur figé quand il mord.
  * Le couple suit Iq dans le sens électrique ; en mécanique, il suit le signe de `sens` —
  * −1 sur ce moteur, où un Iq positif fait tourner l'arbre en arrière (étape 11). */
+/* Un passage de la boucle de position : proportionnelle, consigne de vitesse plafonnée. */
+static void PositionTick(float pos)
+{
+  const float e = s_p_ref - pos;
+  float w = s_pl_kp * e;
+  if (w > FOC_PL_W_MAX_RAD_S) {
+    w = FOC_PL_W_MAX_RAD_S;
+    s_w_sat_ticks++;
+  } else if (w < -FOC_PL_W_MAX_RAD_S) {
+    w = -FOC_PL_W_MAX_RAD_S;
+    s_w_sat_ticks++;
+  }
+  s_w_ref = w;
+  s_p_err = e;
+  s_pl_ticks++;
+}
+
 static void SpeedTick(float vel)
 {
   const float dir = (s_cfg.k < 0.0f) ? -1.0f : 1.0f;
@@ -270,7 +293,7 @@ static void SpeedTick(float vel)
 }
 
 void Foc_OnControlTick(int16_t ia, int16_t ib, int16_t ic, bool enc_ok, float turn,
-                       float vel_rad_s, Foc_Meas_t *out)
+                       float vel_rad_s, float pos_rad, Foc_Meas_t *out)
 {
   const bool  ok      = s_cfg.ok;
   const float offset  = s_cfg.offset_turns;
@@ -280,6 +303,8 @@ void Foc_OnControlTick(int16_t ia, int16_t ib, int16_t ic, bool enc_ok, float tu
   out->vd_v = 0.0f;
   out->vq_v = 0.0f;
   out->iq_ref_a = 0.0f;
+  out->w_ref_rad_s = 0.0f;
+  s_pos_last = pos_rad;
 
   if (!ok || !enc_ok) {
     out->valid       = false;
@@ -291,6 +316,7 @@ void Foc_OnControlTick(int16_t ia, int16_t ib, int16_t ic, bool enc_ok, float tu
     if (s_cl_active) {
       s_cl_active = false;
       s_sl_active = false;
+      s_pl_active = false;
       Safety_Cut(SAFETY_ANGLE_LOST);
     }
     return;
@@ -331,9 +357,14 @@ void Foc_OnControlTick(int16_t ia, int16_t ib, int16_t ic, bool enc_ok, float tu
     if (!Pwm_IsEnabled()) {
       s_cl_active = false;
       s_sl_active = false;
+      s_pl_active = false;
     } else {
+      if (s_pl_active) {
+        PositionTick(pos_rad);
+      }
       if (s_sl_active) {
         SpeedTick(vel_rad_s);
+        out->w_ref_rad_s = s_w_ref;
       }
       Regulate(c, s, out->id_a, out->iq_a);
       out->iq_ref_a = s_iq_ref;
@@ -424,6 +455,52 @@ Foc_ClResult_t Foc_SlStart(int32_t mrad_s, uint32_t ms, float bw_hz, SafetyEnabl
   return r;
 }
 
+Foc_ClResult_t Foc_PlStart(int32_t target_mrad, uint32_t ms, float bw_hz, SafetyEnable_t *enable)
+{
+  if (!(bw_hz >= FOC_PL_BW_MIN_HZ) || !(bw_hz <= FOC_PL_BW_MAX_HZ)) {
+    return FOC_CL_ERR_LIMIT;
+  }
+  if (Pwm_IsEnabled()) {
+    return FOC_CL_ERR_BUSY;
+  }
+  if (!s_last.valid) {
+    return FOC_CL_ERR_ANGLE;
+  }
+  /* Le déplacement se mesure depuis la position actuelle : une cible absolue lointaine —
+   * une faute de frappe, un repère perdu — ne doit pas lancer l'arbre sur des dizaines de
+   * tours. La lecture est un flottant de 32 bits écrit par l'ISR : atomique. */
+  const float target = (float)target_mrad * 1e-3f;
+  const float move = target - s_pos_last;
+  if ((move > ((float)FOC_PL_MAX_MOVE_MRAD * 1e-3f)) || (move < -((float)FOC_PL_MAX_MOVE_MRAD * 1e-3f))) {
+    return FOC_CL_ERR_LIMIT;
+  }
+  s_p_ref       = target;
+  s_p_err       = move;
+  s_pl_kp       = 2.0f * 3.14159265f * bw_hz;
+  s_pl_ticks    = 0U;
+  s_w_sat_ticks = 0U;
+  s_pl_active = true;
+  const Foc_ClResult_t r = Foc_SlStart(0, ms, FOC_SL_BW_HZ, enable);
+  if (r != FOC_CL_OK) {
+    s_pl_active = false;
+  }
+  return r;
+}
+
+void Foc_PlGetStatus(Foc_PlStatus_t *out)
+{
+  __disable_irq();
+  out->active      = s_pl_active;
+  out->target      = s_p_ref;
+  out->pos         = s_pos_last;
+  out->err         = s_p_err;
+  out->w_ref       = s_w_ref;
+  out->ticks       = s_pl_ticks;
+  out->w_sat_ticks = s_w_sat_ticks;
+  out->kp          = s_pl_kp;
+  __enable_irq();
+}
+
 void Foc_SlGetStatus(Foc_SlStatus_t *out)
 {
   __disable_irq();
@@ -443,6 +520,7 @@ void Foc_ClStop(void)
 {
   s_cl_active = false;
   s_sl_active = false;
+  s_pl_active = false;
   Safety_Cut(SAFETY_REQUESTED);    /* coupe sans désarmer : un arrêt voulu, pas une faute */
 }
 

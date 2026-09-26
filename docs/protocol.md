@@ -326,6 +326,7 @@ Signaux présents à M2 :
 | 19 | `foc.vd_v` | `V` | tension d'axe d demandée par la boucle de courant, après limitation. 0 hors boucle de courant |
 | 20 | `foc.vq_v` | `V` | tension d'axe q, même chose |
 | 21 | `foc.iq_ref_a` | `A` | consigne d'Iq de la boucle de courant : celle de `CL`, ou celle que calcule la boucle de vitesse. 0 hors boucle de courant |
+| 22 | `foc.w_ref_rad_s` | `rad/s` | consigne de vitesse mécanique de la boucle de vitesse : celle de `SL`, ou celle que calcule la boucle de position. 0 hors boucle de vitesse |
 
 **Zone morte des amplis de courant.** Mesurée le 2026-09-26 : chaque voie a une plage de
 courant sur laquelle sa sortie reste collée **exactement** à la mi-échelle, 2048 counts bruts,
@@ -733,6 +734,26 @@ barrières que `CL`, plus :
 | `SL STOP` | `OK` | Arrête la boucle et coupe les sorties, **sans désarmer** |
 
 `CL?` rend compte de la boucle de courant sous-jacente pendant une boucle de vitesse.
+
+**Boucle de position** (M3, étape 13) — un régulateur proportionnel de position calcule la
+consigne de la boucle de vitesse, bornée : cascade position → vitesse → courant. La position
+est l'angle mécanique de l'encodeur, non replié (`enc.pos_rad`) — congru à `RAW_ANGLE`, donc
+absolu dans le tour et compté en tours depuis le démarrage. Gain Kp = 2π · f, f la bande
+passante de position, **3 Hz par défaut** : dix fois sous celle de la boucle de vitesse, qui
+tourne à son défaut. Pas d'intégrateur de position : celui de la boucle de vitesse tient déjà
+le couple contre le frottement. Mêmes barrières que `SL`, plus :
+
+- **déplacement ≤ 2 tours** (12,566 rad) entre la position au départ et la cible ;
+- **vitesse plafonnée à 10 rad/s** en valeur absolue pendant le mouvement ;
+- **durée ≤ 10 s** ; à son terme les sorties tombent, et l'arbre n'est plus tenu.
+
+| Commande | Réponse | Rôle |
+|---|---|---|
+| `PL <mrad> <ms> [bw_hz]` | réponses de `CL` | Lance la boucle de position vers la cible **absolue** en milliradians mécaniques, signée, durée en millisecondes, bande passante optionnelle en hertz de 0,5 à 5. `ERR LIMIT` si la cible est à plus de 2 tours |
+| `PL?` | `OK active=<0\|1> target_mrad=<n> pos_mrad=<n> err_mrad=<n> w_ref_mrad_s=<n> w_sat_ticks=<n> ticks=<n> left_ms=<n> kp_mrad_s_rad=<n>` | État : cible, position et erreur au dernier passage, consigne de vitesse, passages où le plafond de vitesse a mordu sur le total, temps restant, gain en mrad/s par rad |
+| `PL STOP` | `OK` | Arrête la boucle et coupe les sorties, **sans désarmer** |
+
+`SL?` et `CL?` rendent compte des boucles sous-jacentes pendant une boucle de position.
 
 **`host`** est la présence de l'hôte vue du firmware : DTR levé par le port ouvert côté PC et
 bus USB actif. Elle retombe quand le port se ferme, quand le câble part ou quand le bus se
