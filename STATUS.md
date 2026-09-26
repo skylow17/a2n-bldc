@@ -8,7 +8,7 @@ Ce fichier ne contient **aucun chiffre volatil** (nombre de tests, occupation fl
 Ces valeurs se mesurent, elles ne se recopient pas : `python tools/status.py` les relève sur le
 dépôt réel. Une valeur écrite à la main est fausse le lendemain.
 
-Dernière revue : 2026-09-26, sur carte — le SPI du DRV réparé et prouvé par une écriture qui change la mesure analogique ; gain des amplis relu à 20 V/V.
+Dernière revue : 2026-09-26, sur carte — SPI du DRV réparé, puis firmware stabilisé : règle de vérification rejouée depuis un clone frais, quatre défauts corrigés et éprouvés sur carte.
 
 > **Reprise suivante — par où commencer.** Les deux défauts matériels sont **expliqués**, et
 > aucun des deux n'est une panne : ce sont deux erreurs de conception, l'une et l'autre
@@ -41,10 +41,14 @@ Dernière revue : 2026-09-26, sur carte — le SPI du DRV réparé et prouvé pa
 > tableau de bord montre enfin ce que la carte mesure, et la console se filtre.
 >
 > L'**étape 6 est écrite, mesurée et validée à titre provisoire** (AS5600 en DMA à 1 MHz),
-> hors séquence puisqu'elle ne dépend pas des étapes bloquées. Deux réserves à lever quand
-> la carte sera rebranchée, et elles ne bloquent rien : le registre `STATUS` du capteur ne
-> confirmait pas l'aimant lors de ma dernière lecture, et le taux d'erreurs I²C sur une
-> longue durée mérite un coup d'œil. Détail dans la section de l'étape 6.
+> hors séquence. La réserve sur l'aimant est **levée le 2026-09-26** : il est bien vu, mais
+> faible — gain automatique en butée — et les bits de `STATUS` le déclarent absent à tort.
+> La validité de l'angle se fonde désormais sur la magnitude du champ. Reste le taux
+> d'erreurs I²C sur longue durée, à surveiller. Détail dans la section de l'étape 6.
+>
+> **Le firmware a été stabilisé le 2026-09-26**, et c'est de là que repart la suite : les deux
+> slots portent la même image, construite depuis un clone frais du dépôt, et quatre défauts
+> trouvés en regardant la carte tourner sont corrigés. Voir « Stabilisation du firmware ».
 
 > **Cette revue a repris des états faux.** La passe du 2026-09-15 a marqué « validé sur carte » des
 > jalons dont le code n'a jamais été commité. Le détail est plus bas, section
@@ -64,7 +68,7 @@ Dernière revue : 2026-09-26, sur carte — le SPI du DRV réparé et prouvé pa
 | **M1c** | Télémétrie souscrite + buffer scope | **Validé sur carte le 2026-09-16** : `telem` sans trou, `scope` 2048 points sur 4 signaux à la cadence de boucle | Coût de l'échantillonnage scope dans l'ISR, voir la piste plus bas |
 | **M1d** | CLI de bring-up | Validé sur simulateur **et sur carte** — toutes les commandes, `firmware-update` compris | — |
 | **Boot** | Bootloader A/B, probation et rollback | **Validé sur carte le 2026-09-16** : installation SWD, `BOOT_INFO`, mise à jour nominale promue, rollback sur image qui ne confirme jamais | Rien ; un défaut trouvé sur carte, corrigé, rejoué |
-| **M2** | Étage de puissance et capteurs (étapes 2 à 9) | **Étape 2 : validée le 2026-09-16, régression du 2026-09-21 réparée et revalidée le 2026-09-26** — écriture-relecture par `DRV.PROBE`, et une écriture de registre dont l'effet se lit sur la mesure analogique. Voir plus bas. Pour mémoire, la validation d'origine : le DRV8304 répond en SPI, sept registres relus cohérents avec la fiche technique, écriture-relecture par `DRV.PROBE`, fautes lisibles. **Étape 3 validée à l'oscilloscope le 2026-09-18** : trois bras complémentaires à 20 kHz, temps mort 500 ns aux deux fronts, rapports 20/50/80 % suivis, aucune conduction croisée — après avoir trouvé que les sorties basses n'avaient jamais été activées. **Étape 4 entamée le 2026-09-18**, puis reprise le 2026-09-20 après remplacement de U3 : un défaut d'acquisition corrigé, et **deux défauts matériels isolés** — voir plus bas | Étape 4 : **offsets et bruit mesurés et documentés le 2026-09-21** — zéro de chaîne à 1–11 counts de la mi-échelle, répétable à ±1 count sur quatre campagnes, écart-type de 1,4 à 2,0 counts avec `CAL` levé. Ni SPI ni sortie de puissance requis. Reste à confirmer que le gain vaut bien 20 V/V, ce qui demande le SPI. Pour mémoire, ce qui bloquait avant : D'abord `VREF` qui oscille de ±370 mV, ce qui fausse toute mesure de tension de la carte ; ensuite les trois entrées de courant flottantes, que le remplacement du DRV n'a pas corrigées — continuité et masse à vérifier à l'ohmmètre. Le chemin nFAULT → coupure de `MOE` est écrit mais **jamais déclenché** . **Étape 6 écrite hors séquence et éprouvée sur carte** (2026-09-21) puisqu'elle ne dépend ni de 4 ni de 5 : AS5600 en DMA à 1 MHz, transfert 57 µs, un échantillon toutes les 59 µs, ISR à 2,60 µs au pire. **Verte à titre provisoire** : le critère « angle monotone à la main » a été validé par l'utilisateur, aimant monté, et je n'ai pas assisté à la mesure — une réserve reste à lever, voir la section de l'étape 6 |
+| **M2** | Étage de puissance et capteurs (étapes 2 à 9) | **Étape 2 : validée le 2026-09-16, régression du 2026-09-21 réparée et revalidée le 2026-09-26** — écriture-relecture par `DRV.PROBE`, et une écriture de registre dont l'effet se lit sur la mesure analogique. Voir plus bas. Pour mémoire, la validation d'origine : le DRV8304 répond en SPI, sept registres relus cohérents avec la fiche technique, écriture-relecture par `DRV.PROBE`, fautes lisibles. **Étape 3 validée à l'oscilloscope le 2026-09-18** : trois bras complémentaires à 20 kHz, temps mort 500 ns aux deux fronts, rapports 20/50/80 % suivis, aucune conduction croisée — après avoir trouvé que les sorties basses n'avaient jamais été activées. **Étape 4 entamée le 2026-09-18**, puis reprise le 2026-09-20 après remplacement de U3 : un défaut d'acquisition corrigé, et **deux défauts matériels isolés** — voir plus bas | Étape 4 : **offsets et bruit mesurés et documentés le 2026-09-21** — zéro de chaîne à 1–11 counts de la mi-échelle, répétable à ±1 count sur quatre campagnes, écart-type de 1,4 à 2,0 counts avec `CAL` levé. Ni SPI ni sortie de puissance requis. Gain relu à 20 V/V le 2026-09-26. **Depuis le 2026-09-26 le zéro est mesuré à chaque démarrage**, sorties coupées, et refusé s'il n'est pas plausible. Pour mémoire, ce qui bloquait avant : D'abord `VREF` qui oscille de ±370 mV, ce qui fausse toute mesure de tension de la carte ; ensuite les trois entrées de courant flottantes, que le remplacement du DRV n'a pas corrigées — continuité et masse à vérifier à l'ohmmètre. Le chemin nFAULT → coupure de `MOE` est écrit mais **jamais déclenché** . **Étape 6 écrite hors séquence et éprouvée sur carte** (2026-09-21) puisqu'elle ne dépend ni de 4 ni de 5 : AS5600 en DMA à 1 MHz, transfert 57 µs, un échantillon toutes les 59 µs, ISR à 2,60 µs au pire. **Verte à titre provisoire** : le critère « angle monotone à la main » a été validé par l'utilisateur, aimant monté, et je n'ai pas assisté à la mesure — une réserve reste à lever, voir la section de l'étape 6 |
 | **M3** | Asservissements (étapes 10 à 13) | Pas commencé | — |
 
 **Aucun moteur n'a encore tourné**, et les sorties restent en haute impédance.
@@ -828,7 +832,14 @@ projet dont l'état ne repose pas sur une observation que j'ai faite moi-même.
 Deux réserves, à lever quand la carte sera rebranchée. Ni l'une ni l'autre ne bloque la suite,
 mais les taire reviendrait à arrondir un état.
 
-1. **Le registre `STATUS` ne confirmait pas l'aimant à ma dernière lecture.** Prise juste après
+1. **Levée le 2026-09-26.** `AGC` = 128, la butée haute en 3,3 V, et `MAGNITUDE` = 1818 avec
+   l'aimant monté, contre **4** sans aimant le matin même. L'aimant est donc bien là, mais
+   faible : le capteur compense jusqu'à son gain maximal, lève `ML`, et fournit un angle
+   parfaitement exploitable. Les bits de `STATUS` ne sont pas un bon critère sur ce montage —
+   d'où le changement de critère décrit dans « Stabilisation du firmware ». Un aimant plus
+   proche ou plus fort serait plus confortable, sans être nécessaire. Pour mémoire, la réserve
+   telle qu'elle avait été écrite : **le registre `STATUS` ne confirmait pas l'aimant à ma
+   dernière lecture.** Prise juste après
    le message de validation : `status=0x57`, soit `MD = 0` et `ML = 1` — le capteur déclarait
    toujours l'aimant absent ou trop faible, alors que `turns=7` et un angle cohérent disent
    qu'il a bien tourné. Trois lectures possibles : l'aimant a été présenté puis retiré, il est
@@ -1337,6 +1348,71 @@ travail local n'existe pas. Un outil de constat qui ne distingue pas l'absence d
 constate rien. D'où les deux règles ci-dessous.
 
 ---
+
+## Stabilisation du firmware (2026-09-26)
+
+Faite pour repartir d'un état sûr avant l'étape 5. Deux volets : prouver que ce qui tourne
+sur la carte se reconstruit depuis le dépôt, puis corriger ce que la carte a montré en
+tournant.
+
+**La règle de vérification, rejouée depuis un clone frais.** Toutes les étapes passent sauf
+la quatrième, toujours faute de compilateur C hôte sur ce poste. Le build est **reproductible
+au bit près** : l'image du clone frais a le même CRC que celle que le bootloader avait vérifiée
+dans le slot actif. Les deux slots portent la même image, construite depuis `HEAD`. Le firmware
+s'annonce `2.0.0-m2a` — il disait encore `m1c`.
+
+**Quatre défauts corrigés, chacun éprouvé sur carte.**
+
+1. **Un `ENC.REG` pouvait figer la carte**, et l'a fait : liaison USB muette, même au
+   paramétrage du port, cycle d'alimentation nécessaire. Pour lire un registre, la console
+   arrachait la chaîne DMA par `HAL_I2C_Master_Abort_IT` — l'appel que `HardReset` documentait
+   déjà comme inopérant — et surtout rien n'empêchait la chaîne de repartir : si le transfert
+   en vol se terminait avant l'abandon, son interruption de fin relançait un transfert DMA en
+   pleine lecture bloquante. Désormais la console demande une pause, que l'interruption de fin
+   honore ; le transfert en vol finit normalement ; et si le bus n'est pas libre en 2 ms,
+   `HardReset` prend le relais. **Vérifié : 3000 lectures de registres enchaînées, zéro
+   erreur, la chaîne continue de tourner.**
+2. **Sans aimant, l'angle était déclaré valide.** L'en-tête d'`encoder.c` posait la règle
+   « sans aimant, on ne fait pas semblant » sans que le code l'applique : `Encoder_Sample`
+   rendait le bruit pour une mesure, et la télémétrie montrait 77 rad/s et des tours fantômes
+   sur un arbre immobile. Désormais, sans champ suffisant, la position n'intègre plus rien, la
+   vitesse retombe à zéro, `Encoder_Sample` répond faux, et un signal `enc.valid` (13) le
+   montre sur le graphe. **Le critère est la magnitude du champ et non `STATUS`** : un premier
+   essai sur les bits `MD`/`ML` aurait déclaré invalide l'aimant réellement monté, que le
+   capteur juge trop faible alors que l'angle est bon. Seuil à 256, entre 4 sans aimant et
+   1818 avec.
+3. **Le zéro de la chaîne de courant n'était jamais mesuré au démarrage.** Les courants
+   centrés restaient décalés jusqu'à ce que quelqu'un pense à `IMOT.CAL`. Une campagne `CAL`
+   tourne maintenant à chaque démarrage, sorties coupées, pendant l'énumération USB — et elle
+   n'est retenue que si les trois moyennes sont à moins de 150 counts de la mi-échelle : une
+   calibration aveugle aurait pris pour un zéro les `2126, 1650, 80` d'avant la retouche de
+   `VREF`. Mesuré au démarrage : `2052, 2059, 2050`, à un count des campagnes manuelles du
+   2026-09-21.
+4. **L'ISR prenait pour cohérent un angle jamais publié.** Le seqlock part de zéro, qui est
+   pair : avant la première lecture du capteur, l'ISR recevait une position nulle datée de
+   zéro. Effet minime, cause certaine.
+
+**Ce qui n'est pas un défaut, et qu'on lira sur le graphe.** Sorties coupées, les courants
+centrés restent à une dizaine de counts au-dessus de zéro. La calibration par `CAL` donne le
+zéro de l'amplificateur ; hors `CAL`, l'entrée du shunt n'est reliée qu'à un transistor bloqué
+et flotte. Le vrai zéro de fonctionnement se lira quand les transistors bas conduiront — à
+l'étape 5.
+
+**Une hypothèse, non vérifiée, à garder pour la suite.** Juste après une mise à jour, l'âge
+maximal de l'angle a une fois saturé à 65 ms, jamais reproduit après un démarrage propre. La
+probation écrit sa confirmation en flash, et un effacement de page fige le cœur quelques
+dizaines de millisecondes — ISR de contrôle comprise. Sans conséquence aujourd'hui, sorties
+coupées ; **mais toute écriture en flash moteur tournant devra en tenir compte.**
+
+**Deux propositions laissées en attente de décision.**
+
+- **Pas de watchdog.** Le blocage du point 1 a exigé un cycle d'alimentation. La sécurité n'a
+  pas été touchée — l'ISR de contrôle et `nFAULT` sont prioritaires sur l'I²C — mais une carte
+  figée ne se relance pas seule. Un watchdog interagit avec la probation du bootloader : à
+  décider, pas à glisser.
+- **Deux défauts du CLI `firmware-update`**, qui ont coûté deux sessions : sur erreur il ne
+  referme pas le port, donc un refus ressemble à un blocage ; et il n'examine pas l'image
+  avant d'effacer le slot, alors que le vecteur de reset se lit sur l'hôte.
 
 ## Règle de vérification avant d'annoncer un jalon
 

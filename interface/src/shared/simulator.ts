@@ -906,7 +906,8 @@ export class SimulatedDevice implements Transport {
         this.encReads += 17;
         this.replyLine(
           `OK present=1 magnet=${this.encMagnet ? 1 : 0} ` +
-            `status=${this.encMagnet ? '20' : '13'} raw=${raw} turns=0 ` +
+            `status=${this.encMagnet ? '20' : '13'} mag=${this.encMagnet ? 1818 : 4} ` +
+            `raw=${raw} turns=0 ` +
             `pos_mrad=${pos} vel_mrad_s=785 bus_hz=1000000 ` +
             `xfer_us=57 period_us=59 age_max_us=118 ok=${this.encReads} err=0`,
         );

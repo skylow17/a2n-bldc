@@ -44,6 +44,10 @@ static float ReadCentIb(const Signal_Snapshot_t *snap) { return (float)snap->cen
 static float ReadCentIc(const Signal_Snapshot_t *snap) { return (float)snap->cent_ic; }
 
 static float ReadEncPosRad(const Signal_Snapshot_t *snap)  { return snap->pos_rad; }
+
+/* 1 ou 0. Sans lui, un arbre immobile sans aimant tracait une position a zero qu'on ne
+ * distinguait pas d'une vraie mesure a zero. */
+static float ReadEncValid(const Signal_Snapshot_t *snap) { return (float)snap->enc_valid; }
 static float ReadEncVelRadS(const Signal_Snapshot_t *snap) { return snap->vel_rad_s; }
 
 static float ReadEncAgeUs(const Signal_Snapshot_t *snap)
@@ -92,6 +96,7 @@ static const SignalDesc_t s_signals[] = {
   { 10U, "current.ia_count",    "count", ReadCentIa            },
   { 11U, "current.ib_count",    "count", ReadCentIb            },
   { 12U, "current.ic_count",    "count", ReadCentIc            },
+  { 13U, "enc.valid",           "bool",  ReadEncValid          },
 };
 
 #define SIGNAL_COUNT  ((uint16_t)(sizeof(s_signals) / sizeof(s_signals[0])))

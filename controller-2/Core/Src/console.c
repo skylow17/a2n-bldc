@@ -374,11 +374,11 @@ static void CmdEncStatus(void)
 {
   Encoder_t e;
   Encoder_Get(&e);
-  Link_TxPrintf("OK present=%u magnet=%u status=%02X raw=%u turns=%ld "
+  Link_TxPrintf("OK present=%u magnet=%u status=%02X mag=%u raw=%u turns=%ld "
                 "pos_mrad=%ld vel_mrad_s=%ld bus_hz=%lu xfer_us=%u period_us=%u "
                 "age_max_us=%u ok=%lu err=%lu\r\n",
                 e.present ? 1U : 0U, e.magnet_ok ? 1U : 0U, (unsigned)e.status_raw,
-                e.raw_angle, (long)e.turns,
+                (unsigned)e.magnitude, e.raw_angle, (long)e.turns,
                 (long)(e.pos_rad * 1000.0f), (long)(e.vel_rad_s * 1000.0f),
                 (unsigned long)e.bus_hz, e.xfer_us, e.period_us, e.age_max_us,
                 (unsigned long)e.reads_ok, (unsigned long)e.reads_err);

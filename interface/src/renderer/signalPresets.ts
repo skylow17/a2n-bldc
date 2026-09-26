@@ -37,7 +37,9 @@ export interface SignalPreset {
  * que c'est la mesure qui vient d'être réparée et celle sur laquelle tout repose ; l'angle
  * et la vitesse, parce qu'une boucle de position s'y lit ; la charge de boucle, parce qu'une
  * ISR qui déborde explique tout le reste ; et l'âge de l'échantillon d'angle, qui plafonne
- * la vitesse exploitable. Sept signaux, sous les huit teintes de la palette.
+ * la vitesse exploitable. Et `enc.valid`, parce qu'un angle à zéro sans aimant ressemble
+ * trait pour trait à un angle à zéro mesuré : sans lui, la courbe ment par omission.
+ * Huit signaux, exactement les huit teintes de la palette.
  */
 export const SIGNAL_PRESETS: readonly SignalPreset[] = [
   {
@@ -52,6 +54,7 @@ export const SIGNAL_PRESETS: readonly SignalPreset[] = [
       'enc.vel_rad_s',
       'loop.load_pct',
       'enc.age_us',
+      'enc.valid',
     ],
   },
   {
@@ -70,8 +73,8 @@ export const SIGNAL_PRESETS: readonly SignalPreset[] = [
   {
     id: 'encoder',
     label: 'Position',
-    hint: 'Angle, speed, and how old the sample was when the loop read it.',
-    names: ['enc.pos_rad', 'enc.vel_rad_s', 'enc.age_us'],
+    hint: 'Angle, speed, how old the sample was when the loop read it, and whether there was a magnet to read.',
+    names: ['enc.pos_rad', 'enc.vel_rad_s', 'enc.age_us', 'enc.valid'],
   },
   {
     id: 'loop',

@@ -239,7 +239,7 @@ char unit[8]
 Les règles des champs texte bornés du §5 s'appliquent. Une page contient au plus 11 entrées.
 Un identifiant est stable tant que le signal conserve sa signification et son unité.
 
-Signaux présents à M1c :
+Signaux présents à M2 :
 
 | id | Nom | Unité | Source |
 |---:|---|---|---|
@@ -249,12 +249,13 @@ Signaux présents à M1c :
 | 4 | `loop.duration_ns` | `ns` | dernier passage dans l'ISR |
 | 5 | `loop.max_duration_ns` | `ns` | pire passage depuis le reset des stats |
 | 6 | `loop.load_pct` | `%` | `duration / 50 us × 100` |
-| 7 | `enc.pos_rad` | `rad` | AS5600, angle mécanique **extrapolé** à l'instant de l'ISR |
-| 8 | `enc.vel_rad_s` | `rad/s` | vitesse mécanique estimée depuis deux angles consécutifs, filtrée |
+| 7 | `enc.pos_rad` | `rad` | AS5600, angle mécanique **extrapolé** à l'instant de l'ISR. Vaut 0 quand `enc.valid` vaut 0 |
+| 8 | `enc.vel_rad_s` | `rad/s` | vitesse mécanique estimée depuis deux angles consécutifs, filtrée. Vaut 0 quand `enc.valid` vaut 0 |
 | 9 | `enc.age_us` | `us` | âge de l'échantillon d'angle au moment où l'ISR l'a lu |
 | 10 | `current.ia_count` | `count` | ADC1 IN1 **moins l'offset mesuré**, signé. En counts et non en ampères : la conversion demande le gain de l'amplificateur, réglable par SPI, et l'étape 5 pour la vérifier |
 | 11 | `current.ib_count` | `count` | ADC1 IN2, centré |
 | 12 | `current.ic_count` | `count` | ADC1 IN3, centré |
+| 13 | `enc.valid` | `bool` | 1 quand l'ISR dispose d'un angle exploitable : échantillon cohérent **et** champ suffisant, c'est-à-dire `MAGNITUDE` du capteur au moins égale à 256 (4 mesuré sans aimant, 1818 avec l'aimant de la carte). À 0, les signaux 7 et 8 valent 0 et ne doivent pas être lus comme une mesure |
 
 **Règle firmware** : toute grandeur interne qu'on souhaite pouvoir tracer est déclarée comme
 signal au moment où elle est introduite. Une mesure brute reste explicitement nommée et un signal
@@ -502,7 +503,7 @@ rapporte l'état, donc l'état rapporté est toujours celui de l'instant où l'h
 
 | Commande | Réponse | Rôle |
 |---|---|---|
-| `ENC?` | `OK present=<0\|1> magnet=<0\|1> status=<hex> raw=<c> turns=<n> pos_mrad=<n> vel_mrad_s=<n> bus_hz=<n> xfer_us=<n> period_us=<n> age_max_us=<n> ok=<n> err=<n>` | État de l'AS5600 et **budget de retard de l'étape 6 en une ligne**. `magnet` vient du registre `STATUS` du capteur : `MD` à 1, `ML` et `MH` à 0. `xfer_us` est la durée du transfert I2C, `period_us` l'intervalle entre deux échantillons, `age_max_us` le pire âge vu par l'ISR depuis la dernière remise à zéro — c'est celui-là que subit la boucle de contrôle. Angles en milliradians pour éviter d'embarquer un `printf` flottant |
+| `ENC?` | `OK present=<0\|1> magnet=<0\|1> status=<hex> mag=<n> raw=<c> turns=<n> pos_mrad=<n> vel_mrad_s=<n> bus_hz=<n> xfer_us=<n> period_us=<n> age_max_us=<n> ok=<n> err=<n>` | État de l'AS5600 et **budget de retard de l'étape 6 en une ligne**. `magnet` vaut 1 quand `mag`, la magnitude du champ relue périodiquement (`MAGNITUDE`, 0x1B), atteint 256 : c'est elle qui rend l'angle valide ou non. `status` est le registre `STATUS` brut, affiché seulement — sur cette carte ses bits déclarent l'aimant monté trop faible alors que l'angle est exploitable. `xfer_us` est la durée du transfert I2C, `period_us` l'intervalle entre deux échantillons, `age_max_us` le pire âge vu par l'ISR depuis la dernière remise à zéro — c'est celui-là que subit la boucle de contrôle. Angles en milliradians pour éviter d'embarquer un `printf` flottant |
 | `ENC.REG <addr> [<len>]` | `OK reg=<hex> len=<n> <octets…>` | Lecture ponctuelle d'un registre du capteur, adresse en hexadécimal ou décimal, 1 à 8 octets. Prend le bus le temps du transfert puis relance la chaîne continue. Sert à lire `AGC` (0x1A), `MAGNITUDE` (0x1B) et `CONF` (0x07) |
 | `ENC.BUS <hz>` | `OK` / `ERR ARG` | Fréquence SCL : `100000`, `400000` ou `1000000`. Le défaut est 1 MHz, mesuré bon sur cette carte. Remet la chaîne à plat et la relance |
 | `ENC.RST` | `OK` | Remet à zéro `age_max_us`, `ok` et `err` |
@@ -518,7 +519,7 @@ rapporte l'état, donc l'état rapporté est toujours celui de l'instant où l'h
 | `IMOT.DECAY` | `OK charge_us=200 delays_us=… a=<5 valeurs> b=… c=… nc=…` | Chaque entrée chargée à 3,3 V puis relâchée, et convertie après 0, 200 µs, 1, 5 et 25 ms — chaque point repris d'une charge neuve. `nc` est `PA3`, marquée sans liaison au schéma : c'est le témoin. Une broche isolée ne fuit qu'en nanoampères et tient des secondes ; reliée à une piste et à un circuit, elle s'écroule. Les trois voies plus rapides que `nc` disent que la piste est bonne et que l'étage au bout ne pilote pas ; identiques à `nc`, la coupure est côté MCU |
 | `IMOT.CAL [<n>]` | `OK n=<n> cal=1 mean=<a>,<b>,<c> min=… max=… sigma_mcnt=…` | Campagne d'offset sur `<n>` échantillons du groupe injecté (4000 par défaut, 20 000 au plus, soit une seconde de boucle). Lève la broche `CAL` du DRV pendant toute la campagne — entrées des amplificateurs court-circuitées, donc **zéro vrai de la chaîne** — et **mémorise** la moyenne comme offset de travail. L'écart-type est en milli-counts pour qu'un bruit sous le pas de quantification reste lisible. Bloquant le temps de la campagne ; `MOE` doit être coupé |
 | `IMOT.NOISE [<n>]` | même réponse, `cal=0` | La même mesure **sans toucher à `CAL`** et **sans mémoriser** : la chaîne telle qu'elle travaille. L'écart avec `IMOT.CAL` est l'information utile — même zéro, les shunts ne voient rien ; zéros différents, quelque chose passe |
-| `IMOT?` | `OK measured=<0\|1> offset=<a>,<b>,<c> raw=<a>,<b>,<c> centered=<a>,<b>,<c>` | Offsets de travail et dernière lecture brute et centrée. `measured=0` dit que l'offset est la mi-échelle théorique et non une mesure : les courants centrés sont alors indicatifs, pas justes |
+| `IMOT?` | `OK measured=<0\|1> offset=<a>,<b>,<c> raw=<a>,<b>,<c> centered=<a>,<b>,<c>` | Offsets de travail et dernière lecture brute et centrée. Une campagne `CAL` est lancée **au démarrage**, sorties coupées, et mémorisée si elle est plausible — à moins de 150 counts de la mi-échelle sur les trois phases. `measured=0` dit qu'elle ne l'était pas, ou qu'aucune n'a abouti : l'offset est alors la mi-échelle théorique et les courants centrés sont indicatifs, pas justes. La même règle de plausibilité vaut pour `IMOT.CAL` |
 | `IMOT.Z` | `OK a_lo=<c>,<c> a_hi=<c>,<c> b_lo=… b_hi=… c_lo=… c_hi=…` | Impédance des trois entrées de courant. Chaque broche est forcée en sortie 20 µs, relâchée en analogique, convertie tout de suite puis 2 ms plus tard, vers le bas puis vers le haut. Une sortie d'amplificateur a repris la main dès la première conversion ; un nœud flottant garde la charge du forçage. Ne dépend ni de VREF+ ni du DRV |
 
 Une faute matérielle (nFAULT bas) coupe `MOE` depuis l'interruption, sans dialogue SPI ; c'est

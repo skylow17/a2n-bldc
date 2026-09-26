@@ -41,11 +41,20 @@ extern "C" {
 /** Résolution du capteur : 4096 pas sur un tour mécanique. */
 #define ENC_COUNTS_PER_REV  4096
 
+/* Magnitude minimale pour déclarer l'angle exploitable. Mesuré sur cette carte le
+ * 2026-09-26 : **4 sans aimant**, **1818 avec l'aimant monté** — et ce même aimant met le
+ * gain automatique en butée (`AGC` = 128, le maximum en 3,3 V), donc fait lever `ML`.
+ * Les bits de `STATUS` ne séparent pas ces deux cas ici : le 2026-09-21, `MD` valait 0
+ * pendant que l'angle suivait l'arbre. La magnitude les sépare d'un facteur 450. Le seuil
+ * se place à 64 fois le bruit sans aimant et 7 fois sous le plus faible aimant mesuré. */
+#define ENC_MAGNITUDE_MIN   256U
+
 typedef struct
 {
   bool     present;        /**< le capteur a répondu au moins une fois depuis le reset  */
-  bool     magnet_ok;      /**< `MD` à 1, `ML` et `MH` à 0 — aimant présent et à portée */
+  bool     magnet_ok;      /**< `magnitude` au-dessus de `ENC_MAGNITUDE_MIN`            */
   uint8_t  status_raw;     /**< registre `STATUS` (0x0B) brut, relu périodiquement      */
+  uint16_t magnitude;      /**< `MAGNITUDE` (0x1B), 12 bits, relu périodiquement        */
   uint16_t raw_angle;      /**< `RAW_ANGLE` (0x0C), 12 bits, non filtré ni recadré      */
   float    pos_rad;        /**< angle mécanique extrapolé au moment de l'appel          */
   float    vel_rad_s;      /**< vitesse mécanique estimée, filtrée                      */
@@ -73,7 +82,10 @@ void Encoder_Process(void);
  * aucune attente, aucune division, et une lecture déchirée est détectée puis remplacée
  * par le dernier instantané cohérent — jamais par une valeur inventée.
  *
- * @return false tant qu'aucun échantillon valide n'a été publié.
+ * @return false tant qu'aucun échantillon valide n'a été publié, **ou tant que le capteur
+ *         ne voit pas d'aimant** (`magnet_ok`). Dans ce second cas position et vitesse
+ *         valent zéro et `age_us` reste renseigné. Un appelant qui asservit doit tenir
+ *         compte du faux : l'angle rendu n'est alors pas une mesure.
  */
 bool Encoder_Sample(float *pos_rad, float *vel_rad_s, uint16_t *age_us);
 

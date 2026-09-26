@@ -85,6 +85,13 @@ int main(void)
   Sensors_Init();   /* ADC2 : rails, VREFINT, relecture lente des courants          */
   Encoder_Init();   /* AS5600 sur I2C4 en DMA, lecture continue, jamais bloquante   */
 
+  /* Zéro de la chaîne de courant, mesuré à chaque démarrage : sans lui les courants centrés
+   * restaient décalés de 10 à 20 counts jusqu'à ce que quelqu'un pense à lancer `IMOT.CAL`.
+   * C'est le seul moment où l'on sait les sorties coupées sans avoir à le vérifier — `MOE`
+   * vient d'être posé à 0 par `Pwm_Init` — et l'ISR tourne déjà depuis `AdcSync_Init`.
+   * La campagne s'écoule pendant l'énumération USB, et `Imot_Process` la clôt. */
+  (void)Imot_StartCampaign(IMOT_BOOT_SAMPLES, true, true);
+
   /* La liaison arrive après l'étage de puissance : si l'énumération USB traîne ou échoue,
    * la boucle de contrôle tourne déjà et les sorties sont déjà sûres. */
   Link_Init();
@@ -111,6 +118,7 @@ int main(void)
     BootShared_Process(); /* confirmation d'un slot candidat, le cas échéant */
     Sensors_Process();   /* une conversion lente par passage, jamais bloquant */
     Encoder_Process();   /* reprend la chaine I2C si une erreur l'a arretee   */
+    Imot_Process();      /* clot une campagne d'offset terminee, rabaisse CAL */
     Link_Pump();         /* écoule le tampon d'émission vers l'USB           */
 
     /* Les deux moitiés de la règle §4.3, dans un seul module : l'hôte qui disparaît —

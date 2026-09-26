@@ -22,6 +22,7 @@ const AVAILABLE = [
   'loop.duration_ns', 'loop.max_duration_ns', 'loop.load_pct',
   'enc.pos_rad', 'enc.vel_rad_s', 'enc.age_us',
   'current.ia_count', 'current.ib_count', 'current.ic_count',
+  'enc.valid',
 ];
 
 const diagnostic = SIGNAL_PRESETS[0]!;

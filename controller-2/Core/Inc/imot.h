@@ -44,6 +44,17 @@ extern "C" {
 /** Plafond d'une campagne : 20 000 échantillons, soit une seconde de boucle à 20 kHz. */
 #define IMOT_CAL_MAX_SAMPLES  20000UL
 
+/* Campagne lancée au démarrage : 4000 échantillons, soit 200 ms de boucle, écoulés pendant
+ * que l'USB s'énumère. C'est la valeur par défaut d'`IMOT.CAL`, dont la répétabilité est
+ * mesurée à ±1 count sur quatre campagnes (STATUS.md, étape 4). */
+#define IMOT_BOOT_SAMPLES     4000UL
+
+/* Écart maximal à la mi-échelle pour qu'une moyenne soit acceptée comme zéro. Les offsets
+ * mesurés sur cette carte valent 1 à 11 counts ; 150 counts, soit ~120 mV, laissent large
+ * au composant et à la température, et refusent ce que la carte donnait avant la retouche
+ * de `VREF` — 2126, 1650 et 80 — qu'une calibration aveugle aurait pris pour un zéro. */
+#define IMOT_ZERO_TOL_COUNTS  150U
+
 typedef struct
 {
   uint16_t mean[3];        /**< moyenne par phase, en counts                          */
@@ -69,10 +80,21 @@ bool Imot_StartCampaign(uint32_t samples, bool store, bool use_cal_pin);
 
 bool Imot_Busy(void);
 
+/**
+ * Clôt une campagne terminée, depuis la superloop. Sans cet appel, une campagne lancée par
+ * le firmware lui-même — celle du démarrage — attendrait qu'une commande console vienne
+ * la relever, avec la broche `CAL` levée entre-temps.
+ */
+void Imot_Process(void);
+
 /** Dernière campagne terminée. */
 void Imot_GetCampaign(Imot_Campaign_t *out);
 
-/** Offsets de travail, et s'ils ont été mesurés ou seulement supposés. */
+/**
+ * Offsets de travail, et s'ils ont été mesurés ou seulement supposés. Une campagne dont
+ * une moyenne s'écarte de plus de `IMOT_ZERO_TOL_COUNTS` de la mi-échelle n'est pas
+ * mémorisée : `measured` reste faux, et le résultat reste lisible par `Imot_GetCampaign`.
+ */
 void Imot_GetOffsets(uint16_t out[3], bool *measured);
 
 /**

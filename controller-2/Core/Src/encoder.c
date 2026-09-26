@@ -18,9 +18,15 @@
  * attente possible dans l'ISR, et jamais de valeur mi-ancienne mi-neuve.
  *
  * **Sans aimant, on ne fait pas semblant.** `RAW_ANGLE` reste lisible et renvoie du bruit
- * quand aucun aimant n'est en face. `magnet_ok` vient du registre `STATUS` du capteur et
- * dit la vérité ; la vitesse estimée est bornée pour qu'un saut de bruit de 2048 pas ne
- * se propage pas en extrapolation absurde.
+ * quand aucun aimant n'est en face. `magnet_ok` vient de la magnitude du champ relue par
+ * le capteur — pas des bits de `STATUS`, qui sur ce montage déclarent un aimant faible
+ * exploitable comme absent (voir `ENC_MAGNITUDE_MIN`) — et **c'est lui qui décide** : sans aimant, la position n'intègre plus
+ * rien, la vitesse retombe à zéro, et `Encoder_Sample` répond faux. Jusqu'au 2026-09-26
+ * ce paragraphe affirmait la règle sans que le code l'applique — `Encoder_Sample` rendait
+ * le bruit pour une mesure, et la télémétrie montrait 77 rad/s et des tours fantômes sur
+ * un arbre immobile sans aimant. Une boucle de vitesse branchée dessus aurait asservi du
+ * bruit. La vitesse reste en plus bornée, pour le saut de bruit qui précède le premier
+ * relevé de `STATUS`.
  */
 #include "encoder.h"
 
@@ -39,18 +45,18 @@
 #define AS5600_REG_RAWANGLE 0x0CU   /* 12 bits, non recadré, sans hystérésis            */
 #define AS5600_REG_CONF_HI  0x07U   /* WD bit5, FTH(2:0) bits 4:2, SF(1:0) bits 1:0     */
 #define AS5600_REG_AGC      0x1AU
+#define AS5600_REG_MAGNITUDE 0x1BU  /* 12 bits sur 0x1B..0x1C, sortie du CORDIC        */
 
-#define AS5600_STATUS_MH    0x08U
-#define AS5600_STATUS_ML    0x10U
-#define AS5600_STATUS_MD    0x20U
 
 /* `ANGLE` (0x0E) passe par le recadrage ZPOS/MPOS et par une hystérésis : très bien pour
  * un potentiomètre, poison pour une boucle de position, où l'hystérésis crée une zone
  * morte que le régulateur passe son temps à traverser. On lit `RAW_ANGLE`. */
 
-/* Un transfert sur ENC_STATUS_EVERY va chercher `STATUS` au lieu de l'angle. L'aimant ne
- * disparaît pas d'un échantillon à l'autre ; un point sur 128 suffit largement et coûte
- * moins d'un pour cent de la bande passante du bus. */
+/* Un transfert sur ENC_STATUS_EVERY va chercher, en alternance, `STATUS` puis `MAGNITUDE`
+ * au lieu de l'angle. L'aimant ne disparaît pas d'un échantillon à l'autre ; un point sur
+ * 128 suffit largement et coûte moins d'un pour cent de la bande passante du bus. C'est
+ * `MAGNITUDE` qui décide de la validité — voir `ENC_MAGNITUDE_MIN` — et `STATUS` n'est
+ * plus relu que pour être affiché. */
 #define ENC_STATUS_EVERY    128U
 
 /* Compensation du retard de groupe du filtre interne, en microsecondes. Zéro par défaut :
@@ -79,8 +85,12 @@ static DMA_HandleTypeDef  s_dma_rx;
 static volatile uint8_t   s_buf[2];
 static volatile uint32_t  s_xfer_start_cyc;
 static volatile uint32_t  s_count;          /* transferts lancés, pilote le tour de STATUS */
-static volatile bool      s_reading_status;
+/* Ce que le transfert en vol est allé chercher. */
+typedef enum { ENC_READ_ANGLE = 0, ENC_READ_STATUS, ENC_READ_MAGNITUDE } Enc_Read_t;
+static volatile Enc_Read_t s_reading;
+static volatile bool       s_next_is_magnitude;  /* alterne STATUS et MAGNITUDE */
 static volatile bool      s_running;        /* la chaîne est en vol                      */
+static volatile bool      s_pause;          /* la console a demandé le bus : ne pas relancer */
 static volatile uint32_t  s_last_cplt_ms;   /* dernier transfert abouti, pour le garde-fou */
 
 /* Publication vers l'ISR — seqlock. `s_seq` est impair pendant l'écriture. */
@@ -237,11 +247,18 @@ static void StartNext(void)
   /* Un transfert sur ENC_STATUS_EVERY interroge `STATUS`. L'auto-incrément de l'AS5600
    * n'est documenté que pour les registres d'angle, donc on ne tente pas de lire
    * 0x0B..0x0D d'un coup : ce serait gratuit mais non spécifié. */
-  const bool want_status = ((s_count % ENC_STATUS_EVERY) == (ENC_STATUS_EVERY - 1U));
-  const uint8_t  reg = want_status ? AS5600_REG_STATUS : AS5600_REG_RAWANGLE;
-  const uint16_t len = want_status ? 1U : 2U;
+  const bool periodic = ((s_count % ENC_STATUS_EVERY) == (ENC_STATUS_EVERY - 1U));
+  Enc_Read_t what = ENC_READ_ANGLE;
+  if (periodic) {
+    what = s_next_is_magnitude ? ENC_READ_MAGNITUDE : ENC_READ_STATUS;
+    s_next_is_magnitude = !s_next_is_magnitude;
+  }
+  const uint8_t  reg = (what == ENC_READ_STATUS)    ? AS5600_REG_STATUS
+                     : (what == ENC_READ_MAGNITUDE) ? AS5600_REG_MAGNITUDE
+                                                    : AS5600_REG_RAWANGLE;
+  const uint16_t len = (what == ENC_READ_STATUS) ? 1U : 2U;
 
-  s_reading_status = want_status;
+  s_reading = what;
   s_xfer_start_cyc = DWT->CYCCNT;
 
   if (HAL_I2C_Mem_Read_DMA(&s_i2c, AS5600_ADDR, reg, I2C_MEMADD_SIZE_8BIT,
@@ -268,11 +285,20 @@ static void PublishAngle(uint16_t raw, uint32_t stamp)
   s_prev_raw  = raw;
   s_have_prev = true;
 
+  /* Sans aimant, l'angle est du bruit : on n'intègre pas ses sauts en tours, et la vitesse
+   * n'a pas de sens. `s_prev_raw` continue de suivre, pour que le premier échantillon
+   * après le retour de l'aimant ne produise pas un saut fantôme. `magnet_ok` est écrit
+   * dans cette même interruption : aucune course possible. */
+  const bool usable = s_pub.magnet_ok;
+  if (!usable) {
+    delta = 0;
+  }
+
   const uint32_t dt_cyc = stamp - s_prev_stamp;
   s_prev_stamp = stamp;
 
-  float vel = s_vel_cnt_s;
-  if ((dt_cyc > 0U) && (dt_cyc < (BOARD_SYSCLK_HZ / 10UL))) {   /* écarte les trous > 100 ms */
+  float vel = usable ? s_vel_cnt_s : 0.0f;
+  if (usable && (dt_cyc > 0U) && (dt_cyc < (BOARD_SYSCLK_HZ / 10UL))) {   /* trous > 100 ms écartés */
     const float inst = ((float)delta * (float)BOARD_SYSCLK_HZ) / (float)dt_cyc;
     /* IIR du premier ordre. Même forme que partout ailleurs dans ce firmware : pas de
      * tableau d'historique, coût constant, et la constante de temps se lit dans le nom. */
@@ -313,16 +339,25 @@ void HAL_I2C_MemRxCpltCallback(I2C_HandleTypeDef *hi2c)
   s_pub.xfer_us = (uint16_t)((now - s_xfer_start_cyc) / ENC_CYC_PER_US);
   s_last_cplt_ms = HAL_GetTick();
 
-  if (s_reading_status) {
-    const uint8_t st = s_buf[0];
-    s_pub.status_raw = st;
-    s_pub.magnet_ok  = ((st & AS5600_STATUS_MD) != 0U) &&
-                       ((st & (AS5600_STATUS_ML | AS5600_STATUS_MH)) == 0U);
+  if (s_reading == ENC_READ_STATUS) {
+    s_pub.status_raw = s_buf[0];
+    s_pub.present    = true;
+  } else if (s_reading == ENC_READ_MAGNITUDE) {
+    const uint16_t mag = (uint16_t)((((uint16_t)s_buf[0] << 8) | s_buf[1]) & 0x0FFFU);
+    s_pub.magnitude  = mag;
+    s_pub.magnet_ok  = (mag >= ENC_MAGNITUDE_MIN);
     s_pub.present    = true;
   } else {
     PublishAngle((uint16_t)((((uint16_t)s_buf[0] << 8) | s_buf[1]) & 0x0FFFU), now);
   }
 
+  /* Une pause demandée par `TakeBus` s'honore ici, au seul endroit où la chaîne se relance
+   * d'elle-même. C'est ce qui rend l'accès ponctuel sûr : le transfert en vol finit
+   * normalement, et le suivant n'est tout simplement pas lancé. */
+  if (s_pause) {
+    s_running = false;
+    return;
+  }
   StartNext();
 }
 
@@ -453,7 +488,11 @@ bool Encoder_Sample(float *pos_rad, float *vel_rad_s, uint16_t *age_us)
   __DMB();
   const uint32_t s2 = s_seq;
 
-  if ((s1 == s2) && ((s1 & 1U) == 0U)) {
+  /* `s1 != 0` : le compteur part de zéro, qui est pair. Sans ce test, avant la toute
+   * première publication, l'ISR prenait pour cohérent un échantillon qui n'a jamais existé
+   * — position nulle, horodatage nul, donc un âge égal au temps écoulé depuis le démarrage
+   * du compteur de cycles. */
+  if ((s1 == s2) && ((s1 & 1U) == 0U) && (s1 != 0U)) {
     s_isr_pos_cnt   = pos;
     s_isr_stamp     = stamp;
     s_isr_vel_cnt_s = vel;
@@ -467,6 +506,15 @@ bool Encoder_Sample(float *pos_rad, float *vel_rad_s, uint16_t *age_us)
                                           ? 65535U : (age_cyc / ENC_CYC_PER_US));
   if (age_us_now > s_pub.age_max_us) {
     s_pub.age_max_us = age_us_now;
+  }
+
+  /* L'âge se mesure même sans aimant : il dit si la chaîne I2C tourne, ce qui est une
+   * autre question que de savoir si ce qu'elle rapporte a un sens. */
+  if (!s_pub.magnet_ok) {
+    *pos_rad   = 0.0f;
+    *vel_rad_s = 0.0f;
+    *age_us    = age_us_now;
+    return false;
   }
 
   const float lead_s = ((float)age_cyc / (float)BOARD_SYSCLK_HZ)
@@ -518,41 +566,73 @@ bool Encoder_SetBusHz(uint32_t hz)
  * parce qu'elles ne sont appelées ni depuis l'ISR ni depuis un chemin temps réel : au
  * démarrage pour régler le filtre, et à la demande depuis la console. Le timeout est
  * court exprès — le v1 est mort d'avoir mis une attente I2C sur le chemin critique. */
+/* Le transfert en vol dure 57 µs à 1 MHz et 700 µs à 100 kHz. Deux millisecondes couvrent
+ * les deux avec de la marge ; au-delà, la chaîne est coincée et on la remet à plat. */
+#define ENC_TAKE_TIMEOUT_US  2000U
+
+/*
+ * Prend le bus à la chaîne DMA, sans jamais l'arracher.
+ *
+ * La version d'origine faisait `s_running = false` puis `HAL_I2C_Master_Abort_IT`. Deux
+ * défauts, et le second a figé la carte le 2026-09-26 sur un simple `ENC.REG 0x1B 2` : la
+ * liaison USB ne répondait plus, même au paramétrage du port. D'abord `Abort_IT` est
+ * l'appel que `HardReset` documente déjà comme inopérant — asynchrone, et laissant le canal
+ * DMA armé. Ensuite, et surtout, **rien n'empêchait la chaîne de repartir** : si le
+ * transfert en vol se terminait avant l'annulation, son interruption de fin appelait
+ * `StartNext()` sans condition, et un nouveau transfert DMA démarrait au moment même où
+ * la console lançait sa lecture bloquante sur le même périphérique.
+ *
+ * Désormais on demande une pause, que l'interruption de fin honore ; on laisse le transfert
+ * en vol finir normalement ; et si le bus n'est pas libre dans le délai, on passe par
+ * `HardReset`, la seule reprise éprouvée sur carte. Aucun abandon asynchrone nulle part.
+ */
 static bool TakeBus(void)
 {
-  const bool was = s_running;
-  s_running = false;
-  if (was) {
-    (void)HAL_I2C_Master_Abort_IT(&s_i2c, AS5600_ADDR);
-    uint32_t guard = 0U;
-    while ((HAL_I2C_GetState(&s_i2c) != HAL_I2C_STATE_READY) && (guard < 200000U)) { guard++; }
+  s_pause = true;
+  __DMB();
+  const uint32_t t0 = DWT->CYCCNT;
+  while ((s_running || (HAL_I2C_GetState(&s_i2c) != HAL_I2C_STATE_READY)) &&
+         ((DWT->CYCCNT - t0) < (ENC_TAKE_TIMEOUT_US * ENC_CYC_PER_US))) { }
+  if (s_running || (HAL_I2C_GetState(&s_i2c) != HAL_I2C_STATE_READY)) {
+    HardReset(s_pub.bus_hz);          /* remet `s_running` à faux, bus reconstruit */
   }
   return HAL_I2C_GetState(&s_i2c) == HAL_I2C_STATE_READY;
 }
 
+/* Rend le bus à la chaîne. Toujours appelée après `TakeBus`, qu'elle ait réussi ou non :
+ * une pause oubliée figerait l'angle sans que rien ne le dise, sinon le garde-fou de
+ * `Encoder_Process` — et on ne lui laisse pas ce travail. */
+static void GiveBus(void)
+{
+  s_have_prev = false;          /* l'écart avec l'échantillon d'avant la pause n'a pas de sens */
+  s_pause = false;
+  __DMB();
+  StartNext();
+}
+
 bool Encoder_ReadReg(uint8_t reg, uint8_t *out, uint8_t len)
 {
-  if (!TakeBus()) {
-    return false;
+  bool ok = false;
+  if (TakeBus()) {
+    ok = HAL_I2C_Mem_Read(&s_i2c, AS5600_ADDR, reg, I2C_MEMADD_SIZE_8BIT,
+                          out, len, 10U) == HAL_OK;
   }
-  const bool ok = HAL_I2C_Mem_Read(&s_i2c, AS5600_ADDR, reg, I2C_MEMADD_SIZE_8BIT,
-                                   out, len, 10U) == HAL_OK;
-  s_have_prev = false;
-  StartNext();
+  GiveBus();
   return ok;
 }
 
 bool Encoder_WriteReg(uint8_t reg, uint8_t value)
 {
+  /* Appelée aussi depuis `Encoder_Init`, avant que la chaîne ne tourne : dans ce cas il n'y
+   * a rien à prendre ni à rendre, et c'est `Encoder_Init` qui lance le premier transfert. */
   const bool chained = s_running;
-  if (chained && !TakeBus()) {
-    return false;
+  bool ok = false;
+  if (!chained || TakeBus()) {
+    ok = HAL_I2C_Mem_Write(&s_i2c, AS5600_ADDR, reg, I2C_MEMADD_SIZE_8BIT,
+                           &value, 1U, 10U) == HAL_OK;
   }
-  const bool ok = HAL_I2C_Mem_Write(&s_i2c, AS5600_ADDR, reg, I2C_MEMADD_SIZE_8BIT,
-                                    &value, 1U, 10U) == HAL_OK;
   if (chained) {
-    s_have_prev = false;
-    StartNext();
+    GiveBus();
   }
   return ok;
 }

@@ -123,10 +123,29 @@ static void Finish(void)
   s_total = 0U;
 
   if (s_store) {
+    /* Une moyenne loin de la mi-échelle n'est pas un zéro, c'est une chaîne en panne.
+     * La mémoriser donnerait des courants centrés justes en apparence et faux de plusieurs
+     * ampères. On garde alors la valeur de repli, déclarée comme telle. */
+    bool plausible = true;
     for (uint32_t i = 0U; i < 3U; i++) {
-      s_offset[i] = s_last.mean[i];
+      const int32_t dev = (int32_t)s_last.mean[i] - (int32_t)IMOT_MIDSCALE;
+      if ((dev > (int32_t)IMOT_ZERO_TOL_COUNTS) || (dev < -(int32_t)IMOT_ZERO_TOL_COUNTS)) {
+        plausible = false;
+      }
     }
-    s_measured = true;
+    if (plausible) {
+      for (uint32_t i = 0U; i < 3U; i++) {
+        s_offset[i] = s_last.mean[i];
+      }
+      s_measured = true;
+    }
+  }
+}
+
+void Imot_Process(void)
+{
+  if (s_left == 0U) {
+    Finish();                     /* ne fait rien si aucune campagne n'attend */
   }
 }
 
