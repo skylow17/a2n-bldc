@@ -350,60 +350,83 @@ async function cmdFirmwareUpdate(o: GlobalOptions, path?: string, version?: stri
     throw new Error('firmware-update expects a slot-specific .bin path and a version');
   }
   const image = new Uint8Array(await readFile(path));
+  // Chaque client est refermé quoi qu'il arrive. Un refus laissait le port ouvert : le
+  // processus ne rendait pas la main, et un refus ressemblait à un blocage.
   const app = new DeviceClient(await openTransport(o), { timeoutMs: o.timeout });
-  const before = await app.hello();
-  if ((before.capabilities & PROTO_CAP.BOOTLOADER) === 0) {
-    await app.close();
-    throw new Error('connected application does not advertise a bootloader');
+  let before;
+  try {
+    before = await app.hello();
+    if ((before.capabilities & PROTO_CAP.BOOTLOADER) === 0) {
+      throw new Error('connected application does not advertise a bootloader');
+    }
+    await app.enterBootloader();
+  } finally {
+    await app.close().catch(() => undefined);
   }
-  await app.enterBootloader();
-  await app.close().catch(() => undefined);
   await delay(o.sim ? 10 : 750);
 
   const boot = await waitForClient(o, (client) => client.bootInfo());
-  let shown = -1;
-  const slot = await boot.flashInactiveSlot(image, version, (written, total) => {
-    const percent = Math.floor((written * 100) / total);
-    if (percent >= shown + 10 || percent === 100) {
-      shown = percent;
-      console.log(dim(`write ${written}/${total} bytes (${percent}%)`));
-    }
-  });
-  const staged = await boot.bootInfo();
-  const stagedOk = staged.candidateSlot === slot && staged.slots[slot]!.valid;
-  console.log(
-    `${stagedOk ? ok('✓') : bad('✗')} slot ${slot === 0 ? 'A' : 'B'} verified ` +
-      `crc=${staged.slots[slot]!.crc32.toString(16).toUpperCase().padStart(8, '0')}`,
-  );
-  if (!stagedOk) {
-    await boot.close();
-    return 1;
+  let slot: number;
+  try {
+    let shown = -1;
+    slot = await boot.flashInactiveSlot(image, version, (written, total) => {
+      const percent = Math.floor((written * 100) / total);
+      if (percent >= shown + 10 || percent === 100) {
+        shown = percent;
+        console.log(dim(`write ${written}/${total} bytes (${percent}%)`));
+      }
+    });
+    const staged = await boot.bootInfo();
+    const stagedOk = staged.candidateSlot === slot && staged.slots[slot]!.valid;
+    console.log(
+      `${stagedOk ? ok('✓') : bad('✗')} slot ${slot === 0 ? 'A' : 'B'} verified ` +
+        `crc=${staged.slots[slot]!.crc32.toString(16).toUpperCase().padStart(8, '0')}`,
+    );
+    if (!stagedOk) throw new Error('the bootloader did not stage the candidate');
+    await boot.bootReboot();
+  } catch (e) {
+    // Ne pas laisser la carte dans le bootloader : elle redémarre sur son slot actif,
+    // intact, puisque rien n'a été désigné candidat.
+    await boot.bootReboot().catch(() => undefined);
+    throw e;
+  } finally {
+    await boot.close().catch(() => undefined);
   }
-  await boot.bootReboot();
-  await boot.close().catch(() => undefined);
 
   // Le candidat démarre, tient deux secondes, écrit sa confirmation puis redémarre une
   // seconde fois. Attendre évite de prendre sa première énumération transitoire pour le succès.
   await delay(o.sim ? 10 : 4000);
   const healthy = await waitForClient(o, (client) => client.hello(), 10_000);
-  const after = await healthy.hello();
-  await healthy.enterBootloader();
-  await healthy.close().catch(() => undefined);
+  let after;
+  try {
+    after = await healthy.hello();
+    await healthy.enterBootloader();
+  } finally {
+    await healthy.close().catch(() => undefined);
+  }
   await delay(o.sim ? 10 : 750);
 
   const audit = await waitForClient(o, (client) => client.bootInfo());
-  const committed = await audit.bootInfo();
-  const committedOk = committed.activeSlot === slot && committed.candidateSlot === 0xff;
-  console.log(
-    `${committedOk ? ok('✓') : bad('✗')} probation ${committedOk ? 'committed' : 'not committed'}; ` +
-      `active=${committed.activeSlot} candidate=${committed.candidateSlot}`,
-  );
-  await audit.bootReboot();
-  await audit.close().catch(() => undefined);
+  let committedOk: boolean;
+  try {
+    const committed = await audit.bootInfo();
+    committedOk = committed.activeSlot === slot && committed.candidateSlot === 0xff;
+    console.log(
+      `${committedOk ? ok('✓') : bad('✗')} probation ${committedOk ? 'committed' : 'not committed'}; ` +
+        `active=${committed.activeSlot} candidate=${committed.candidateSlot}`,
+    );
+    await audit.bootReboot();
+  } finally {
+    await audit.close().catch(() => undefined);
+  }
   await delay(o.sim ? 10 : 750);
   const restored = await waitForClient(o, (client) => client.hello());
-  const finalInfo = await restored.hello();
-  await restored.close();
+  let finalInfo;
+  try {
+    finalInfo = await restored.hello();
+  } finally {
+    await restored.close().catch(() => undefined);
+  }
   console.log(`${ok('✓')} application restored: ${finalInfo.product} ${finalInfo.fwVersion}`);
   return committedOk && after.product === before.product ? 0 : 1;
 }

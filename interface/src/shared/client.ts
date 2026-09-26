@@ -51,6 +51,71 @@ import { MSG, FRAME_FLAG, PROTO_ERR, ScopeState, type DeviceInfo, type SignalDes
 import { Emitter, type Transport } from './transport.js';
 import { crc32 } from './crc16.js';
 
+/**
+ * Refuse une image que le bootloader refuserait, **avant** d'effacer quoi que ce soit.
+ *
+ * Même règle que `BOOT_VERIFY` (`boot_flash.c`) : pile initiale en RAM, sous la zone de
+ * passage de relais, et point d'entrée Thumb dans le slot visé. Le bootloader ne la vérifie
+ * qu'après l'effacement et l'écriture : une image liée pour l'autre slot — ou l'image autonome
+ * de bring-up — coûtait un slot effacé pour rien, et un `ERR_FLASH` qui n'expliquait pas quoi
+ * refaire. Vu deux fois sur ce projet. Ici le refus dit quelle image construire.
+ *
+ * Les vecteurs ne suffisent pas : le 2026-09-26, l'image autonome a passé cet examen — et celui
+ * du bootloader —, son point d'entrée tombant par hasard dans le slot A. Les images portent
+ * donc, depuis, leur adresse de liaison juste après la table des vecteurs (`IMAGE_MARK_OFFSET`,
+ * posée par les linkers) ; quand elle est là, elle tranche. Les images plus anciennes n'ont
+ * que l'examen des vecteurs.
+ */
+/** Marque de liaison des images d'application : « A2N\0 », puis l'adresse de liaison. */
+export const IMAGE_MARK = 0x004e3241;
+/** Juste après la table des vecteurs du STM32G473 : 118 entrées de 4 octets. */
+export const IMAGE_MARK_OFFSET = 0x1d8;
+
+export function checkImageForSlot(
+  image: Uint8Array,
+  slots: ReadonlyArray<{ address: number; capacity: number }>,
+  slot: number,
+): void {
+  if (image.length < 8) throw new RangeError('firmware image is too small to carry a vector table');
+  const v = new DataView(image.buffer, image.byteOffset, image.byteLength);
+  const sp = v.getUint32(0, true);
+  const reset = v.getUint32(4, true);
+  const entry = reset & ~1;
+  const name = (i: number): string => (i === 0 ? 'A' : 'B');
+  if (sp < 0x2000_0000 || sp > 0x2001_ff00) {
+    throw new RangeError(`not an application image: initial stack 0x${sp.toString(16)} is outside RAM`);
+  }
+  if ((reset & 1) === 0) {
+    throw new RangeError(`not an application image: reset vector 0x${reset.toString(16)} lacks the Thumb bit`);
+  }
+  if (image.length >= IMAGE_MARK_OFFSET + 8 && v.getUint32(IMAGE_MARK_OFFSET, true) === IMAGE_MARK) {
+    const base = v.getUint32(IMAGE_MARK_OFFSET + 4, true);
+    if (base === slots[slot]!.address) return;
+    const other = slots.findIndex((s) => s.address === base);
+    throw new RangeError(
+      other >= 0
+        ? `image is linked for slot ${name(other)} but the inactive slot is ${name(slot)}: ` +
+            `build it with "make app-slot-${name(slot).toLowerCase()}"`
+        : `image is linked at 0x${base.toString(16)}, not for a slot — a standalone image? ` +
+            `build it with "make app-slot-${name(slot).toLowerCase()}"`,
+    );
+  }
+  const inSlot = (i: number): boolean =>
+    entry >= slots[i]!.address && entry < slots[i]!.address + slots[i]!.capacity;
+  if (inSlot(slot)) return;
+  const other = slots.findIndex((_, i) => i !== slot && inSlot(i));
+  if (other >= 0) {
+    throw new RangeError(
+      `image is linked for slot ${name(other)} but the inactive slot is ${name(slot)}: ` +
+        `build it with "make app-slot-${name(slot).toLowerCase()}"`,
+    );
+  }
+  throw new RangeError(
+    `image entry 0x${entry.toString(16)} is in no slot — a standalone image? ` +
+      `build it with "make app-slot-${name(slot).toLowerCase()}"`,
+  );
+}
+
 export class ProtocolError extends Error {
   constructor(
     readonly code: number,
@@ -499,6 +564,7 @@ export class DeviceClient {
     if (image.length < 8 || image.length > info.slots[slot]!.capacity) {
       throw new RangeError(`firmware image size ${image.length} is outside the inactive slot`);
     }
+    checkImageForSlot(image, info.slots, slot);
     await this.bootErase(slot);
     for (let offset = 0; offset < image.length; offset += 504) {
       const source = image.subarray(offset, Math.min(offset + 504, image.length));

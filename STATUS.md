@@ -2019,9 +2019,16 @@ paramètres ».
 - ~~« Reset defaults » efface la calibration~~ — **corrigé le 2026-09-26** : `PARAM_RESET_DEFAULTS`
   épargne les entrées `calibrated`, firmware et simulateur. Vérifié sur carte : les six mesures
   moteur survivent, un réglage ordinaire revient à sa valeur par défaut.
-- **Deux défauts du CLI `firmware-update`**, qui ont coûté deux sessions : sur erreur il ne
-  referme pas le port, donc un refus ressemble à un blocage ; et il n'examine pas l'image
-  avant d'effacer le slot, alors que le vecteur de reset se lit sur l'hôte.
+- ~~**Deux défauts du CLI `firmware-update`**~~ — **corrigés le 2026-09-26.** Chaque client est
+  refermé quoi qu'il arrive, et un échec dans le bootloader le fait redémarrer sur son slot
+  actif. L'image est examinée **avant** l'effacement, dans le client — la CLI et l'onglet
+  Firmware en profitent : pile en RAM, entrée Thumb, et surtout une **marque de liaison** que
+  les trois linkers posent après la table des vecteurs (`docs/protocol.md` §8). L'examen des
+  seuls vecteurs a d'abord laissé passer l'image autonome, son point d'entrée tombant dans le
+  slot A : elle a été écrite, a démarré, n'a jamais confirmé, et le rollback a ramené la carte
+  sur B, intacte — le filet A/B a joué exactement pour ce qu'il est là. Vérifié sur carte avec
+  la marque : image autonome et image de l'autre slot refusées en 2 s sans rien effacer, avec
+  la commande à lancer ; la bonne image acceptée.
 - **Un démultiplexage plus robuste côté hôte.** `0x01` n'apparaît jamais dans le texte de la
   console : l'hôte pourrait ouvrir une trame binaire sur cet octet même au milieu d'une ligne
   non terminée, et un défaut comme le point 5 ne coûterait plus qu'une ligne. C'est un

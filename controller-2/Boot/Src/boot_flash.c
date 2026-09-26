@@ -196,7 +196,8 @@ bool BootFlash_VectorsPlausible(uint32_t initial_sp, uint32_t reset_pc, uint32_t
   /* Le pointeur de pile initial pointe la fin de la pile, donc le haut de la SRAM — mais pas
    * le haut des 128 ko : les 256 derniers octets sont la poignée de main avec l'application
    * (`boot_shared.h`), et une pile qui démarrerait au-dessus descendrait dedans. Les quatre
-   * linkers du dépôt produisent tous `_estack == 0x2001FF00`, ce qui est aussi la borne
+   * linkers du dépôt produisaient tous `_estack == 0x2001FF00` — ceux d'application le posent à
+   * 0x20018000 depuis le 2026-09-26, chemin de l'ISR en CCM SRAM —, ce qui est aussi la borne
    * acceptée ici ; une image liée sans cette amputation est justement celle qu'il faut
    * refuser, puisqu'elle écraserait le dialogue qui décide de son propre rollback. */
   if ((initial_sp < 0x20000000UL) || (initial_sp > BOOT_SHARED_BASE)) {

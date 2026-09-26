@@ -41,6 +41,13 @@ SECTIONS
     . = ALIGN(4);
     KEEP(*(.isr_vector))
     . = ALIGN(4);
+    /* Marque de liaison, juste après la table des vecteurs — offset 0x1D8 sur le G473 :
+     * « A2N\0 » puis l'adresse pour laquelle l'image est liée. L'hôte la compare au slot
+     * visé avant d'effacer quoi que ce soit. Le premier examen, sur les seuls vecteurs, a
+     * laissé passer le 2026-09-26 l'image autonome dans le slot A : son point d'entrée y
+     * tombait par hasard, et seul le retour automatique sur l'autre slot a sauvé la carte. */
+    LONG(0x004E3241)
+    LONG(ORIGIN(FLASH))
   } >FLASH
 
   /* Chemin de l'ISR de contrôle, exécuté depuis la CCM SRAM : zéro état d'attente, là où la

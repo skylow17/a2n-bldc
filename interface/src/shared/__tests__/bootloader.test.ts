@@ -42,11 +42,62 @@ function image(slot: number, bytes = 4096): Uint8Array {
   const img = new Uint8Array(bytes);
   const base = slot === 0 ? 0x0800_8000 : 0x0804_0000;
   const view = new DataView(img.buffer);
-  view.setUint32(0, 0x2001_ff00, true); // _estack, comme les quatre linkers du dépôt
+  // Borne haute de la pile admise par le bootloader. Les linkers d'application posent
+  // `_estack` à 0x20018000 depuis le passage du chemin de l'ISR en CCM SRAM.
+  view.setUint32(0, 0x2001_ff00, true);
   view.setUint32(4, base + 0x201, true); // point d'entrée dans le slot, bit Thumb posé
   for (let i = 8; i < bytes; i++) img[i] = i & 0xff;
   return img;
 }
+
+describe('image examinée avant tout effacement', () => {
+  it('refuse une image liée pour l autre slot, sans rien effacer', async () => {
+    const { reconnect } = board();
+    const app = reconnect();
+    await app.enterBootloader();
+    const boot = reconnect();
+    const before = await boot.bootInfo();
+
+    await expect(boot.flashInactiveSlot(image(0), '2.1.0')).rejects.toThrow(/slot A.*app-slot-b/);
+    const after = await boot.bootInfo();
+    expect(after.slots[1]).toEqual(before.slots[1]); // le slot inactif n'a pas été touché
+  });
+
+  it('refuse l image autonome d après sa marque de liaison, même si son entrée tombe dans le slot', async () => {
+    // Le cas vu sur carte : point d'entrée dans le slot A, image liée en 0x08000000.
+    const { reconnect } = board();
+    const app = reconnect();
+    await app.enterBootloader();
+    const boot = reconnect();
+    const img = image(1, 4096);
+    const v = new DataView(img.buffer);
+    v.setUint32(0x1d8, 0x004e3241, true);
+    v.setUint32(0x1dc, 0x0800_0000, true);
+    await expect(boot.flashInactiveSlot(img, '2.1.0')).rejects.toThrow(/standalone/);
+  });
+
+  it('accepte une image dont la marque désigne le slot visé', async () => {
+    const { reconnect } = board();
+    const app = reconnect();
+    await app.enterBootloader();
+    const boot = reconnect();
+    const img = image(1, 4096);
+    const v = new DataView(img.buffer);
+    v.setUint32(0x1d8, 0x004e3241, true);
+    v.setUint32(0x1dc, 0x0804_0000, true);
+    expect(await boot.flashInactiveSlot(img, '2.1.0')).toBe(1);
+  });
+
+  it('refuse l image autonome de bring-up, liée en 0x08000000', async () => {
+    const { reconnect } = board();
+    const app = reconnect();
+    await app.enterBootloader();
+    const boot = reconnect();
+    const img = image(1);
+    new DataView(img.buffer).setUint32(4, 0x0800_0201, true);
+    await expect(boot.flashInactiveSlot(img, '2.1.0')).rejects.toThrow(/standalone/);
+  });
+});
 
 describe('téléversement dans le slot inactif', () => {
   it('écrit, vérifie, et désigne un candidat non essayé', async () => {

@@ -537,6 +537,14 @@ après que tout est passé au vert sur simulateur :
 | Toute opération pendant le délai de vidage de `BOOT_REBOOT` | `ERR_BUSY` |
 | Message que le bootloader n'implémente pas — paramètres, télémétrie, moteur | `ERR_ID` |
 
+**Marque de liaison des images** (depuis le 2026-09-26). Juste après la table des vecteurs,
+à l'offset `0x1D8`, une image d'application porte `u32 0x004E3241` (« A2N\0 ») puis `u32`
+l'adresse pour laquelle elle est liée — `0x08008000` pour le slot A, `0x08040000` pour le B,
+`0x08000000` pour l'image autonome. Le bootloader ne la lit pas ; **l'hôte la compare au slot
+inactif avant `BOOT_ERASE`** et refuse sinon. Les vecteurs seuls ne suffisent pas : l'image
+autonome, dont le point d'entrée tombait dans le slot A, a passé les deux examens — celui de
+l'hôte et `BOOT_VERIFY` —, et seul le rollback l'a écartée.
+
 `ERR_CRC` reste réservé au lien : il désigne une trame corrompue, que l'hôte réémettra. Une
 image dont le CRC ne tombe pas juste n'est pas un problème de transmission, et la réémettre ne
 servirait à rien — d'où `ERR_FLASH`.
