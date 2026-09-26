@@ -14,6 +14,7 @@
 #include "imot.h"
 #include "pwm.h"
 #include "safety.h"
+#include "openloop.h"
 #include "comm/scope.h"
 
 /* Compteur de cycles du cœur : 1 cycle = 1 / 144 MHz ≈ 6.94 ns. C'est la seule mesure
@@ -62,6 +63,11 @@ void Ctrl_Isr(void)
    * coupure ne dépend ni de la superloop ni de l'hôte. Hors sorties actives, une
    * comparaison. */
   Safety_OnControlTick(cia, cib, cic);
+
+  /* M3, étape 10 : la boucle ouverte pose les rapports cycliques du passage suivant. Après
+   * la surveillance du courant, pour qu'une coupure prise ici ne soit jamais suivie d'une
+   * écriture de rapports sur des sorties déjà tombées. */
+  Openloop_OnControlTick();
 
   /* --- M1 à M3 viendront se greffer ici : Clarke/Park, régulateurs, SVPWM. --- */
 

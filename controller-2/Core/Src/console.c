@@ -25,6 +25,7 @@
 #include "encoder.h"
 #include "imot.h"
 #include "nvm.h"
+#include "openloop.h"
 #include "sensors.h"
 #include "comm/param.h"
 #include "comm/proto.h"
@@ -142,6 +143,7 @@ static void ReplyEnable(SafetyEnable_t r)
     case SAFETY_EN_NOZERO:  Reply("ERR NOZERO");  break;
     case SAFETY_EN_CAL:     Reply("ERR CAL");     break;
     case SAFETY_EN_CSA:     Reply("ERR CSA");     break;
+    case SAFETY_EN_DISARMED: Reply("ERR DISARMED"); break;
     case SAFETY_EN_LINK:
     default:                Reply("ERR LINK");    break;
   }
@@ -171,7 +173,7 @@ static void CmdPwm(const char *arg)
     return;
   }
   if (strcasecmp(arg, "OFF") == 0) {
-    Safety_Cut(SAFETY_REQUESTED);
+    Safety_Disarm();
     Reply("OK");
     return;
   }
@@ -198,6 +200,58 @@ static void CmdPwm(const char *arg)
   }
   Pwm_SetDutyPermille((uint16_t)d[0], (uint16_t)d[1], (uint16_t)d[2]);
   Reply("OK");
+}
+
+/* `OL <amp_pm> <elec_hz> <ms>`, `OL STOP` — la boucle ouverte de l'étape 10. Les mêmes
+ * contrôles du DRV que `PWM ON` ; les limites propres à la rotation sont dans `openloop.c`. */
+static void CmdOpenloop(const char *arg)
+{
+  if (strcasecmp(arg, "STOP") == 0) {
+    Openloop_Stop();
+    Reply("OK");
+    return;
+  }
+  char *end = NULL;
+  const unsigned long amp = strtoul(arg, &end, 10);
+  if (end == arg) { Reply("ERR ARG"); return; }
+  const char *p = end;
+  const float hz = strtof(p, &end);
+  if (end == p) { Reply("ERR ARG"); return; }
+  p = end;
+  const unsigned long ms = strtoul(p, &end, 10);
+  if (end == p) { Reply("ERR ARG"); return; }
+  while (*end == ' ') { end++; }
+  if (*end != '\0') { Reply("ERR ARG"); return; }
+  if (amp > 1000UL) { Reply("ERR LIMIT"); return; }
+
+  if (!Pwm_IsEnabled()) {
+    Drv8304_Status_t st;
+    if (!Drv8304_ReadFaults()) { Reply("ERR DRV"); return; }
+    Drv8304_GetStatus(&st);
+    if (st.nfault_low || ((st.fault_status_1 & DRV_FS1_FAULT) != 0U)) {
+      Reply("ERR FAULT");
+      return;
+    }
+  }
+  SafetyEnable_t en = SAFETY_EN_OK;
+  switch (Openloop_Start((uint16_t)amp, hz, (uint32_t)ms, &en)) {
+    case OL_OK:         Reply("OK");        break;
+    case OL_ERR_LIMIT:  Reply("ERR LIMIT"); break;
+    case OL_ERR_BUSY:   Reply("ERR BUSY");  break;
+    case OL_ERR_ENABLE: ReplyEnable(en);    break;
+    case OL_ERR_ARG:
+    default:            Reply("ERR ARG");   break;
+  }
+}
+
+static void CmdOpenloopStatus(void)
+{
+  Openloop_Status_t o;
+  Openloop_GetStatus(&o);
+  Link_TxPrintf("OK active=%u amp_pm=%u hz_target_milli=%ld hz_milli=%ld theta_mrad=%ld left_ms=%lu\r\n",
+                o.active ? 1U : 0U, o.amp_pm, (long)(o.hz_target * 1000.0f),
+                (long)(o.hz * 1000.0f), (long)(o.theta_rad * 1000.0f),
+                (unsigned long)(o.active ? Safety_PulseLeftMs() : 0UL));
 }
 
 /* `PWM.PULSE <a> <b> <c> <ms>` — l'essai de l'étape 5. Les rapports se posent, `MOE` se
@@ -1086,17 +1140,25 @@ void Console_ExecuteLine(const char *line)
      * ne peut plus conduire. C'est aujourd'hui deja l'etat au repos — la commande
      * existe quand meme, et des maintenant : une commande d'arret doit preexister au
      * danger, pas arriver avec lui. L'interface s'appuie dessus. */
-    Safety_Cut(SAFETY_REQUESTED);
+    Safety_Disarm();
     Reply("OK");
   } else if (Match(line, "SAFETY?", NULL)) {
     SafetyStatus_t sf;
     Safety_GetStatus(&sf);
-    Link_TxPrintf("OK reason=%s latched=%u outputs=%u since_cmd_ms=%lu trips=%lu host=%u\r\n",
+    Link_TxPrintf("OK reason=%s latched=%u outputs=%u since_cmd_ms=%lu trips=%lu host=%u "
+                  "armed=%u\r\n",
                   Safety_ReasonName(sf.reason), sf.latched ? 1U : 0U,
                   sf.outputs_live ? 1U : 0U, (unsigned long)sf.since_cmd_ms,
-                  (unsigned long)sf.trips, Link_HostAttached() ? 1U : 0U);
+                  (unsigned long)sf.trips, Link_HostAttached() ? 1U : 0U,
+                  sf.armed ? 1U : 0U);
   } else if (Match(line, "FAULTCLR", NULL)) {
     Reply(Safety_ClearFault() ? "OK" : "ERR CAUSE");
+  } else if (Match(line, "ARM", NULL)) {
+    /* `AGENTS.md` §4, règle 1. N'active rien : autorise seulement ce qui suit. */
+    ReplyEnable(Safety_Arm());
+  } else if (Match(line, "DISARM", NULL)) {
+    Safety_Disarm();
+    Reply("OK");
   } else if (Match(line, "PWM?", NULL)) {
     uint16_t a, b, c;
     Pwm_GetDutyPermille(&a, &b, &c);
@@ -1105,6 +1167,10 @@ void Console_ExecuteLine(const char *line)
     Link_TxPrintf("OK enabled=%u a=%u b=%u c=%u host=%u peak=%u,%u,%u\r\n",
                   Pwm_IsEnabled() ? 1U : 0U, a, b, c, Link_HostAttached() ? 1U : 0U,
                   pk[0], pk[1], pk[2]);
+  } else if (Match(line, "OL?", NULL)) {
+    CmdOpenloopStatus();
+  } else if (Match(line, "OL", &arg)) {
+    CmdOpenloop(arg);
   } else if (Match(line, "PWM.PULSE", &arg)) {
     CmdPwmPulse(arg);
   } else if (Match(line, "PWM", &arg)) {

@@ -8,7 +8,7 @@ Ce fichier ne contient **aucun chiffre volatil** (nombre de tests, occupation fl
 Ces valeurs se mesurent, elles ne se recopient pas : `python tools/status.py` les relève sur le
 dépôt réel. Une valeur écrite à la main est fausse le lendemain.
 
-Dernière revue : 2026-09-26, sur carte — M2 complet, persistance éprouvée ; zone morte des amplis caractérisée et contournée par la loi des nœuds. Prochaine étape : M3, étape 10.
+Dernière revue : 2026-09-26, sur carte — M2 complet ; M3 commencé : armement en place, étape 10 validée, la boucle ouverte tourne et s'arrête comme prévu.
 
 > **Reprise suivante — par où commencer.** Les deux défauts matériels sont **expliqués**, et
 > aucun des deux n'est une panne : ce sont deux erreurs de conception, l'une et l'autre
@@ -69,9 +69,10 @@ Dernière revue : 2026-09-26, sur carte — M2 complet, persistance éprouvée ;
 | **M1d** | CLI de bring-up | Validé sur simulateur **et sur carte** — toutes les commandes, `firmware-update` compris | — |
 | **Boot** | Bootloader A/B, probation et rollback | **Validé sur carte le 2026-09-16** : installation SWD, `BOOT_INFO`, mise à jour nominale promue, rollback sur image qui ne confirme jamais | Rien ; un défaut trouvé sur carte, corrigé, rejoué |
 | **M2** | Étage de puissance et capteurs (étapes 2 à 9) | **Étape 2 : validée le 2026-09-16, régression du 2026-09-21 réparée et revalidée le 2026-09-26** — écriture-relecture par `DRV.PROBE`, et une écriture de registre dont l'effet se lit sur la mesure analogique. Voir plus bas. Pour mémoire, la validation d'origine : le DRV8304 répond en SPI, sept registres relus cohérents avec la fiche technique, écriture-relecture par `DRV.PROBE`, fautes lisibles. **Étape 3 validée à l'oscilloscope le 2026-09-18** : trois bras complémentaires à 20 kHz, temps mort 500 ns aux deux fronts, rapports 20/50/80 % suivis, aucune conduction croisée — après avoir trouvé que les sorties basses n'avaient jamais été activées. **Étape 4 entamée le 2026-09-18**, puis reprise le 2026-09-20 après remplacement de U3 : un défaut d'acquisition corrigé, et **deux défauts matériels isolés** — voir plus bas | Étape 4 : **offsets et bruit mesurés et documentés le 2026-09-21** — zéro de chaîne à 1–11 counts de la mi-échelle, répétable à ±1 count sur quatre campagnes, écart-type de 1,4 à 2,0 counts avec `CAL` levé. Ni SPI ni sortie de puissance requis. Gain relu à 20 V/V le 2026-09-26. **Depuis le 2026-09-26 le zéro est mesuré à chaque démarrage**, sorties coupées, et refusé s'il n'est pas plausible. Pour mémoire, ce qui bloquait avant : D'abord `VREF` qui oscille de ±370 mV, ce qui fausse toute mesure de tension de la carte ; ensuite les trois entrées de courant flottantes, que le remplacement du DRV n'a pas corrigées — continuité et masse à vérifier à l'ohmmètre. Le chemin nFAULT → coupure de `MOE` est écrit mais **jamais déclenché** : **décision de l'utilisateur le 2026-09-26, on passe à l'étape 5 sans l'éprouver physiquement** — voir « Décisions ». **Étape 5 close le 2026-09-26** : limites de courant éprouvées, gains par voie corrigés, somme des courants à 4,5 %, échelle absolue ≈ 1,82 mA par count à ±15 % mesurée à l'étape 7. **Étape 7 close le 2026-09-26** : R ≈ 3,6 Ω et L ≈ 1,1 mH par phase, stockés en NVM avec p, φ, le sens et l'échelle de courant — la persistance du dictionnaire est implémentée et éprouvée. **Étapes 8 et 9 validées sur carte le 2026-09-26** : 7 paires de pôles sur quatre essais, décalage électrique 178,1° reproductible à 0,1°, redémarrage compris. **Étape 6 écrite hors séquence et éprouvée sur carte** (2026-09-21) puisqu'elle ne dépend ni de 4 ni de 5 : AS5600 en DMA à 1 MHz, transfert 57 µs, un échantillon toutes les 59 µs, ISR à 2,60 µs au pire. **Verte à titre provisoire** : le critère « angle monotone à la main » a été validé par l'utilisateur, aimant monté, et je n'ai pas assisté à la mesure — une réserve reste à lever, voir la section de l'étape 6 |
-| **M3** | Asservissements (étapes 10 à 13) | Pas commencé | — |
+| **M3** | Asservissements (étapes 10 à 13) | **Étape 10 validée sur carte le 2026-09-26** : la boucle ouverte tourne de 2 à 20 Hz électriques dans les deux sens, vitesse à 1 % près, courant maîtrisé ; l'armement existe, watchdog et `STOP` éprouvés en rotation | Étape 11, boucle de courant Id/Iq — l'ISR est à reprendre avant (6,4 µs au repos sous `-Og`) |
 
-**Aucun moteur n'a encore tourné**, et les sorties restent en haute impédance.
+**Le moteur tourne depuis le 2026-09-26, en boucle ouverte** — étape 10. Aucune boucle fermée
+n'existe encore.
 
 La seconde passe du 2026-09-16 a rejoué sur la carte tout ce que la première n'avait fait que
 compiler : les huit étapes de la [règle de vérification](#règle-de-vérification-avant-dannoncer-un-jalon),
@@ -1348,6 +1349,53 @@ travail local n'existe pas. Un outil de constat qui ne distingue pas l'absence d
 constate rien. D'où les deux règles ci-dessous.
 
 ---
+
+## M3, étape 10 — la boucle ouverte tourne, et l'armement existe (2026-09-26)
+
+**L'armement d'abord**, parce que `AGENTS.md` §4 l'exige avant toute rotation : « rien ne tourne
+sans `ARM` explicite ; un reset, une faute ou une perte de liaison ramènent toujours à l'état
+désarmé ». Il n'existait pas. `ARM` et `DISARM` en console, l'état dans `SAFETY?`
+(`armed=`). `PWM ON`, `PWM.PULSE` et `OL` répondent `ERR DISARMED` sans lui. Désarment : un
+reset, toute faute latchée, la disparition de l'hôte — sorties actives ou non —, `STOP`,
+`PWM OFF`, `DISARM`. La fin normale d'une impulsion ou d'une rotation ne désarme pas.
+
+**La boucle ouverte, `OL <amp_pm> <elec_hz> <ms>`.** Un vecteur de tension d'amplitude fixe
+tourne dans l'ISR, même convention d'angle que les étapes 8 et 9, fréquence atteinte par une
+rampe de 20 Hz/s. Limites du firmware : amplitude ≤ 57 ‰ — l'écart entre bras reste sous
+100 ‰ à tout angle, vérifié par une assertion statique —, fréquence ≤ 20 Hz électriques,
+durée ≤ 10 s ; au-delà de 250 ms, le watchdog de flux exige que l'hôte parle. Mêmes barrières
+que `PWM ON` par ailleurs.
+
+**Le critère de l'étape — « rotation propre, courant maîtrisé » — tient.** Vitesse mesurée
+par la position déroulée de l'AS5600, contre 2π·f/7 dans le sens inverse relevé à l'étape 9 :
+
+| Fréquence électrique | Attendu | Mesuré | Écart |
+|---|---|---|---|
+| 2 Hz | −1,795 rad/s | −1,781 | +0,8 % |
+| 5 Hz | −4,488 | −4,510 | −0,5 % |
+| −5 Hz | +4,488 | +4,452 | −0,8 % |
+| 10 Hz | −8,976 | −8,975 | 0,0 % |
+| 20 Hz, la limite | −17,952 | −17,955 | 0,0 % |
+
+Un rotor qui décrocherait montrerait un déficit franc et croissant ; l'écart reste sous 1 %,
+le bruit d'une position relevée toutes les 100 ms. Courants crête 0,2 à 0,44 A à toutes les
+vitesses, loin de la limite. Le sens inverse et la vitesse limite passent de la même façon.
+
+**Les arrêts, éprouvés.** Hôte muet en pleine rotation : coupure par le watchdog, faute
+`cmd_timeout` latchée, carte désarmée, `ARM` refusé tant que la faute n'est pas acquittée, et
+toujours désarmée après `FAULTCLR` — aucune reprise sans décision. `STOP` en pleine rotation :
+sorties coupées, désarmée, rotor de −9,9 rad/s à l'arrêt en 300 ms par sa denture, et un `OL`
+suivant refusé. **Un défaut trouvé en chemin, corrigé** : un `STOP` envoyé après la coupure
+écrasait la cause latchée par `requested` — la carte restait bloquée sans plus dire pourquoi.
+Tant qu'une faute est latchée, sa cause ne change plus.
+
+**Un coût à surveiller avant la boucle de courant : l'ISR prend 6,4 µs au repos**, contre
+3,6 µs ce matin — 13 % du budget. Ce n'est pas l'échantillonnage allongé de l'ADC : remis à
+6,5 cycles pour l'essai, l'ISR reste à 6,0 µs. C'est le code ajouté dans la journée — gains par
+voie, reconstruction, surveillance du courant, boucle ouverte —, appelé à chaque passage en
+fonctions non inlinées sous `-Og`. La boucle ouverte ajoute jusqu'à 8 µs de pointe en
+rotation. Admissible aujourd'hui ; à reprendre avant l'étape 11, par exemple en optimisant le
+chemin de contrôle.
 
 ## La zone morte à 2048 — caractérisée, contournée par la loi des nœuds (2026-09-26)
 

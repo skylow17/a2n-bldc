@@ -555,8 +555,17 @@ commande d'arrêt et ses raisons doivent préexister au danger.
 
 | Commande | Réponse | Rôle |
 |---|---|---|
-| `SAFETY?` | `OK reason=<nom> latched=<0\|1> outputs=<0\|1> since_cmd_ms=<ms> trips=<n> host=<0\|1>` | État de la barrière. `reason` vaut `ok`, `host_gone`, `cmd_timeout`, `drv_fault`, `overcurrent` ou `requested`. `trips` compte les coupures du watchdog depuis le reset. `overcurrent` : un courant centré a dépassé la limite du firmware, voir « PWM sous charge » |
+| `SAFETY?` | `OK reason=<nom> latched=<0\|1> outputs=<0\|1> since_cmd_ms=<ms> trips=<n> host=<0\|1> armed=<0\|1>` | État de la barrière. `reason` vaut `ok`, `host_gone`, `cmd_timeout`, `drv_fault`, `overcurrent` ou `requested`. `trips` compte les coupures du watchdog depuis le reset. `overcurrent` : un courant centré a dépassé la limite du firmware, voir « PWM sous charge ». `armed` : l'état d'armement, voir ci-dessous |
 | `FAULTCLR` | `OK` / `ERR CAUSE` | Acquitte la faute verrouillée. Échoue tant que la cause est encore là — un acquittement qui réussit alors que rien n'a changé n'acquitte rien. Pour `drv_fault`, la cause est `nFAULT` encore basse ; pour `host_gone`, l'hôte absent |
+| `ARM` | `OK` / `ERR LATCHED` / `ERR LINK` | Arme la carte. **Rien ne met l'étage de puissance sous tension sans armement** (`AGENTS.md` §4, règle 1) : `PWM ON`, `PWM.PULSE` et `OL` répondent `ERR DISARMED` sinon. Refusé avec une faute latchée ou sans hôte. N'active aucune sortie par lui-même |
+| `DISARM` | `OK` | Coupe les sorties et désarme |
+
+**Armement.** Introduit le 2026-09-26, avant la première rotation continue (M3, étape 10). La
+carte démarre désarmée. **Désarment** : un reset, toute faute latchée, la disparition de l'hôte
+— que les sorties soient actives ou non —, `STOP`, `PWM OFF` et `DISARM`. **Ne désarment pas** :
+la fin normale d'une impulsion `PWM.PULSE` ou d'une rotation `OL`, qui ne sont pas des arrêts
+d'urgence mais des commandes arrivées à leur terme. L'armement ne remplace aucune des autres
+barrières : il s'y ajoute.
 
 **Watchdog de flux de commandes.** Dès que les sorties de puissance sont actives, le firmware
 exige un message — n'importe lequel, trame binaire ou ligne ASCII, et même une trame au CRC
@@ -642,10 +651,28 @@ s'élargit pour faire passer un essai (`AGENTS.md` §4).
 | Commande | Réponse | Rôle |
 |---|---|---|
 | `PWM <a> <b> <c>` | `OK` / `ERR ARG` / `ERR LIMIT` | Rapports cycliques des trois bras en pour mille, dans les limites ci-dessus. Préchargés, s'appliquent ensemble à l'événement de mise à jour suivant, `MOE` levé ou non |
-| `PWM ON` | `OK` / `ERR DRV` / `ERR FAULT` / `ERR LATCHED` / `ERR LINK` / `ERR NOZERO` / `ERR CAL` / `ERR CSA` | Lève `MOE`. Refusé si le DRV8304 ne répond pas ou signale une faute, avec une faute latchée, sans hôte — et chaque fois que la surveillance du courant ne pourrait pas fonctionner : zéro jamais mesuré (`NOZERO`), broche `CAL` levée ou campagne d'offset en cours (`CAL`, les amplis ne voient plus les shunts), `CSA_CONTROL` hors de 20 V/V, `VREF_DIV` à 1 et `SPI_CAL` à 0 (`CSA`, relu à chaque activation : la limite en counts ne vaut 2 A que pour ce gain) |
+| `PWM ON` | `OK` / `ERR DISARMED` / `ERR DRV` / `ERR FAULT` / `ERR LATCHED` / `ERR LINK` / `ERR NOZERO` / `ERR CAL` / `ERR CSA` | Lève `MOE`. Refusé si le DRV8304 ne répond pas ou signale une faute, avec une faute latchée, sans hôte — et chaque fois que la surveillance du courant ne pourrait pas fonctionner : zéro jamais mesuré (`NOZERO`), broche `CAL` levée ou campagne d'offset en cours (`CAL`, les amplis ne voient plus les shunts), `CSA_CONTROL` hors de 20 V/V, `VREF_DIV` à 1 et `SPI_CAL` à 0 (`CSA`, relu à chaque activation : la limite en counts ne vaut 2 A que pour ce gain) |
 | `PWM.PULSE <a> <b> <c> <ms>` | mêmes réponses que `PWM ON`, plus `ERR ARG` / `ERR LIMIT` / `ERR BUSY` | **L'essai de l'étape 5.** Pose les rapports cycliques, lève `MOE`, et le rabaisse de lui-même au bout de `<ms>`, **1 à 200 ms**, décomptés dans l'ISR à 20 kHz : la durée ne dépend ni de l'hôte ni de la superloop. 200 ms reste sous les 250 ms du watchdog de flux, qu'une impulsion n'a donc jamais besoin d'alimenter. Répond dès que `MOE` est levé ; la fin se lit dans `PWM?` et `SAFETY?` (`reason=requested`, non latchée). Une surintensité l'interrompt comme n'importe quoi d'autre. `ERR BUSY` si les sorties sont déjà actives : une impulsion ne se greffe pas sur un `PWM ON` |
-| `PWM OFF` | `OK` | Coupe `MOE`, comme `STOP` |
+| `PWM OFF` | `OK` | Coupe `MOE` et désarme, comme `STOP` |
 | `PWM?` | `OK enabled=<0/1> a=<‰> b=<‰> c=<‰> host=<0/1> peak=<a>,<b>,<c>` | État. `peak` est le pire courant absolu vu par phase depuis la dernière activation, en counts centrés et corrigés (≈ 1,82 mA par count, mesuré à l'étape 7) — la mesure de l'étape 5 sans passer par le scope |
+
+**Boucle ouverte** (M3, étape 10) — un vecteur de tension d'amplitude fixe tourne à une fréquence
+électrique donnée, et l'arbre suit. Aucune mesure n'intervient dans la commande : c'est l'essai
+qui précède toute boucle fermée. Mêmes barrières que `PWM ON` — armement, faute du DRV, zéro
+mesuré, `CAL`, `CSA_CONTROL` — plus trois limites du firmware :
+
+- **amplitude ≤ 57 ‰** autour de 500 : l'écart entre deux bras vaut au plus l'amplitude × √3,
+  soit 98,7 ‰, sous la limite de 100 ‰ de la PWM d'essai à tout angle ;
+- **fréquence électrique ≤ 20 Hz** en valeur absolue, atteinte par une rampe de 20 Hz/s — avec
+  7 paires de pôles, ≈ 2,9 tr/s mécaniques ;
+- **durée ≤ 10 s**, décomptée dans l'ISR ; au-delà de 250 ms le **watchdog de flux** s'applique
+  comme à `PWM ON` : l'hôte doit parler, sans quoi le couple tombe.
+
+| Commande | Réponse | Rôle |
+|---|---|---|
+| `OL <amp_pm> <elec_hz> <ms>` | `OK` / `ERR ARG` / `ERR LIMIT` / `ERR BUSY` / réponses de `PWM ON` | Lance la rotation : amplitude en pour mille, fréquence électrique en hertz — signée, décimale admise —, durée en millisecondes. L'angle électrique part de 0, là où l'étape 8 a aligné le rotor, et la fréquence monte par rampe. `ERR BUSY` si les sorties sont déjà actives |
+| `OL?` | `OK active=<0\|1> amp_pm=<n> hz_target_milli=<n> hz_milli=<n> theta_mrad=<n> left_ms=<n>` | État : la fréquence visée et celle atteinte par la rampe, en millihertz, l'angle électrique courant, le temps restant |
+| `OL STOP` | `OK` | Arrête la rotation et coupe les sorties, **sans désarmer** — contrairement à `STOP` |
 
 **`host`** est la présence de l'hôte vue du firmware : DTR levé par le port ouvert côté PC et
 bus USB actif. Elle retombe quand le port se ferme, quand le câble part ou quand le bus se
@@ -656,7 +683,8 @@ une session qui garde le port ouvert — la console de l'interface, ou un termin
 le watchdog de flux de commandes prévu pour M3 ; celui-là viendra en plus. Sur une carte saine et jamais configurée, `csa` vaut `283`, la
 valeur de reset de la fiche technique — c'est le test de présence le plus simple qui soit.
 
-**`STOP` existe dès maintenant**, et coupe `MOE` — les six sorties passent en haute impédance.
+**`STOP` existe dès maintenant**, et coupe `MOE` — les six sorties passent en haute impédance —,
+et **désarme** depuis le 2026-09-26.
 C'est aujourd'hui déjà l'état au repos, donc la commande ne change rien en pratique ; elle est là
 quand même, parce qu'une commande d'arrêt doit préexister au danger plutôt qu'arriver avec lui, et
 parce que l'interface s'appuie dessus.

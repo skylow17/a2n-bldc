@@ -28,6 +28,7 @@ static volatile SafetyReason_t s_reason;
 static volatile bool           s_latched;
 static volatile uint32_t       s_last_cmd_ms;
 static volatile uint32_t       s_trips;
+static volatile bool           s_armed;         /* rien ne s'active sans lui          */
 static volatile uint32_t       s_pulse_ticks;   /* passages restants, 0 = sans terme  */
 static volatile uint16_t       s_peak[3];       /* depuis la dernière activation      */
 
@@ -37,6 +38,7 @@ void Safety_Init(void)
   s_latched     = false;
   s_last_cmd_ms = HAL_GetTick();
   s_trips       = 0U;
+  s_armed       = false;   /* un reset ramène toujours à l'état désarmé */
 }
 
 void Safety_NoteCommand(void)
@@ -48,17 +50,57 @@ void Safety_Cut(SafetyReason_t reason)
 {
   Pwm_Disable();
   s_pulse_ticks = 0U;     /* une impulsion coupée ne doit pas écourter la suivante */
-  s_reason = reason;
+  /* Tant qu'une faute est latchée, sa cause reste celle qu'on lit. Un `STOP` envoyé ensuite
+   * l'écrasait par `requested` : la carte restait bloquée sans plus dire pourquoi — vu sur
+   * carte le 2026-09-26, après une coupure par le watchdog. */
+  if (!s_latched) {
+    s_reason = reason;
+  }
   /* Un arrêt demandé n'est pas une faute : il n'a rien à acquitter. Toutes les autres
    * causes latchent, y compris si les sorties étaient déjà coupées — savoir que l'hôte a
    * disparu pendant qu'on était au repos reste une information. */
   if (reason != SAFETY_REQUESTED) {
     s_latched = true;
+    s_armed   = false;     /* une faute désarme ; la reprise est une décision, `ARM` */
   }
+}
+
+SafetyEnable_t Safety_Arm(void)
+{
+  if (s_latched) {
+    return SAFETY_EN_LATCHED;
+  }
+  if (!Link_HostAttached()) {
+    return SAFETY_EN_LINK;
+  }
+  s_armed = true;
+  return SAFETY_EN_OK;
+}
+
+void Safety_Disarm(void)
+{
+  Safety_Cut(SAFETY_REQUESTED);
+  s_armed = false;
+}
+
+bool Safety_IsArmed(void)
+{
+  return s_armed;
+}
+
+uint32_t Safety_PulseLeftMs(void)
+{
+  return s_pulse_ticks / (PWM_FREQ_HZ / 1000UL);
 }
 
 void Safety_Process(void)
 {
+  /* La perte de liaison désarme toujours, sorties actives ou non : un hôte qui revient ne
+   * doit pas retrouver une carte armée par quelqu'un d'autre, ou par lui-même avant sa chute. */
+  if (!Link_HostAttached()) {
+    s_armed = false;
+  }
+
   if (!Pwm_IsEnabled()) {
     /* Au repos, le compteur ne sert à rien et ne doit pas accumuler : sinon la première
      * activation après un long silence se couperait aussitôt. */
@@ -83,6 +125,9 @@ void Safety_Process(void)
 
 SafetyEnable_t Safety_EnableOutputs(uint32_t pulse_ms)
 {
+  if (!s_armed) {
+    return SAFETY_EN_DISARMED;
+  }
   if (s_latched) {
     return SAFETY_EN_LATCHED;
   }
@@ -196,6 +241,7 @@ void Safety_GetStatus(SafetyStatus_t *out)
   out->outputs_live = Pwm_IsEnabled();
   out->since_cmd_ms = (uint32_t)(HAL_GetTick() - s_last_cmd_ms);
   out->trips        = s_trips;
+  out->armed        = s_armed;
   __enable_irq();
 }
 

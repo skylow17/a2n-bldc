@@ -70,6 +70,7 @@ typedef enum
   SAFETY_EN_NOZERO  = 3,   /**< zéro de la chaîne de courant jamais mesuré              */
   SAFETY_EN_CAL     = 4,   /**< `CAL` levé ou campagne en cours : courants aveugles     */
   SAFETY_EN_CSA     = 5,   /**< amplis hors de la configuration que la limite suppose   */
+  SAFETY_EN_DISARMED = 6,  /**< pas d'`ARM` explicite depuis le dernier désarmement       */
 } SafetyEnable_t;
 
 typedef struct
@@ -79,6 +80,7 @@ typedef struct
   bool           outputs_live;  /**< image de `Pwm_IsEnabled()`, pour un état cohérent*/
   uint32_t       since_cmd_ms;  /**< âge du dernier message reçu                      */
   uint32_t       trips;         /**< coupures par le watchdog depuis le reset         */
+  bool           armed;         /**< `ARM` reçu, et rien ne l'a annulé depuis          */
 } SafetyStatus_t;
 
 void Safety_Init(void);
@@ -112,8 +114,26 @@ void Safety_OnControlTick(int16_t ia, int16_t ib, int16_t ic);
 /** Pire courant absolu vu par phase depuis la dernière activation, en counts. */
 void Safety_GetPeaks(uint16_t out[3]);
 
-/** Coupe les sorties et enregistre la cause. Sûr depuis une ISR. */
+/**
+ * Coupe les sorties et enregistre la cause. Sûr depuis une ISR. Toute cause autre que
+ * `SAFETY_REQUESTED` latche **et désarme** ; `SAFETY_REQUESTED` seul — la fin d'une impulsion
+ * ou d'une rotation — laisse l'armement en place.
+ */
 void Safety_Cut(SafetyReason_t reason);
+
+/**
+ * Armement — `AGENTS.md` §4, règle 1 : rien ne met l'étage sous tension sans lui. Refusé avec
+ * une faute latchée (`SAFETY_EN_LATCHED`) ou sans hôte (`SAFETY_EN_LINK`). N'active rien.
+ */
+SafetyEnable_t Safety_Arm(void);
+
+/** Coupe les sorties et désarme. C'est ce que font `STOP`, `PWM OFF` et `DISARM`. */
+void Safety_Disarm(void);
+
+bool Safety_IsArmed(void);
+
+/** Temps restant avant la fin programmée des sorties, en ms ; 0 si aucun terme n'est posé. */
+uint32_t Safety_PulseLeftMs(void);
 
 /**
  * Acquitte la faute latchée. Échoue tant que la cause est encore présente — un

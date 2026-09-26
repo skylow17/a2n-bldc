@@ -77,6 +77,7 @@ APP_C_SOURCES := \
   Core/Src/encoder.c \
   Core/Src/imot.c \
   Core/Src/nvm.c \
+  Core/Src/openloop.c \
   Core/Src/safety.c \
   Core/Src/ctrl.c \
   Core/Src/link_usb.c \
