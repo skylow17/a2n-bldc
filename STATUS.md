@@ -8,7 +8,7 @@ Ce fichier ne contient **aucun chiffre volatil** (nombre de tests, occupation fl
 Ces valeurs se mesurent, elles ne se recopient pas : `python tools/status.py` les relève sur le
 dépôt réel. Une valeur écrite à la main est fausse le lendemain.
 
-Dernière revue : 2026-09-26, sur carte — M2 complet : persistance des paramètres implémentée et éprouvée, étape 7 close. Reste à comprendre la zone morte à 2048 avant M3.
+Dernière revue : 2026-09-26, sur carte — M2 complet, persistance éprouvée ; zone morte des amplis caractérisée et contournée par la loi des nœuds. Prochaine étape : M3, étape 10.
 
 > **Reprise suivante — par où commencer.** Les deux défauts matériels sont **expliqués**, et
 > aucun des deux n'est une panne : ce sont deux erreurs de conception, l'une et l'autre
@@ -1348,6 +1348,44 @@ travail local n'existe pas. Un outil de constat qui ne distingue pas l'absence d
 constate rien. D'où les deux règles ci-dessous.
 
 ---
+
+## La zone morte à 2048 — caractérisée, contournée par la loi des nœuds (2026-09-26)
+
+Le point ouvert de l'étape 5 : au repos, aucune voie ne descend sous 2048, et les échantillons
+s'y entassent. Traité sans toucher au matériel.
+
+**La courbe de transfert.** Seule la voie C change de rapport cyclique, de −24 à +24 ‰ autour
+de 500 ; la voie A, qui repose à 2062 loin de 2048, sert de référence — courant vrai dans C
+≈ −2·Ia, bobinages égaux. Entre ≈ −11 et ≈ +5 counts corrigés de courant vrai, **C lit 0 et sa
+valeur brute reste exactement 2048, 88 à 99 % des échantillons, sans bruit**. Un ampli qui
+amplifie montrerait quelques counts de bruit à 20 V/V, comme A et B ; celui-ci reste collé à sa
+référence. ≈ 16 counts de large, ≈ 30 mA.
+
+**Ce que ce n'est pas.** Pas un offset réglable : `AUTOCAL`, l'auto-calibration du DRV8304
+(bit 3 de `CSA_CONTROL`), relancée, ne change rien au count près. Pas l'ADC : la valeur est
+exactement la mi-échelle, et les voies la quittent franchement en charge. L'hypothèse retenue,
+**non vérifiable sans sonde** : l'étage de sortie de l'ampli a une zone de raccordement autour
+de sa référence, et l'offset de chaque voie décide où elle tombe — C l'a autour de zéro ; A et
+B, d'offset positif, reposent au-dessus et n'y entrent qu'aux petits courants négatifs. C'est
+exactement ce qu'a fait B au second palier de l'étape 7. **À signaler pour la révision B.**
+
+**Le contournement**, celui de toute FOC à trois shunts : le moteur n'a pas de neutre, donc
+Ia + Ib + Ic = 0, et une voie se déduit des deux autres. Quand **une seule** voie lit à ±1 de
+2048, sa valeur centrée est remplacée par l'opposé de la somme des deux autres ; deux ou trois
+à la fois n'arrivent qu'à moins de ≈ 30 mA, et rien n'est alors remplacé. Les signaux bruts ne
+sont jamais touchés, et `IMOT?` compte les reconstructions par voie — une voie en panne collée à
+2048 s'y verrait. Sans effet sur la limite de surintensité : une voie dans sa zone morte porte
+moins de 30 mA, et la valeur reconstruite est le courant vrai.
+
+**Vérifié par le même balayage** : la zone plate a disparu, C suit le courant vrai à travers
+zéro — −9,8 pour −11,0 ; −5,8 pour −6,6 ; −1,8 pour −1,1.
+
+**Ce qui reste, et qu'on laisse.** Juste au-dessus de la zone, de ≈ +5 à ≈ +30 counts, la voie
+est lue directement mais sa réponse est comprimée — la moitié environ du courant vrai. L'ampli
+ne passe pas d'un coup de son plateau à son régime linéaire. Élargir la tolérance pour la
+reconstruire aussi ferait sortir A et B, qui reposent à 6 et 13 counts de 2048. Au-delà de
+≈ 50 mA, les campagnes de gains l'ont montré, les voies sont linéaires et symétriques : c'est
+là que travaillera la boucle de courant.
 
 ## Persistance des paramètres — étape 7 close (2026-09-26)
 

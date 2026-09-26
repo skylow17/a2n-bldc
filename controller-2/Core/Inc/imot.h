@@ -73,6 +73,13 @@ extern "C" {
 #define IMOT_GAIN_B_PM        1822U     /* 1,195 / 0,656 */
 #define IMOT_GAIN_C_PM        1000U
 
+/* Zone morte des amplis : la sortie reste collée à la mi-échelle exacte sur ≈ 16 counts de
+ * courant, sans bruit. Mesurée le 2026-09-26 par un balayage de la voie C autour de zéro ;
+ * `AUTOCAL` n'y change rien. Une voie qui lit à ±IMOT_DEAD_TOL de IMOT_DEAD_RAW est tenue
+ * pour aveugle, et reconstruite par la loi des nœuds si elle est la seule. */
+#define IMOT_DEAD_RAW         2048U
+#define IMOT_DEAD_TOL         1U
+
 typedef struct
 {
   uint16_t mean[3];        /**< moyenne par phase, en counts                          */
@@ -117,6 +124,9 @@ void Imot_GetOffsets(uint16_t out[3], bool *measured);
 
 /** Gains appliqués aux trois voies, en pour mille. */
 void Imot_GetGains(uint16_t out[3]);
+
+/** Passages de boucle où chaque voie a été reconstruite par la loi des nœuds. */
+void Imot_GetReconstructions(uint32_t out[3]);
 
 /**
  * Accumulation, appelée depuis l'ISR de contrôle juste après la lecture du groupe injecté.

@@ -800,11 +800,14 @@ static void CmdImotStatus(void)
    * les courants centres sont alors indicatifs, pas justes. */
   uint16_t g[3];
   Imot_GetGains(g);
+  uint32_t rc[3];
+  Imot_GetReconstructions(rc);
   Link_TxPrintf("OK measured=%u offset=%u,%u,%u raw=%u,%u,%u centered=%d,%d,%d "
-                "gain_pm=%u,%u,%u\r\n",
+                "gain_pm=%u,%u,%u recon=%lu,%lu,%lu\r\n",
                 measured ? 1U : 0U, off[0], off[1], off[2],
                 st.raw_ia, st.raw_ib, st.raw_ic,
-                st.cent_ia, st.cent_ib, st.cent_ic, g[0], g[1], g[2]);
+                st.cent_ia, st.cent_ib, st.cent_ic, g[0], g[1], g[2],
+                (unsigned long)rc[0], (unsigned long)rc[1], (unsigned long)rc[2]);
 }
 
 static void CmdVrefRatio(void)

@@ -314,10 +314,22 @@ Signaux présents à M2 :
 | 7 | `enc.pos_rad` | `rad` | AS5600, angle mécanique **extrapolé** à l'instant de l'ISR. Vaut 0 quand `enc.valid` vaut 0 |
 | 8 | `enc.vel_rad_s` | `rad/s` | vitesse mécanique estimée depuis deux angles consécutifs, filtrée. Vaut 0 quand `enc.valid` vaut 0 |
 | 9 | `enc.age_us` | `us` | âge de l'échantillon d'angle au moment où l'ISR l'a lu |
-| 10 | `current.ia_count` | `count` | ADC1 IN1 **moins l'offset mesuré, corrigé du gain de sa voie**, signé. Les trois voies n'ont pas le même gain sur cette carte (B lit 0,656 et C 1,195 fois ce que lit A, mesuré à l'étape 5) : chacune est ramenée à l'**échelle de la voie C**, la plus sensible, pour que les trois courants soient comparables entre eux. En counts et non en ampères : l'échelle absolue n'est connue qu'à ±15 %. L'échelle absolue, mesurée à l'étape 7 contre un ampèremètre, vaut ≈ 1,82 mA par count à ±15 % — et non les 4,03 mA nominaux de 20 V/V sur 10 mΩ : les trois voies lisent trop haut |
+| 10 | `current.ia_count` | `count` | ADC1 IN1 **moins l'offset mesuré, corrigé du gain de sa voie**, signé. Les trois voies n'ont pas le même gain sur cette carte (B lit 0,656 et C 1,195 fois ce que lit A, mesuré à l'étape 5) : chacune est ramenée à l'**échelle de la voie C**, la plus sensible, pour que les trois courants soient comparables entre eux. En counts et non en ampères : l'échelle absolue n'est connue qu'à ±15 %. L'échelle absolue, mesurée à l'étape 7 contre un ampèremètre, vaut ≈ 1,82 mA par count à ±15 % — et non les 4,03 mA nominaux de 20 V/V sur 10 mΩ : les trois voies lisent trop haut. **Reconstruit par la loi des nœuds** quand sa voie est dans sa zone morte — voir « Zone morte des amplis de courant » plus bas. Les signaux bruts 1 à 3 ne le sont jamais |
 | 11 | `current.ib_count` | `count` | ADC1 IN2, centré et corrigé, même échelle |
 | 12 | `current.ic_count` | `count` | ADC1 IN3, centré, voie de référence de l'échelle |
 | 13 | `enc.valid` | `bool` | 1 quand l'ISR dispose d'un angle exploitable : échantillon cohérent **et** champ suffisant, c'est-à-dire `MAGNITUDE` du capteur au moins égale à 256 (4 mesuré sans aimant, 1818 avec l'aimant de la carte). À 0, les signaux 7 et 8 valent 0 et ne doivent pas être lus comme une mesure |
+
+**Zone morte des amplis de courant.** Mesurée le 2026-09-26 : chaque voie a une plage de
+courant sur laquelle sa sortie reste collée **exactement** à la mi-échelle, 2048 counts bruts,
+sans le moindre bruit — ≈ 16 counts corrigés de large, ≈ 30 mA. Sur la voie C elle entoure le
+zéro ; sur A et B, dont l'offset est positif, elle commence sous le repos. L'auto-calibration
+du DRV8304 (`AUTOCAL`) n'y change rien : ce n'est pas un offset réglable, c'est un
+comportement de l'étage de sortie autour de sa référence. Le firmware le contourne comme on
+le fait en FOC à trois shunts : quand **une seule** voie lit à ±1 count de 2048, sa valeur
+centrée est remplacée par l'opposé de la somme des deux autres. Deux voies ou plus dans ce cas
+ne se produisent qu'à moins de ≈ 30 mA, et rien n'est alors remplacé. Les signaux bruts 1 à 3
+restent ce que l'ADC a lu, et `IMOT?` compte les reconstructions par voie : une voie en panne,
+collée à 2048, se verrait à ce compteur qui ne cesse de croître.
 
 **Règle firmware** : toute grandeur interne qu'on souhaite pouvoir tracer est déclarée comme
 signal au moment où elle est introduite. Une mesure brute reste explicitement nommée et un signal
@@ -595,7 +607,7 @@ rapporte l'état, donc l'état rapporté est toujours celui de l'instant où l'h
 | `NVM.SAVE` | `OK saved=<n> seq=<n>` / `ERR LIVE` / `ERR NVM` | Même effet que `PARAM_SAVE_NVM`, depuis la console |
 | `IMOT.AMP [<n>]` | même réponse, `cal=1` | Le zéro de l'**ampli seul** : broche `CAL` levée, entrées court-circuitées, **rien n'est mémorisé**. C'était ce que mémorisait `IMOT.CAL` avant le 2026-09-26. Diagnostic : l'écart avec `IMOT.CAL` est la part de la chaîne en amont de l'ampli. Refusée sorties actives, `CAL` rendant la surveillance du courant aveugle |
 | `IMOT.NOISE [<n>]` | même réponse, `cal=0` | La même mesure que `IMOT.CAL`, **sans mémoriser** : pour regarder la chaîne sans toucher à l'offset de travail. Utilisable sorties actives — c'est alors le courant qui passe qu'on mesure |
-| `IMOT?` | `OK measured=<0\|1> offset=<a>,<b>,<c> raw=<a>,<b>,<c> centered=<a>,<b>,<c> gain_pm=<a>,<b>,<c>` | Offsets de travail, dernière lecture brute et centrée, et gain appliqué à chaque voie en pour mille. Une campagne comme celle d'`IMOT.CAL` est lancée **au démarrage**, sorties coupées, et mémorisée si elle est plausible — à moins de 150 counts de la mi-échelle sur les trois phases. `measured=0` dit qu'elle ne l'était pas, ou qu'aucune n'a abouti : l'offset est alors la mi-échelle théorique et les courants centrés sont indicatifs, pas justes. La même règle de plausibilité vaut pour `IMOT.CAL` |
+| `IMOT?` | `OK measured=<0\|1> offset=<a>,<b>,<c> raw=<a>,<b>,<c> centered=<a>,<b>,<c> gain_pm=<a>,<b>,<c> recon=<a>,<b>,<c>` | Offsets de travail, dernière lecture brute et centrée, et gain appliqué à chaque voie en pour mille. Une campagne comme celle d'`IMOT.CAL` est lancée **au démarrage**, sorties coupées, et mémorisée si elle est plausible — à moins de 150 counts de la mi-échelle sur les trois phases. `measured=0` dit qu'elle ne l'était pas, ou qu'aucune n'a abouti : l'offset est alors la mi-échelle théorique et les courants centrés sont indicatifs, pas justes. La même règle de plausibilité vaut pour `IMOT.CAL`. `recon` compte, par voie, les passages de boucle où sa valeur a été reconstruite par la loi des nœuds |
 | `IMOT.Z` | `OK a_lo=<c>,<c> a_hi=<c>,<c> b_lo=… b_hi=… c_lo=… c_hi=…` | Impédance des trois entrées de courant. Chaque broche est forcée en sortie 20 µs, relâchée en analogique, convertie tout de suite puis 2 ms plus tard, vers le bas puis vers le haut. Une sortie d'amplificateur a repris la main dès la première conversion ; un nœud flottant garde la charge du forçage. Ne dépend ni de VREF+ ni du DRV |
 
 Une faute matérielle (nFAULT bas) coupe `MOE` depuis l'interruption, sans dialogue SPI ; c'est

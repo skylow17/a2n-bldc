@@ -183,11 +183,46 @@ static int16_t Scale(int32_t centred, uint32_t gain_pm)
   return (int16_t)((p >= 0) ? ((p + 500) / 1000) : ((p - 500) / 1000));
 }
 
+static volatile uint32_t s_recon[3];
+
+static bool InDeadZone(uint16_t raw)
+{
+  return (raw >= (IMOT_DEAD_RAW - IMOT_DEAD_TOL)) && (raw <= (IMOT_DEAD_RAW + IMOT_DEAD_TOL));
+}
+
+/*
+ * Reconstruction par la loi des nœuds.
+ *
+ * Le moteur n'a pas de neutre sorti : Ia + Ib + Ic = 0, toujours. Une voie collée dans sa zone
+ * morte ne dit rien du courant qui la traverse, mais les deux autres le disent pour elle. Une
+ * seule voie aveugle à la fois : on la remplace. Deux ou trois : les courants sont alors tous
+ * sous ≈ 30 mA, et on n'invente rien. Une voie qui lit 2048 parce que le courant l'y amène
+ * vraiment est reconstruite aussi — et la valeur rendue est alors la même, c'est le point.
+ */
 void Imot_Apply(uint16_t a, uint16_t b, uint16_t c, int16_t *ia, int16_t *ib, int16_t *ic)
 {
-  *ia = Scale((int32_t)a - (int32_t)s_offset[0], IMOT_GAIN_A_PM);
-  *ib = Scale((int32_t)b - (int32_t)s_offset[1], IMOT_GAIN_B_PM);
-  *ic = Scale((int32_t)c - (int32_t)s_offset[2], IMOT_GAIN_C_PM);
+  int16_t x[3];
+  x[0] = Scale((int32_t)a - (int32_t)s_offset[0], IMOT_GAIN_A_PM);
+  x[1] = Scale((int32_t)b - (int32_t)s_offset[1], IMOT_GAIN_B_PM);
+  x[2] = Scale((int32_t)c - (int32_t)s_offset[2], IMOT_GAIN_C_PM);
+
+  const bool dead[3] = { InDeadZone(a), InDeadZone(b), InDeadZone(c) };
+  const uint32_t n = (dead[0] ? 1U : 0U) + (dead[1] ? 1U : 0U) + (dead[2] ? 1U : 0U);
+  if (n == 1U) {
+    const uint32_t k = dead[0] ? 0U : (dead[1] ? 1U : 2U);
+    x[k] = (int16_t)(-((int32_t)x[(k + 1U) % 3U] + (int32_t)x[(k + 2U) % 3U]));
+    s_recon[k]++;
+  }
+  *ia = x[0];
+  *ib = x[1];
+  *ic = x[2];
+}
+
+void Imot_GetReconstructions(uint32_t out[3])
+{
+  out[0] = s_recon[0];
+  out[1] = s_recon[1];
+  out[2] = s_recon[2];
 }
 
 void Imot_GetGains(uint16_t out[3])
