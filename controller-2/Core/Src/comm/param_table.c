@@ -35,6 +35,24 @@ static const uint16_t s_pwm_arr       = PWM_ARR;
 static const uint16_t s_pwm_ccr4_trig = PWM_TRIG_CCR4;
 static const float    s_deadtime_ns   = (float)PWM_DEADTIME_DTG * 1000000000.0f / (float)BOARD_SYSCLK_HZ;
 
+/* Parametres du moteur et du capteur, mesures sur carte (etapes 5 a 9, 2026-09-26) et
+ * persistants. Tous a zero par defaut : zero veut dire « pas encore mesure », et c'est ce
+ * qu'une carte neuve doit annoncer plutot qu'une valeur d'un autre moteur. Rien ne les
+ * consomme encore — M3 le fera. `requires_disarm` : les changer moteur alimente changerait
+ * la commutation en marche.
+ *
+ * Les gains des trois voies de courant n'y sont pas, et c'est voulu : ils fixent ce que vaut
+ * la limite de surintensite en amperes, et une valeur ecrite depuis l'hote pourrait
+ * l'elargir. Ils restent des constantes (`imot.h`). */
+static uint8_t s_motor_pole_pairs;
+static float   s_motor_r_ohm;
+static float   s_motor_l_h;
+static float   s_enc_elec_offset_rad;
+static int8_t  s_enc_direction;
+static float   s_imot_scale_a;
+
+#define MOTOR_FLAGS  (PARAM_FLAG_PERSISTENT | PARAM_FLAG_REQUIRES_DISARM | PARAM_FLAG_CALIBRATED)
+
 /* Parametres de diagnostic du codec. Sans effet sur le materiel. */
 static uint32_t s_dbg_u32;
 static int16_t  s_dbg_i16;
@@ -55,6 +73,13 @@ const ParamDesc_t g_param_table[] = {
   { 0x0011U, PARAM_TYPE_U16,   PARAM_FLAG_READ_ONLY,    "pwm.arr",          "",     "PWM",       0.0f,        65535.0f,     0.0f, (void *)&s_pwm_arr       },
   { 0x0012U, PARAM_TYPE_F32,   PARAM_FLAG_READ_ONLY,    "pwm.deadtime_ns",  "ns",   "PWM",       0.0f,        10000.0f,     0.0f, (void *)&s_deadtime_ns   },
   { 0x0013U, PARAM_TYPE_U16,   PARAM_FLAG_READ_ONLY,    "pwm.ccr4_trig",    "",     "PWM",       0.0f,        65535.0f,     0.0f, (void *)&s_pwm_ccr4_trig },
+
+  { 0x0200U, PARAM_TYPE_U8,    MOTOR_FLAGS,             "motor.pole_pairs", "",     "Motor",     0.0f,        64.0f,        0.0f, (void *)&s_motor_pole_pairs    },
+  { 0x0201U, PARAM_TYPE_F32,   MOTOR_FLAGS,             "motor.r_ohm",      "ohm",  "Motor",     0.0f,        100.0f,       0.0f, (void *)&s_motor_r_ohm         },
+  { 0x0202U, PARAM_TYPE_F32,   MOTOR_FLAGS,             "motor.l_h",        "H",    "Motor",     0.0f,        0.1f,         0.0f, (void *)&s_motor_l_h           },
+  { 0x0210U, PARAM_TYPE_F32,   MOTOR_FLAGS,             "enc.elec_offset_rad", "rad", "Motor",   0.0f,        6.2832f,      0.0f, (void *)&s_enc_elec_offset_rad },
+  { 0x0211U, PARAM_TYPE_I8,    MOTOR_FLAGS,             "enc.direction",    "",     "Motor",    -1.0f,        1.0f,         0.0f, (void *)&s_enc_direction       },
+  { 0x0220U, PARAM_TYPE_F32,   MOTOR_FLAGS,             "imot.scale_a",     "A/count", "Motor",  0.0f,        0.02f,        0.0f, (void *)&s_imot_scale_a        },
 
   { 0x0100U, PARAM_TYPE_U32,   0U,                      "dbg.echo_u32",     "",     "Debug",     0.0f,        4294967040.0f, 0.0f, (void *)&s_dbg_u32       },
   { 0x0101U, PARAM_TYPE_I16,   0U,                      "dbg.echo_i16",     "",     "Debug",    -32768.0f,    32767.0f,     0.0f, (void *)&s_dbg_i16       },

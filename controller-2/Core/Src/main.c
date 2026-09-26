@@ -20,6 +20,7 @@
 #include "drv8304.h"
 #include "encoder.h"
 #include "imot.h"
+#include "nvm.h"
 #include "sensors.h"
 #include "pwm.h"
 #include "safety.h"
@@ -99,6 +100,7 @@ int main(void)
   Link_Init();
   Console_Init();
   Param_Init();     /* calcule le hash du dictionnaire avant tout handshake */
+  Nvm_Load();       /* valeurs persistantes restaurees avant que l'hote ne les lise */
   Scope_Init();
   Proto_Init();
   RxRouter_Init();

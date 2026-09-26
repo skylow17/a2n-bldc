@@ -68,6 +68,7 @@ export const IPC_SCHEMA = {
     logSource.optional(),
   ]),
   'device:resetDefaults': z.tuple([]),
+  'device:saveNvm': z.tuple([]),
   'device:console': z.tuple([consoleLine]),
   'device:readSignals': z.tuple([]),
   'device:captureScope': z.tuple([scopeRequest]),

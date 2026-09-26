@@ -134,6 +134,9 @@ export class SimulatedDevice implements Transport {
   private readonly errorEmitter = new Emitter<Error>();
   private readonly stream = new FrameStream();
   private readonly values = new Map<number, number>();
+  /** Ce que `PARAM_SAVE_NVM` a écrit : l'équivalent de la flash, pour la durée du simulateur. */
+  private readonly nvm = new Map<number, number>();
+  private nvmSeq = 0;
   private readonly params: readonly ParamDesc[];
   private readonly dictHash: number;
   private readonly opts: Required<SimulatorOptions>;
@@ -364,11 +367,16 @@ export class SimulatedDevice implements Transport {
         this.resetValues();
         this.replyFrame(MSG.PARAM_RESET_DEFAULTS, seq, new Uint8Array(0));
         break;
-      case MSG.PARAM_SAVE_NVM:
-        // Comme le firmware : refuser explicitement plutôt que de répondre OK sans rien
-        // écrire, ce qui ferait croire la recette enregistrée.
-        this.replyError(MSG.PARAM_SAVE_NVM, seq, PROTO_ERR.NVM);
+      case MSG.PARAM_SAVE_NVM: {
+        // Comme le firmware : les entrées qui portent `persistent`, valeur courante, et un
+        // numéro d'enregistrement qui ne fait que croître.
+        const persistent = this.params.filter((p) => (p.flags & 0x02) !== 0);
+        this.nvmSeq += 1;
+        for (const p of persistent) this.nvm.set(p.id, this.values.get(p.id) ?? p.def);
+        this.replyFrame(MSG.PARAM_SAVE_NVM, seq,
+          new PayloadWriter().u16(persistent.length).u32(this.nvmSeq).build());
         break;
+      }
       case MSG.TELEM_SIGNALS:
         this.onSignals(seq, payload);
         break;
@@ -450,7 +458,7 @@ export class SimulatedDevice implements Transport {
       // Le simulateur implemente les six messages du bootloader (§8) : ne pas lever le bit
       // rendait `firmware-update` impossible a exercer ici, et le chemin d'ecriture — erase,
       // fragmentage, CRC, probation — n'avait alors jamais tourne nulle part.
-      .u32(PROTO_CAP.TELEMETRY | PROTO_CAP.SCOPE | PROTO_CAP.BOOTLOADER)
+      .u32(PROTO_CAP.TELEMETRY | PROTO_CAP.SCOPE | PROTO_CAP.BOOTLOADER | PROTO_CAP.NVM)
       .build();
   }
 

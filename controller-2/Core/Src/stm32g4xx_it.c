@@ -7,10 +7,13 @@
 #include "drv8304.h"
 #include "encoder.h"
 #include "board.h"
+#include "nvm.h"
 
 extern PCD_HandleTypeDef hpcd_USB_FS;
 
-void NMI_Handler(void)        { for (;;) { } }
+/* Seule NMI tolérée : une erreur ECC double pendant la relecture de la NVM, qu'un
+ * enregistrement déchiré par une coupure provoque — voir `Nvm_OnNmi`. */
+void NMI_Handler(void)        { if (Nvm_OnNmi()) { return; } for (;;) { } }
 void HardFault_Handler(void)  { for (;;) { } }
 void MemManage_Handler(void)  { for (;;) { } }
 void BusFault_Handler(void)   { for (;;) { } }

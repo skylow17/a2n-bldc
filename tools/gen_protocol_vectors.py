@@ -109,6 +109,13 @@ PARAM_TABLE_M1B = [
     (0x0011,  2, 0x01, "pwm.arr",          "",   "PWM",   0.0,      65535.0,     0.0),
     (0x0012,  6, 0x01, "pwm.deadtime_ns",  "ns", "PWM",   0.0,      10000.0,     0.0),
     (0x0013,  2, 0x01, "pwm.ccr4_trig",    "",   "PWM",   0.0,      65535.0,     0.0),
+    # Parametres moteur, persistants (0x02), requires_disarm (0x04), calibrated (0x10) — 2026-09-26.
+    (0x0200,  0, 0x16, "motor.pole_pairs", "",    "Motor", 0.0,      64.0,        0.0),
+    (0x0201,  6, 0x16, "motor.r_ohm",      "ohm", "Motor", 0.0,      100.0,       0.0),
+    (0x0202,  6, 0x16, "motor.l_h",        "H",   "Motor", 0.0,      0.1,         0.0),
+    (0x0210,  6, 0x16, "enc.elec_offset_rad", "rad", "Motor", 0.0,   6.2832,      0.0),
+    (0x0211,  1, 0x16, "enc.direction",    "",    "Motor", -1.0,     1.0,         0.0),
+    (0x0220,  6, 0x16, "imot.scale_a",     "A/count", "Motor", 0.0,  0.02,        0.0),
     (0x0100,  4, 0x00, "dbg.echo_u32",     "",   "Debug", 0.0,      4294967040.0, 0.0),
     (0x0101,  3, 0x00, "dbg.echo_i16",     "",   "Debug", -32768.0, 32767.0,     0.0),
     (0x0102,  6, 0x00, "dbg.echo_f32",     "A",  "Debug", -1000.0,  1000.0,      0.0),
@@ -117,6 +124,11 @@ PARAM_TABLE_M1B = [
 ]
 
 PARAM_NAME_LEN, PARAM_UNIT_LEN, PARAM_GROUP_LEN = 32, 8, 24
+
+
+def f32(v):
+    """Arrondi au f32 le plus proche, tel que le firmware le range et le serialise."""
+    return struct.unpack("<f", struct.pack("<f", v))[0]
 
 
 def fixed(text, width):
@@ -208,7 +220,9 @@ def build():
             "entries": [
                 {
                     "id": e[0], "type": e[1], "flags": e[2], "name": e[3],
-                    "unit": e[4], "group": e[5], "min": e[6], "max": e[7], "def": e[8],
+                    # Les bornes circulent en f32 : le vecteur donne la valeur que le fil porte
+                    # reellement, pas le double Python qui l'a produite. 0.1 n'existe pas en f32.
+                    "unit": e[4], "group": e[5], "min": f32(e[6]), "max": f32(e[7]), "def": f32(e[8]),
                     "wire_hex": serialize_param(e).hex(),
                 }
                 for e in PARAM_TABLE_M1B

@@ -9,6 +9,7 @@
  */
 
 import { DeviceClient, ProtocolError, TimeoutError, type ScopeCapture } from '../../shared/client.js';
+import type { NvmSaveResult } from '../../shared/messages.js';
 import {
   ParamStatus,
   PARAM_STATUS_NAME,
@@ -765,6 +766,18 @@ export class DeviceCore {
     await client.resetDefaults();
     this.log('info', source, 'parameters reset to defaults');
     await this.refreshValues();
+  }
+
+  /**
+   * Persiste les paramètres marqués `persistent`. Une écriture, et une écriture en flash :
+   * au moins aussi gardée qu'une écriture de paramètre pour un agent.
+   */
+  async saveNvm(source: LogSource = 'gui'): Promise<NvmSaveResult> {
+    const { client } = this.require();
+    this.requireAiControl(source);
+    const r = await client.saveNvm();
+    this.log('info', source, `parameters saved to flash: ${r.saved} entries, record ${r.seq}`);
+    return r;
   }
 
   /**

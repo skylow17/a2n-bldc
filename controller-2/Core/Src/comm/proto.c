@@ -8,6 +8,7 @@
 
 #include "comm/frame.h"
 #include "comm/param.h"
+#include "nvm.h"
 #include "comm/scope.h"
 #include "comm/signals.h"
 #include "boot_shared.h"
@@ -92,7 +93,7 @@ static void OnHello(uint8_t seq)
   Frame_PutU32(&s_payload[o], HAL_GetUIDw2());                                     o += 4U;
   Frame_PutU16(&s_payload[o], Param_Count());                                      o += 2U;
   Frame_PutU16(&s_payload[o], Signal_Count());                                     o += 2U;
-  uint32_t capabilities = PROTO_CAP_TELEMETRY | PROTO_CAP_SCOPE;
+  uint32_t capabilities = PROTO_CAP_TELEMETRY | PROTO_CAP_SCOPE | PROTO_CAP_NVM;
 #if defined(APP_WITH_BOOTLOADER)
   capabilities |= PROTO_CAP_BOOTLOADER;
 #endif
@@ -527,12 +528,25 @@ void Proto_HandleFrame(uint16_t msg_id, uint8_t flags, uint8_t seq,
       Send(MSG_PARAM_RESET_DEFAULTS, FRAME_FLAG_RESPONSE, seq, NULL, 0U);
       break;
 
-    case MSG_PARAM_SAVE_NVM:
-      /* La persistance arrive avec le decoupage flash (M2). Refuser explicitement vaut
-       * mieux que repondre OK sans rien ecrire : l'hote croirait la recette enregistree. */
-      s_rx_errors++;
-      Proto_SendError(MSG_PARAM_SAVE_NVM, seq, PROTO_ERR_NVM);
+    case MSG_PARAM_SAVE_NVM: {
+      /* Sorties actives : `STATE`, l'effacement figerait l'ISR. Echec d'ecriture ou de
+       * relecture : `NVM`, et l'enregistrement precedent reste le bon. Jamais d'OK sans
+       * enregistrement relu juste : l'hote croirait sa recette sauvee. */
+      uint16_t saved = 0U;
+      const Nvm_Result_t r = Nvm_Save(&saved);
+      if (r != NVM_OK) {
+        Proto_SendError(MSG_PARAM_SAVE_NVM, seq,
+                        (r == NVM_ERR_LIVE) ? PROTO_ERR_STATE : PROTO_ERR_NVM);
+        break;
+      }
+      Nvm_Status_t st;
+      Nvm_GetStatus(&st);
+      uint8_t out[6];
+      Frame_PutU16(&out[0], saved);
+      Frame_PutU32(&out[2], st.seq);
+      Send(MSG_PARAM_SAVE_NVM, FRAME_FLAG_RESPONSE, seq, out, sizeof(out));
       break;
+    }
 
     case MSG_TELEM_SIGNALS:
       OnTelemSignals(seq, payload, payload_len);

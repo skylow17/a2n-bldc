@@ -40,15 +40,14 @@ describe('handshake', () => {
     // sans lever BOOT, et `firmware-update` refusait de démarrer — le chemin d'écriture
     // était donc intestable, sur simulateur comme ailleurs.
     expect(info.capabilities).toBe(
-      PROTO_CAP.TELEMETRY | PROTO_CAP.SCOPE | PROTO_CAP.BOOTLOADER,
+      PROTO_CAP.TELEMETRY | PROTO_CAP.SCOPE | PROTO_CAP.BOOTLOADER | PROTO_CAP.NVM,
     );
     expect(info.telemSignalCount).toBe(DEFAULT_SIM_SIGNALS.length);
   });
 
-  it('ne lève NVM, CAN ni encodeur, qui ne sont pas implémentés', async () => {
+  it('ne lève ni CAN ni encodeur, qui ne sont pas implémentés', async () => {
     const { client } = connect();
     const info = await client.hello();
-    expect(info.capabilities & PROTO_CAP.NVM).toBe(0);
     expect(info.capabilities & PROTO_CAP.CAN).toBe(0);
     expect(info.capabilities & PROTO_CAP.ENCODER_INC).toBe(0);
   });
@@ -150,7 +149,7 @@ describe('dictionnaire', () => {
   it('expose les groupes dans l’ordre du firmware', async () => {
     const { client } = connect();
     const dict = await client.readDictionary();
-    expect(dict.groups()).toEqual(['Board', 'PWM', 'Debug']);
+    expect(dict.groups()).toEqual(['Board', 'PWM', 'Motor', 'Debug']);
   });
 });
 
@@ -243,14 +242,31 @@ describe('lecture et écriture', () => {
 describe('erreurs et robustesse', () => {
   it('remonte un refus du firmware comme une erreur typée', async () => {
     const { client } = connect();
-    // La persistance NVM n'existe pas encore : le firmware refuse explicitement plutôt
-    // que de répondre OK sans rien écrire.
-    await expect(client['request'](0x0014, 0x0014, new Uint8Array(0), 'SAVE')).rejects.toThrow(
-      ProtocolError,
-    );
-    await expect(
-      client['request'](0x0014, 0x0014, new Uint8Array(0), 'SAVE'),
-    ).rejects.toMatchObject({ code: PROTO_ERR.NVM, codeName: 'NVM' });
+    // Une page de signaux demandée avec un payload de trois octets au lieu de quatre : le
+    // firmware refuse par `LEN`. C'était `PARAM_SAVE_NVM` tant que la persistance n'existait
+    // pas ; elle existe depuis le 2026-09-26.
+    const bad = new Uint8Array(3);
+    await expect(client['request'](0x0040, 0x0040, bad, 'SIGNALS')).rejects.toThrow(ProtocolError);
+    await expect(client['request'](0x0040, 0x0040, bad, 'SIGNALS')).rejects.toMatchObject({
+      code: PROTO_ERR.LEN,
+      codeName: 'LEN',
+    });
+  });
+
+  it('persiste les entrées marquées persistent, avec un numéro qui croît', async () => {
+    const { client } = connect();
+    const dict = await client.readDictionary();
+    const persistent = dict.entries.filter((p) => (p.flags & 0x02) !== 0);
+    // Les six grandeurs du moteur, et elles seules : ni la configuration de la carte, ni
+    // les paramètres de diagnostic ne survivent à un redémarrage.
+    expect(persistent.map((p) => p.name).sort()).toEqual([
+      'enc.direction', 'enc.elec_offset_rad', 'imot.scale_a',
+      'motor.l_h', 'motor.pole_pairs', 'motor.r_ohm',
+    ]);
+    const first = await client.saveNvm();
+    const second = await client.saveNvm();
+    expect(first.saved).toBe(persistent.length);
+    expect(second.seq).toBe(first.seq + 1);
   });
 
   it('expire proprement si le device ne répond pas', async () => {

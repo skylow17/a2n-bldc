@@ -135,6 +135,7 @@ handle('device:writeParam', (idOrName: number | string, value: number, source?: 
   core.writeParam(idOrName, value, source ?? 'gui'),
 );
 handle('device:resetDefaults', () => core.resetDefaults());
+handle('device:saveNvm', () => core.saveNvm());
 handle('device:console', (line: string) => core.sendConsole(line));
 
 // Signaux et scope : le renderer y avait droit depuis le debut, mais aucun canal ne les

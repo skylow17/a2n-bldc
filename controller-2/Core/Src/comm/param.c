@@ -4,6 +4,8 @@
  */
 #include "comm/param.h"
 
+#include "pwm.h"
+
 #include <math.h>
 #include <string.h>
 
@@ -82,6 +84,11 @@ void Param_Init(void)
     }
   }
   s_dict_hash = crc ^ 0xFFFFFFFFU;
+}
+
+uint32_t Param_Crc32(const void *data, size_t len)
+{
+  return Crc32Update(0xFFFFFFFFU, (const uint8_t *)data, len) ^ 0xFFFFFFFFU;
 }
 
 uint16_t Param_Count(void)     { return g_param_count; }
@@ -165,8 +172,12 @@ ParamStatus_t Param_WriteValue(uint16_t id, float value)
     return PARAM_ERR_RANGE;
   }
 
-  /* PARAM_FLAG_REQUIRES_DISARM sera controle ici quand la machine a etats existera (M3).
-   * Aucune entree ne porte ce drapeau aujourd'hui. */
+  /* Tant que la machine a etats n'existe pas (M3), « desarme » veut dire sorties de
+   * puissance coupees. Un nombre de paires de poles ou un decalage d'angle change moteur
+   * alimente changerait la commutation en marche. */
+  if (((p->flags & PARAM_FLAG_REQUIRES_DISARM) != 0U) && Pwm_IsEnabled()) {
+    return PARAM_ERR_STATE;
+  }
 
   StoreFromFloat(p, value);
   return PARAM_OK;

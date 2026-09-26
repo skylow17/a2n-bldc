@@ -140,6 +140,19 @@ export function decodeParamWrite(payload: Uint8Array): ParamWriteResult[] {
   return out;
 }
 
+/** Réponse de `PARAM_SAVE_NVM` — `docs/protocol.md` §5, « Persistance ». */
+export interface NvmSaveResult {
+  /** Entrées persistantes effectivement écrites. */
+  saved: number;
+  /** Numéro de séquence de l'enregistrement, strictement croissant. */
+  seq: number;
+}
+
+export function decodeParamSaveNvm(payload: Uint8Array): NvmSaveResult {
+  const r = new PayloadReader(payload);
+  return { saved: r.u16(), seq: r.u32() };
+}
+
 /* ------------------------------------------------------------------ télémétrie */
 
 export function encodeTelemSignals(startIndex: number, count: number): Uint8Array {

@@ -78,8 +78,8 @@ static const CobsVector_t k_cobs_vectors[] = {
 /* Forme attendue du dictionnaire, calculee par le generateur a partir de sa propre
  * lecture de param_table.c. Si le firmware annonce un autre hash, c'est que la table
  * a change sans que les vecteurs soient regeneres — ou que la serialisation derive. */
-#define SELFTEST_DICT_COUNT   11U
-#define SELFTEST_DICT_HASH    0xA7C793EBUL
+#define SELFTEST_DICT_COUNT   17U
+#define SELFTEST_DICT_HASH    0x609366A0UL
 
 #define SELFTEST_CRC16_COUNT  (sizeof(k_crc16_vectors) / sizeof(k_crc16_vectors[0]))
 #define SELFTEST_COBS_COUNT   (sizeof(k_cobs_vectors) / sizeof(k_cobs_vectors[0]))

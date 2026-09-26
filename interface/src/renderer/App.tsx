@@ -82,7 +82,7 @@ const VIEWS: ViewDef[] = [
     id: 'recipes',
     label: 'Recipes',
     pending: 'M2',
-    why: 'NVM persistence does not exist yet: an applied recipe would not survive a reset.',
+    why: 'Recipes are not built yet. Parameters themselves persist: Tuning, Save to flash.',
   },
   {
     id: 'firmware',

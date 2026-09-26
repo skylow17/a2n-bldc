@@ -142,7 +142,7 @@ describe('ParamDictionary', () => {
   });
 
   it("rend les groupes dans l'ordre d'apparition", () => {
-    expect(d.groups()).toEqual(['Board', 'PWM', 'Debug']);
+    expect(d.groups()).toEqual(['Board', 'PWM', 'Motor', 'Debug']);
   });
 
   it('marque en lecture seule ce que le firmware protège', () => {

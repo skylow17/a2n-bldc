@@ -42,6 +42,8 @@ import {
   type ScopeStatus,
   type TelemFrame,
   type TelemSubscription,
+  decodeParamSaveNvm,
+  type NvmSaveResult,
 } from './messages.js';
 import { FrameStream, encodeFrame, type Frame } from './frame.js';
 import { ParamDictionary, type ParamDesc } from './params.js';
@@ -305,6 +307,22 @@ export class DeviceClient {
       new Uint8Array(0),
       'PARAM_RESET_DEFAULTS',
     );
+  }
+
+  /**
+   * Écrit en flash toutes les entrées persistantes. Le firmware refuse (`STATE`) sorties de
+   * puissance actives, et ne répond jamais OK sans avoir relu l'enregistrement : une erreur
+   * veut dire que l'enregistrement précédent est toujours celui qui sera rechargé.
+   */
+  async saveNvm(): Promise<NvmSaveResult> {
+    const f = await this.request(
+      MSG.PARAM_SAVE_NVM,
+      MSG.PARAM_SAVE_NVM,
+      new Uint8Array(0),
+      'PARAM_SAVE_NVM',
+      3000,
+    );
+    return decodeParamSaveNvm(f.payload);
   }
 
   async readSignals(pageSize = 11): Promise<SignalDesc[]> {

@@ -97,6 +97,9 @@ bool Param_SerializeEntry(uint16_t index, uint8_t *dst);
 ParamStatus_t Param_ReadValue(uint16_t id, float *out);
 ParamStatus_t Param_WriteValue(uint16_t id, float value);
 
+/** CRC-32/ISO-HDLC d'un bloc — celui du hash, partage avec la NVM plutot que recopie. */
+uint32_t Param_Crc32(const void *data, size_t len);
+
 /** Remet toutes les entrees inscriptibles a leur valeur par defaut. */
 void Param_ResetDefaults(void);
 

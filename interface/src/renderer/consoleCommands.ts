@@ -98,6 +98,8 @@ export const CONSOLE_GROUPS: ConsoleGroup[] = [
       { verb: 'VREF.FREQ', syntax: 'VREF.FREQ [<interval_us>]', summary: 'Counts crossings to measure the frequency of whatever moves on the reference.' },
       { verb: 'VREF.BUF', syntax: 'VREF.BUF ON [2048|2500|2900] | OFF', summary: 'Hands VREF+ to the MCU internal buffer. A workaround while the reference oscillates; 2900 is the only scale above the DRV8304 undervoltage threshold.' },
       { verb: 'IMOT?', syntax: 'IMOT?', summary: 'Working offsets of the current chain, the last raw and centred reading, and the gain applied to each channel. Says whether the offsets were measured or only assumed.' },
+      { verb: 'NVM?', syntax: 'NVM?', summary: 'Parameter persistence: whether a valid record was found, its sequence and page, and how many entries were restored or skipped at boot.' },
+      { verb: 'NVM.SAVE', syntax: 'NVM.SAVE', summary: 'Writes every persistent parameter to flash, then reads the record back. Refused while the power outputs are live.' },
       { verb: 'IMOT.CAL', syntax: 'IMOT.CAL [<n>]', summary: 'Measures the working zero of the current chain, outputs off and CAL left low, and stores it if plausible. Refused while the outputs are live.' },
       { verb: 'IMOT.AMP', syntax: 'IMOT.AMP [<n>]', summary: 'Zero of the amplifiers alone, with the DRV CAL pin raised. Diagnostic only: nothing is stored.' },
       { verb: 'IMOT.NOISE', syntax: 'IMOT.NOISE [<n>]', summary: 'The same measurement as IMOT.CAL without storing anything. Usable with the outputs live, where it measures the current flowing.' },

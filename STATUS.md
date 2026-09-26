@@ -8,7 +8,7 @@ Ce fichier ne contient **aucun chiffre volatil** (nombre de tests, occupation fl
 Ces valeurs se mesurent, elles ne se recopient pas : `python tools/status.py` les relève sur le
 dépôt réel. Une valeur écrite à la main est fausse le lendemain.
 
-Dernière revue : 2026-09-26, sur carte — M2 presque complet : étape 5 close, étape 7 mesurée (R ≈ 3,6 Ω, L ≈ 1,1 mH, NVM à faire), étapes 8 et 9 validées.
+Dernière revue : 2026-09-26, sur carte — M2 complet : persistance des paramètres implémentée et éprouvée, étape 7 close. Reste à comprendre la zone morte à 2048 avant M3.
 
 > **Reprise suivante — par où commencer.** Les deux défauts matériels sont **expliqués**, et
 > aucun des deux n'est une panne : ce sont deux erreurs de conception, l'une et l'autre
@@ -68,7 +68,7 @@ Dernière revue : 2026-09-26, sur carte — M2 presque complet : étape 5 close,
 | **M1c** | Télémétrie souscrite + buffer scope | **Validé sur carte le 2026-09-16** : `telem` sans trou, `scope` 2048 points sur 4 signaux à la cadence de boucle | Coût de l'échantillonnage scope dans l'ISR, voir la piste plus bas |
 | **M1d** | CLI de bring-up | Validé sur simulateur **et sur carte** — toutes les commandes, `firmware-update` compris | — |
 | **Boot** | Bootloader A/B, probation et rollback | **Validé sur carte le 2026-09-16** : installation SWD, `BOOT_INFO`, mise à jour nominale promue, rollback sur image qui ne confirme jamais | Rien ; un défaut trouvé sur carte, corrigé, rejoué |
-| **M2** | Étage de puissance et capteurs (étapes 2 à 9) | **Étape 2 : validée le 2026-09-16, régression du 2026-09-21 réparée et revalidée le 2026-09-26** — écriture-relecture par `DRV.PROBE`, et une écriture de registre dont l'effet se lit sur la mesure analogique. Voir plus bas. Pour mémoire, la validation d'origine : le DRV8304 répond en SPI, sept registres relus cohérents avec la fiche technique, écriture-relecture par `DRV.PROBE`, fautes lisibles. **Étape 3 validée à l'oscilloscope le 2026-09-18** : trois bras complémentaires à 20 kHz, temps mort 500 ns aux deux fronts, rapports 20/50/80 % suivis, aucune conduction croisée — après avoir trouvé que les sorties basses n'avaient jamais été activées. **Étape 4 entamée le 2026-09-18**, puis reprise le 2026-09-20 après remplacement de U3 : un défaut d'acquisition corrigé, et **deux défauts matériels isolés** — voir plus bas | Étape 4 : **offsets et bruit mesurés et documentés le 2026-09-21** — zéro de chaîne à 1–11 counts de la mi-échelle, répétable à ±1 count sur quatre campagnes, écart-type de 1,4 à 2,0 counts avec `CAL` levé. Ni SPI ni sortie de puissance requis. Gain relu à 20 V/V le 2026-09-26. **Depuis le 2026-09-26 le zéro est mesuré à chaque démarrage**, sorties coupées, et refusé s'il n'est pas plausible. Pour mémoire, ce qui bloquait avant : D'abord `VREF` qui oscille de ±370 mV, ce qui fausse toute mesure de tension de la carte ; ensuite les trois entrées de courant flottantes, que le remplacement du DRV n'a pas corrigées — continuité et masse à vérifier à l'ohmmètre. Le chemin nFAULT → coupure de `MOE` est écrit mais **jamais déclenché** : **décision de l'utilisateur le 2026-09-26, on passe à l'étape 5 sans l'éprouver physiquement** — voir « Décisions ». **Étape 5 close le 2026-09-26** : limites de courant éprouvées, gains par voie corrigés, somme des courants à 4,5 %, échelle absolue ≈ 1,82 mA par count à ±15 % mesurée à l'étape 7. **Étape 7 mesurée le 2026-09-26** : R ≈ 3,6 Ω et L ≈ 1,1 mH par phase ; pas close, la NVM n'existe pas encore. **Étapes 8 et 9 validées sur carte le 2026-09-26** : 7 paires de pôles sur quatre essais, décalage électrique 178,1° reproductible à 0,1°, redémarrage compris. **Étape 6 écrite hors séquence et éprouvée sur carte** (2026-09-21) puisqu'elle ne dépend ni de 4 ni de 5 : AS5600 en DMA à 1 MHz, transfert 57 µs, un échantillon toutes les 59 µs, ISR à 2,60 µs au pire. **Verte à titre provisoire** : le critère « angle monotone à la main » a été validé par l'utilisateur, aimant monté, et je n'ai pas assisté à la mesure — une réserve reste à lever, voir la section de l'étape 6 |
+| **M2** | Étage de puissance et capteurs (étapes 2 à 9) | **Étape 2 : validée le 2026-09-16, régression du 2026-09-21 réparée et revalidée le 2026-09-26** — écriture-relecture par `DRV.PROBE`, et une écriture de registre dont l'effet se lit sur la mesure analogique. Voir plus bas. Pour mémoire, la validation d'origine : le DRV8304 répond en SPI, sept registres relus cohérents avec la fiche technique, écriture-relecture par `DRV.PROBE`, fautes lisibles. **Étape 3 validée à l'oscilloscope le 2026-09-18** : trois bras complémentaires à 20 kHz, temps mort 500 ns aux deux fronts, rapports 20/50/80 % suivis, aucune conduction croisée — après avoir trouvé que les sorties basses n'avaient jamais été activées. **Étape 4 entamée le 2026-09-18**, puis reprise le 2026-09-20 après remplacement de U3 : un défaut d'acquisition corrigé, et **deux défauts matériels isolés** — voir plus bas | Étape 4 : **offsets et bruit mesurés et documentés le 2026-09-21** — zéro de chaîne à 1–11 counts de la mi-échelle, répétable à ±1 count sur quatre campagnes, écart-type de 1,4 à 2,0 counts avec `CAL` levé. Ni SPI ni sortie de puissance requis. Gain relu à 20 V/V le 2026-09-26. **Depuis le 2026-09-26 le zéro est mesuré à chaque démarrage**, sorties coupées, et refusé s'il n'est pas plausible. Pour mémoire, ce qui bloquait avant : D'abord `VREF` qui oscille de ±370 mV, ce qui fausse toute mesure de tension de la carte ; ensuite les trois entrées de courant flottantes, que le remplacement du DRV n'a pas corrigées — continuité et masse à vérifier à l'ohmmètre. Le chemin nFAULT → coupure de `MOE` est écrit mais **jamais déclenché** : **décision de l'utilisateur le 2026-09-26, on passe à l'étape 5 sans l'éprouver physiquement** — voir « Décisions ». **Étape 5 close le 2026-09-26** : limites de courant éprouvées, gains par voie corrigés, somme des courants à 4,5 %, échelle absolue ≈ 1,82 mA par count à ±15 % mesurée à l'étape 7. **Étape 7 close le 2026-09-26** : R ≈ 3,6 Ω et L ≈ 1,1 mH par phase, stockés en NVM avec p, φ, le sens et l'échelle de courant — la persistance du dictionnaire est implémentée et éprouvée. **Étapes 8 et 9 validées sur carte le 2026-09-26** : 7 paires de pôles sur quatre essais, décalage électrique 178,1° reproductible à 0,1°, redémarrage compris. **Étape 6 écrite hors séquence et éprouvée sur carte** (2026-09-21) puisqu'elle ne dépend ni de 4 ni de 5 : AS5600 en DMA à 1 MHz, transfert 57 µs, un échantillon toutes les 59 µs, ISR à 2,60 µs au pire. **Verte à titre provisoire** : le critère « angle monotone à la main » a été validé par l'utilisateur, aimant monté, et je n'ai pas assisté à la mesure — une réserve reste à lever, voir la section de l'étape 6 |
 | **M3** | Asservissements (étapes 10 à 13) | Pas commencé | — |
 
 **Aucun moteur n'a encore tourné**, et les sorties restent en haute impédance.
@@ -1349,6 +1349,55 @@ constate rien. D'où les deux règles ci-dessous.
 
 ---
 
+## Persistance des paramètres — étape 7 close (2026-09-26)
+
+`PARAM_SAVE_NVM`, prévu au protocole depuis M1b et qui répondait `ERR_NVM`, est implémenté —
+firmware, simulateur, client, interface (bouton « Save to flash » dans Tuning) — et éprouvé
+sur carte.
+
+**Ce qui persiste.** Six paramètres nouveaux, groupe `Motor`, persistants, `requires_disarm`
+et `calibrated`, tous à zéro par défaut — « pas encore mesuré » : `motor.pole_pairs` = 7,
+`motor.r_ohm` = 3,6, `motor.l_h` = 0,0011, `enc.elec_offset_rad` = 3,108 (178,1°),
+`enc.direction` = −1, `imot.scale_a` = 0,00182. Ce sont les valeurs des étapes 5, 7, 8 et 9,
+écrites et sauvegardées sur la carte. **Les gains des voies de courant n'en font pas partie** :
+ils fixent ce que vaut la limite de surintensité en ampères, et une valeur écrite depuis l'hôte
+pourrait l'élargir. Ils restent des constantes.
+
+**Le format.** Deux pages de 2 ko alternées en tête de la zone `nvm params` ; chaque
+sauvegarde écrit un enregistrement complet, séquence et CRC, sur la page qui ne porte pas le
+courant, puis le relit en entier. Au chargement, chaque entrée est confrontée au dictionnaire —
+identifiant, drapeau, type, bornes — et le reste est ignoré et compté. Détail dans
+`docs/protocol.md` §5.
+
+**Éprouvé sur carte :**
+
+- zone vierge au premier démarrage : `valid=0`, les défauts restent ;
+- sauvegardes alternées A puis B, séquences 1, 2, 3, 4 ;
+- au redémarrage, **6 entrées restaurées, 0 ignorée**, valeurs relues à l'identique ;
+- **survit à une mise à jour du firmware** — slot A vers slot B, puis retour ;
+- **sauvegarde depuis la banque 2**, l'application tournant sur le slot B ;
+- refus sorties actives : `NVM.SAVE` → `ERR LIVE`, `PARAM_SAVE_NVM` → `STATE`, écriture de
+  `motor.pole_pairs` → statut 4 pendant qu'un paramètre sans `requires_disarm` passe ;
+- `SELFTEST` vérifie le nouveau hash du dictionnaire, 17 entrées, `0x609366A0`.
+
+**Le gel est mesuré, et il justifie le refus.** Pendant la sauvegarde depuis le slot B,
+l'âge maximal de l'angle vu par l'ISR est monté à **22 ms** : le cœur s'est arrêté le temps
+de l'effacement de page, ISR de contrôle comprise — la vingtaine de millisecondes prévue.
+Sorties coupées, sans conséquence ; sorties actives, inacceptable.
+
+**Ce qui n'est pas éprouvé : la coupure pendant l'écriture.** La mécanique des deux pages la
+tolère par construction, et une erreur ECC double à la relecture d'un enregistrement déchiré
+est désormais acquittée par `NMI_Handler` au lieu de figer la carte. Ni l'une ni l'autre n'a
+été provoquée.
+
+**Un risque trouvé en chemin, dans le bootloader, non corrigé.** Son `NMI_Handler` boucle à
+l'infini, comme le faisait celui de l'application. Ses métadonnées vivent dans deux pages
+alternées elles aussi ; une coupure pendant leur écriture laisserait un double-mot à l'ECC
+incohérent, et sa relecture au démarrage **figerait la carte à chaque mise sous tension**, sans
+autre remède qu'une sonde SWD. À traiter dans le bootloader, avec la même garde.
+
+**Étape 7 close** : valeurs plausibles, stockées en NVM — c'est le critère.
+
 ## Étape 7 — R ≈ 3,6 Ω, L ≈ 1,1 mH par phase, et l'échelle absolue du courant (2026-09-26)
 
 *Les essais du 2026-09-26 — étapes 5, 7, 8 et 9, gains et zéro — sont repris avec leurs données,
@@ -1409,8 +1458,8 @@ pas les 2 A prévus en conception : plus stricte, sans danger. Elle n'est pas re
 (`safety.h`, `docs/protocol.md` §9).
 
 **Critère de l'étape (`controller-2/AGENTS.md` §5) :** « valeurs plausibles, stockées en NVM ».
-Plausibles : oui. **Stockées en NVM : non** — la mémoire non volatile des paramètres moteur
-n'existe pas encore ; elle recevra R, L, p et φ ensemble. **Étape 7 : mesurée, pas close.**
+Plausibles : oui. Stockées en NVM : **oui depuis le même jour** — voir « Persistance des
+paramètres ». **Étape 7 close.**
 
 **Et l'étape 5 est close** avec elle : l'échelle absolue était ce qui lui manquait.
 
@@ -1438,9 +1487,9 @@ le critère. Dans un même tour, les points s'écartent de 5,2° électriques en
 quadratique, 10,9° au pire — la denture du moteur et la non-linéarité du capteur, qu'une
 table de correction pourra reprendre si la boucle de courant le demande.
 
-**Où vivent ces valeurs.** Nulle part dans le firmware pour l'instant : rien ne les consomme
-avant M3. Elles iront en mémoire non volatile avec les R et L de l'étape 7, comme le prévoit
-`controller-2/AGENTS.md` §5. Les scripts d'essai sont restés hors du dépôt ; la méthode
+**Où vivent ces valeurs.** En NVM depuis le même jour, paramètres `motor.pole_pairs`,
+`enc.elec_offset_rad` et `enc.direction` — voir « Persistance des paramètres ». Rien ne les
+consomme encore ; M3 le fera. Les scripts d'essai sont restés hors du dépôt ; la méthode
 ci-dessus suffit à les refaire, et ils mériteraient de devenir des commandes du CLI.
 
 ## Décisions
@@ -1651,11 +1700,13 @@ zéro de l'amplificateur ; hors `CAL`, l'entrée du shunt n'est reliée qu'à un
 et flotte. Le vrai zéro de fonctionnement se lira quand les transistors bas conduiront — à
 l'étape 5.
 
-**Une hypothèse, non vérifiée, à garder pour la suite.** Juste après une mise à jour, l'âge
-maximal de l'angle a une fois saturé à 65 ms, jamais reproduit après un démarrage propre. La
-probation écrit sa confirmation en flash, et un effacement de page fige le cœur quelques
-dizaines de millisecondes — ISR de contrôle comprise. Sans conséquence aujourd'hui, sorties
-coupées ; **mais toute écriture en flash moteur tournant devra en tenir compte.**
+**Une hypothèse, réfutée le même jour.** Juste après une mise à jour, l'âge maximal de l'angle
+a une fois saturé à 65 ms, jamais reproduit après un démarrage propre. J'avais supposé que la
+probation écrivait sa confirmation en flash depuis l'application : **c'est faux**, l'application
+ne fait que la signaler en SRAM et redémarrer, et c'est le bootloader qui écrit. La cause reste
+inconnue. Le principe, lui, est désormais mesuré : un effacement de page dans la banque d'où
+s'exécute le code fige le cœur 22 ms, ISR de contrôle comprise — voir « Persistance des
+paramètres ».
 
 **Deux propositions laissées en attente de décision.**
 

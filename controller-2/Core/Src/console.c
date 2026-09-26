@@ -24,6 +24,7 @@
 #include "drv8304.h"
 #include "encoder.h"
 #include "imot.h"
+#include "nvm.h"
 #include "sensors.h"
 #include "comm/param.h"
 #include "comm/proto.h"
@@ -1123,6 +1124,23 @@ void Console_ExecuteLine(const char *line)
     CmdImotWiggle(arg);
   } else if (Match(line, "IMOT.DECAY", NULL)) {
     CmdImotDecay();
+  } else if (Match(line, "NVM?", NULL)) {
+    Nvm_Status_t n;
+    Nvm_GetStatus(&n);
+    Link_TxPrintf("OK valid=%u seq=%lu page=%s entries=%u loaded=%u skipped=%u saves=%lu\r\n",
+                  n.valid ? 1U : 0U, (unsigned long)n.seq,
+                  (n.page == 0U) ? "A" : ((n.page == 1U) ? "B" : "-"),
+                  n.entries, n.loaded, n.skipped, (unsigned long)n.saves);
+  } else if (Match(line, "NVM.SAVE", NULL)) {
+    uint16_t saved = 0U;
+    const Nvm_Result_t r = Nvm_Save(&saved);
+    if (r == NVM_OK) {
+      Nvm_Status_t n;
+      Nvm_GetStatus(&n);
+      Link_TxPrintf("OK saved=%u seq=%lu\r\n", saved, (unsigned long)n.seq);
+    } else {
+      Reply((r == NVM_ERR_LIVE) ? "ERR LIVE" : "ERR NVM");
+    }
   } else if (Match(line, "IMOT.CAL", &arg)) {
     CmdImotCampaign(arg, true, false);    /* zéro de fonctionnement, mémorisé */
   } else if (Match(line, "IMOT.AMP", &arg)) {

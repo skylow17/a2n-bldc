@@ -38,6 +38,7 @@ const api = {
   writeParam: (idOrName: number | string, value: number) =>
     call<number>('device:writeParam', idOrName, value),
   resetDefaults: () => call<void>('device:resetDefaults'),
+  saveNvm: () => call<{ saved: number; seq: number }>('device:saveNvm'),
   console: (line: string) => call<string>('device:console', line),
   readSignals: () => call<SignalDesc[]>('device:readSignals'),
   captureScope: (req: ScopeRequest) =>

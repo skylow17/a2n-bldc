@@ -11,6 +11,7 @@ import { useMemo, useState, type ReactNode } from 'react';
 import type { DeviceSnapshot } from '../../main/device/DeviceCore.js';
 import { PARAM_STATUS_NAME } from '../../shared/messages.js';
 import { PARAM_FLAG, PARAM_TYPE_NAME } from '../../shared/params.js';
+import { PROTO_CAP, hasCapability } from '../../shared/protocol.js';
 import { Button, Empty, Panel, fmt } from '../components/ui.js';
 import { api, useAction } from '../useDevice.js';
 
@@ -104,6 +105,9 @@ function Row({ p }: { p: Param }): ReactNode {
 export function Tuning({ state }: { state: DeviceSnapshot }): ReactNode {
   const [filter, setFilter] = useState('');
   const { busy, run } = useAction();
+  // Le bouton n'existe que si le firmware annonce la persistance : un firmware antérieur
+  // répondrait par une erreur, et un bouton qui échoue toujours n'apprend rien.
+  const canSave = state.info !== null && hasCapability(state.info, PROTO_CAP.NVM);
 
   const groups = useMemo(() => {
     const needle = filter.trim().toLowerCase();
@@ -142,6 +146,15 @@ export function Tuning({ state }: { state: DeviceSnapshot }): ReactNode {
         <Button onClick={() => void run(() => api().resetDefaults())} disabled={busy}>
           Reset defaults
         </Button>
+        {canSave && (
+          <Button
+            onClick={() => void run(() => api().saveNvm())}
+            disabled={busy}
+            title="Write every persistent parameter to flash. Refused while the power outputs are live."
+          >
+            Save to flash
+          </Button>
+        )}
       </div>
 
       <div className="min-h-0 flex-1 space-y-3 overflow-auto">

@@ -180,13 +180,57 @@ PARAM_READ          u16 count, u16 id[count]
 PARAM_WRITE         u16 count, { u16 id, f32 value }[count]
   réponse           u16 count, { u16 id, u8 status }[count]
 PARAM_RESET_DEFAULTS   payload vide, réponse vide
+PARAM_SAVE_NVM      payload vide
+  réponse           u16 saved, u32 seq
 ```
 
 `count` est plafonné par la taille de payload : **6 entrées** par page de dictionnaire, 72 pour
 une lecture, 85 pour une écriture. Le firmware réduit `count` plutôt que de refuser.
 
 `status`, par paramètre : `0` OK, `1` identifiant inconnu, `2` lecture seule, `3` hors bornes,
-`4` interdit dans l'état courant.
+`4` interdit dans l'état courant. Le `4` s'applique depuis le 2026-09-26 à toute entrée qui porte
+`requires_disarm` quand les sorties de puissance sont actives : un nombre de paires de pôles ou
+un décalage d'angle changé moteur alimenté changerait la commutation en marche.
+
+`PARAM_RESET_DEFAULTS` remet les valeurs **en RAM** ; la flash n'est pas touchée tant qu'un
+`PARAM_SAVE_NVM` ne suit pas.
+
+### Persistance
+
+`PARAM_SAVE_NVM` écrit en flash **toutes les entrées qui portent le drapeau `persistent`**, avec
+leur valeur courante, et répond le nombre d'entrées écrites et le numéro de séquence de
+l'enregistrement. Au démarrage, le firmware relit le dernier enregistrement valide et
+restaure ces valeurs avant le premier handshake. Erreurs : `STATE` si les sorties de puissance
+sont actives, `NVM` si l'écriture ou sa relecture échoue — l'ancien enregistrement reste alors
+en place. La capacité `nvm` est annoncée au handshake.
+
+**Pourquoi refusé sorties actives.** La zone vit en banque 2 de la flash, avec le slot B.
+Quand l'application s'exécute depuis ce slot, l'effacement d'une page fige le cœur une vingtaine
+de millisecondes — ISR de contrôle comprise. Sans conséquence sorties coupées ; inacceptable
+autrement.
+
+**Format**, en flash à `0x08078000`, deux pages de 2 ko alternées. Chaque sauvegarde écrit un
+enregistrement complet sur la page qui ne porte **pas** l'enregistrement courant ; celui-ci
+reste intact tant que le nouveau n'est pas écrit et relu juste. Une coupure pendant l'écriture
+laisse donc toujours un enregistrement valide — l'ancien.
+
+```
+u32  magic      0xA2B00201
+u32  seq        strictement croissant ; le plus grand enregistrement valide l'emporte
+u16  count
+u16  réservé    0xFFFF
+{ u16 id, u8 type, u8 réservé 0xFF, f32 valeur }[count]      8 octets par entrée
+u32  crc        CRC-32/ISO-HDLC de tout ce qui précède
+```
+
+Complété à 0xFF jusqu'au double-mot, petit-boutiste, au plus 254 entrées par page.
+
+**Au chargement, chaque entrée est confrontée au dictionnaire**, et appliquée seulement si
+l'identifiant existe, porte `persistent`, a le **même type**, et que la valeur tient dans ses
+bornes. Le reste est ignoré et compté. Ajouter un paramètre n'invalide donc pas un
+enregistrement, retirer un paramètre non plus ; changer son type ou resserrer ses bornes fait
+retomber l'entrée à sa valeur par défaut plutôt que de charger une valeur que le firmware ne
+reconnaît plus.
 
 **Une écriture groupée n'est pas une transaction.** Chaque valeur est appliquée indépendamment et
 reçoit son propre statut ; une valeur refusée n'annule pas les autres. L'application atomique
@@ -201,7 +245,25 @@ avant de ranger dans un type entier.
 | Groupe | Exemples |
 |---|---|
 | `motor` | `motor.pole_pairs`, `motor.r_ohm`, `motor.l_h`, `motor.kv` |
-| `enc` | `enc.source`, `enc.offset_rad`, `enc.direction`, `enc.cpr` |
+| `enc` | `enc.source`, `enc.elec_offset_rad`, `enc.direction`, `enc.cpr` |
+| `imot` | `imot.scale_a` |
+
+**Présents depuis le 2026-09-26**, persistants, `requires_disarm` et `calibrated`, tous à zéro
+par défaut — zéro voulant dire « pas encore mesuré » :
+
+| id | Nom | Type | Unité | Bornes | Mesuré le 2026-09-26 |
+|---:|---|---|---|---|---|
+| `0x0200` | `motor.pole_pairs` | u8 | | 0 … 64 | 7 (étape 9) |
+| `0x0201` | `motor.r_ohm` | f32 | `ohm` | 0 … 100 | ≈ 3,6 par phase (étape 7) |
+| `0x0202` | `motor.l_h` | f32 | `H` | 0 … 0,1 | ≈ 0,0011 par phase (étape 7) |
+| `0x0210` | `enc.elec_offset_rad` | f32 | `rad` | 0 … 6,2832 | 3,108 — 178,1° électriques, sur `RAW_ANGLE` (étape 8) |
+| `0x0211` | `enc.direction` | i8 | | −1 … 1 | −1 : l'angle mécanique décroît quand l'angle électrique croît (étape 9) |
+| `0x0220` | `imot.scale_a` | f32 | `A/count` | 0 … 0,02 | 0,00182 (étape 7) |
+
+Aucun n'est encore consommé par le firmware : ils le seront par M3. **Les gains des trois voies
+de courant n'y figurent pas, délibérément** : ils fixent ce que vaut la limite de surintensité
+en ampères, et une valeur écrite depuis l'hôte pourrait l'élargir. Ils restent des constantes du
+firmware (`imot.h`), jusqu'à une routine de calibration qui les mesure elle-même.
 | `pid.iq` / `pid.id` | `kp`, `ki`, `out_max_v` |
 | `pid.vel` | `kp`, `ki`, `out_max_a`, `filt_hz` |
 | `pid.pos` | `kp`, `kd`, `out_max_rad_s` |
@@ -529,6 +591,8 @@ rapporte l'état, donc l'état rapporté est toujours celui de l'instant où l'h
 | `IMOT.WIGGLE <A\|B\|C> [<ms>]` | `OK driven=<ms> ms at 1 kHz square, probe U3 pin <n>` | Bat l'entrée choisie en créneau 1 kHz depuis le MCU, pendant quelques secondes. Test de continuité à une seule sonde, posée sur la broche du DRV (23 = A, 22 = B, 21 = C) : le créneau y est, la piste est bonne. Bien plus sûr qu'un ohmmètre à deux pointes sur un boîtier dense. Fige le groupe injecté et coupe `MOE` pendant l'essai |
 | `IMOT.DECAY` | `OK charge_us=200 delays_us=… a=<5 valeurs> b=… c=… nc=…` | Chaque entrée chargée à 3,3 V puis relâchée, et convertie après 0, 200 µs, 1, 5 et 25 ms — chaque point repris d'une charge neuve. `nc` est `PA3`, marquée sans liaison au schéma : c'est le témoin. Une broche isolée ne fuit qu'en nanoampères et tient des secondes ; reliée à une piste et à un circuit, elle s'écroule. Les trois voies plus rapides que `nc` disent que la piste est bonne et que l'étage au bout ne pilote pas ; identiques à `nc`, la coupure est côté MCU |
 | `IMOT.CAL [<n>]` | `OK n=<n> cal=0 mean=<a>,<b>,<c> min=… max=… sigma_mcnt=…` | Campagne d'offset sur `<n>` échantillons du groupe injecté (4000 par défaut, 20 000 au plus, soit une seconde de boucle), et **mémorisation** de la moyenne comme offset de travail si elle est plausible. **Sans lever `CAL`** depuis le 2026-09-26 : l'étape 5 a montré que le zéro utile est celui de la chaîne telle qu'elle travaille, entrées sur les shunts — il diffère d'une dizaine de counts de celui de l'ampli seul, et reste le même transistors bas conducteurs. Refusée sorties actives : un courant qui circule serait mémorisé comme zéro. L'écart-type est en milli-counts pour qu'un bruit sous le pas de quantification reste lisible. Bloquant le temps de la campagne |
+| `NVM?` | `OK valid=<0\|1> seq=<n> page=<A\|B\|-> entries=<n> loaded=<n> skipped=<n> saves=<n>` | État de la persistance : un enregistrement valide a-t-il été trouvé, son numéro, sa page, ses entrées, combien ont été restaurées au démarrage et combien ignorées, et combien de sauvegardes depuis le reset |
+| `NVM.SAVE` | `OK saved=<n> seq=<n>` / `ERR LIVE` / `ERR NVM` | Même effet que `PARAM_SAVE_NVM`, depuis la console |
 | `IMOT.AMP [<n>]` | même réponse, `cal=1` | Le zéro de l'**ampli seul** : broche `CAL` levée, entrées court-circuitées, **rien n'est mémorisé**. C'était ce que mémorisait `IMOT.CAL` avant le 2026-09-26. Diagnostic : l'écart avec `IMOT.CAL` est la part de la chaîne en amont de l'ampli. Refusée sorties actives, `CAL` rendant la surveillance du courant aveugle |
 | `IMOT.NOISE [<n>]` | même réponse, `cal=0` | La même mesure que `IMOT.CAL`, **sans mémoriser** : pour regarder la chaîne sans toucher à l'offset de travail. Utilisable sorties actives — c'est alors le courant qui passe qu'on mesure |
 | `IMOT?` | `OK measured=<0\|1> offset=<a>,<b>,<c> raw=<a>,<b>,<c> centered=<a>,<b>,<c> gain_pm=<a>,<b>,<c>` | Offsets de travail, dernière lecture brute et centrée, et gain appliqué à chaque voie en pour mille. Une campagne comme celle d'`IMOT.CAL` est lancée **au démarrage**, sorties coupées, et mémorisée si elle est plausible — à moins de 150 counts de la mi-échelle sur les trois phases. `measured=0` dit qu'elle ne l'était pas, ou qu'aucune n'a abouti : l'offset est alors la mi-échelle théorique et les courants centrés sont indicatifs, pas justes. La même règle de plausibilité vaut pour `IMOT.CAL` |
