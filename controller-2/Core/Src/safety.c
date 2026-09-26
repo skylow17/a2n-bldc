@@ -201,6 +201,25 @@ void Safety_OnControlTick(int16_t ia, int16_t ib, int16_t ic)
   }
 }
 
+void Safety_OnSpeed(float vel_rad_s, bool valid)
+{
+  static uint32_t over;
+  if (!Pwm_IsEnabled() || !valid) {
+    over = 0U;
+    return;
+  }
+  const float v = (vel_rad_s < 0.0f) ? -vel_rad_s : vel_rad_s;
+  if (v <= SAFETY_OVERSPEED_RAD_S) {
+    over = 0U;
+    return;
+  }
+  over++;
+  if (over >= SAFETY_OVERSPEED_TICKS) {
+    over = 0U;
+    Safety_Cut(SAFETY_OVERSPEED);
+  }
+}
+
 void Safety_GetPeaks(uint16_t out[3])
 {
   out[0] = s_peak[0];
@@ -254,6 +273,7 @@ const char *Safety_ReasonName(SafetyReason_t reason)
     case SAFETY_REQUESTED:   return "requested";
     case SAFETY_OVERCURRENT: return "overcurrent";
     case SAFETY_ANGLE_LOST:  return "angle_lost";
+    case SAFETY_OVERSPEED:   return "overspeed";
     case SAFETY_OK:
     default:                 return "ok";
   }

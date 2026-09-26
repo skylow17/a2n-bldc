@@ -36,7 +36,21 @@ typedef enum
   SAFETY_REQUESTED   = 4,  /**< `STOP` demandé — coupure normale, pas une faute       */
   SAFETY_OVERCURRENT = 5,  /**< un courant centré a dépassé `SAFETY_OC_LIMIT_COUNTS`  */
   SAFETY_ANGLE_LOST  = 6,  /**< boucle de courant active et angle électrique invalide   */
+  SAFETY_OVERSPEED   = 7,  /**< vitesse mécanique au-delà de `SAFETY_OVERSPEED_RAD_S`   */
 } SafetyReason_t;
+
+/* Survitesse, en vitesse mécanique. La boucle ouverte plafonne à 20 Hz électriques, soit
+ * 17,95 rad/s avec les 7 paires de pôles de ce moteur ; 25 rad/s laissent 39 % de marge. Un
+ * premier seuil à 22 rad/s coupait la boucle ouverte à −20 Hz, sur carte le 2026-09-26 : à
+ * 40 ‰ le rotor y frôle le décrochage et sa vitesse oscille de −2 à +20 rad/s autour de sa
+ * moyenne — une vraie ondulation, pas du bruit. La boucle de courant n'a aucune limite de
+ * vitesse propre : sous Iq, le rotor accélère jusqu'à ce que la force contre-électromotrice
+ * prenne toute la tension — 27 rad/s mesurés à 50 mA. Cette coupure la borne.
+ * Une constante et non un paramètre : une valeur écrite depuis l'hôte pourrait l'élargir. */
+#define SAFETY_OVERSPEED_RAD_S   25.0f
+/* Passages consécutifs au-delà du seuil avant de couper, 2 ms : ni un point aberrant de
+ * l'estimateur ni une pointe d'ondulation ne doivent couper ; un emballement dure bien plus. */
+#define SAFETY_OVERSPEED_TICKS   40U
 
 /* Limite de courant, en counts centrés et corrigés (échelle de la voie C, `imot.h`), sur
  * chacune des trois phases. **500 counts font ≈ 0,9 A réels** : l'échelle absolue, mesurée à
@@ -111,6 +125,13 @@ SafetyEnable_t Safety_EnableOutputs(uint32_t pulse_ms);
  * l'impulsion. Ne coûte qu'une comparaison quand les sorties sont coupées.
  */
 void Safety_OnControlTick(int16_t ia, int16_t ib, int16_t ic);
+
+/**
+ * Survitesse, **depuis l'ISR**, sorties actives seulement. `valid` faux — pas d'angle —
+ * remet le compte à zéro : sans mesure, rien à juger ; la boucle de courant coupe d'elle-même
+ * sur `angle_lost`, et la boucle ouverte impose sa vitesse.
+ */
+void Safety_OnSpeed(float vel_rad_s, bool valid);
 
 /** Pire courant absolu vu par phase depuis la dernière activation, en counts. */
 void Safety_GetPeaks(uint16_t out[3]);

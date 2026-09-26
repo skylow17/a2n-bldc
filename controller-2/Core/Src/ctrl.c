@@ -64,6 +64,7 @@ void Ctrl_Isr(void)
    * coupure ne dépend ni de la superloop ni de l'hôte. Hors sorties actives, une
    * comparaison. */
   Safety_OnControlTick(cia, cib, cic);
+  Safety_OnSpeed(vel_rad_s, enc_ok);
 
   /* M3, étape 11 : le courant dans le repère du rotor, et sa régulation quand la boucle de
    * courant est lancée. Après la surveillance du courant, comme la boucle ouverte : une
