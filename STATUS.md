@@ -1701,11 +1701,19 @@ tolère par construction, et une erreur ECC double à la relecture d'un enregist
 est désormais acquittée par `NMI_Handler` au lieu de figer la carte. Ni l'une ni l'autre n'a
 été provoquée.
 
-**Un risque trouvé en chemin, dans le bootloader, non corrigé.** Son `NMI_Handler` boucle à
-l'infini, comme le faisait celui de l'application. Ses métadonnées vivent dans deux pages
-alternées elles aussi ; une coupure pendant leur écriture laisserait un double-mot à l'ECC
-incohérent, et sa relecture au démarrage **figerait la carte à chaque mise sous tension**, sans
-autre remède qu'une sonde SWD. À traiter dans le bootloader, avec la même garde.
+**Un risque trouvé en chemin, dans le bootloader — corrigé dans le code le 2026-09-26, pas
+encore installé.** Son `NMI_Handler` bouclait à l'infini, comme le faisait celui de
+l'application. Ses métadonnées vivent dans deux pages alternées elles aussi ; une coupure pendant
+leur écriture laisserait un double-mot à l'ECC incohérent, et sa relecture au démarrage
+**figerait la carte à chaque mise sous tension**, sans autre remède qu'une sonde SWD. Le
+bootloader relit désormais ses deux enregistrements en RAM sous la même garde que la NVM ;
+une erreur ECC double y est acquittée et la page lue comme illisible, l'autre servant. Version
+`boot-1.1.0`, compilée, **à installer par SWD en présence de l'utilisateur** — un bootloader ne
+se met pas à jour par lui-même. Attention : `make install-bootloader` commence par `-e all`,
+qui effacerait aussi la calibration en NVM et les deux slots. Pour ce seul bootloader :
+`STM32_Programmer_CLI -c port=SWD -w build/bootloader/a2n-bldc-bootloader.hex -v -rst`, qui
+n'efface que ses pages ; le format des métadonnées n'a pas changé, les slots et la NVM restent.
+`BOOT_INFO` dira ensuite `boot-1.1.0`.
 
 **Étape 7 close** : valeurs plausibles, stockées en NVM — c'est le critère.
 

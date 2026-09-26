@@ -388,6 +388,41 @@ void BootFlash_EncodeInfo(const BootMeta_t *meta, const char *bl_version, uint8_
 static BootMeta_t s_meta;
 static bool       s_meta_from_a;
 
+/* Garde ECC des lectures de métadonnées — la même que celle de la NVM de l'application
+ * (`nvm.c`). Une coupure pendant l'écriture d'une page laisse un double-mot à l'ECC
+ * incohérent ; sa relecture lève une NMI, et l'ancien `NMI_Handler` bouclait : la carte se
+ * serait figée à **chaque** mise sous tension, sans autre remède qu'une sonde SWD. Sous
+ * cette garde, la page est lue comme illisible et l'autre prend le relais — c'est pour ça
+ * qu'il y en a deux. */
+static volatile bool s_in_read;
+static volatile bool s_ecc_hit;
+
+bool BootFlash_OnNmi(void)
+{
+  const uint32_t eccr = FLASH->ECCR;
+  if (!s_in_read || ((eccr & FLASH_ECCR_ECCD) == 0U)) {
+    return false;
+  }
+  FLASH->ECCR = eccr | FLASH_ECCR_ECCD;   /* rc_w1 : écrire 1 acquitte */
+  s_ecc_hit = true;
+  return true;
+}
+
+/** Copie un enregistrement en RAM sous garde ECC. Faux si une erreur double a été vue. */
+static bool ReadGuarded(uint32_t addr, uint8_t *dst, uint32_t len)
+{
+  s_ecc_hit = false;
+  s_in_read = true;
+  __DSB();
+  const volatile uint8_t *src = (const volatile uint8_t *)addr;
+  for (uint32_t i = 0U; i < len; i++) {
+    dst[i] = src[i];
+  }
+  __DSB();
+  s_in_read = false;
+  return !s_ecc_hit;
+}
+
 const BootMeta_t *BootFlash_Meta(void)
 {
   return &s_meta;
@@ -397,8 +432,12 @@ void BootFlash_Init(void)
 {
   BootMeta_t a;
   BootMeta_t b;
-  const bool a_ok = BootMeta_Decode((const uint8_t *)BOOT_META_PAGE_A, &a);
-  const bool b_ok = BootMeta_Decode((const uint8_t *)BOOT_META_PAGE_B, &b);
+  uint8_t raw_a[BOOT_META_RECORD_LEN];
+  uint8_t raw_b[BOOT_META_RECORD_LEN];
+  const bool a_ok = ReadGuarded(BOOT_META_PAGE_A, raw_a, sizeof(raw_a))
+                 && BootMeta_Decode(raw_a, &a);
+  const bool b_ok = ReadGuarded(BOOT_META_PAGE_B, raw_b, sizeof(raw_b))
+                 && BootMeta_Decode(raw_b, &b);
 
   if (!BootMeta_Pick(&a, a_ok, &b, b_ok, &s_meta, &s_meta_from_a)) {
     BootMeta_Blank(&s_meta);

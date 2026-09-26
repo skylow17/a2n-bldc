@@ -20,7 +20,7 @@
 #include "link_usb.h"
 
 /** Version du bootloader, telle qu'elle remonte dans `BOOT_INFO`. */
-#define BOOT_VERSION_STRING  "boot-1.0.0"
+#define BOOT_VERSION_STRING  "boot-1.1.0"
 
 /** Délai de vidage avant le reset de `BOOT_REBOOT` — spec §8. */
 #define BOOT_REBOOT_FLUSH_MS  50U

@@ -133,6 +133,12 @@ void BootMeta_Encode(const BootMeta_t *meta, uint8_t *dst);
 bool BootMeta_Decode(const uint8_t *src, BootMeta_t *out);
 
 /**
+ * @brief Point d'entrée de `NMI_Handler` : acquitte une erreur ECC double levée pendant la
+ *        lecture gardée des métadonnées, et le dit. Faux pour toute autre NMI.
+ */
+bool BootFlash_OnNmi(void);
+
+/**
  * @brief Choisit l'enregistrement courant entre les deux pages.
  *
  * La génération la plus haute gagne, l'arithmétique modulaire gérant le rebouclage. Si une
