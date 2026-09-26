@@ -31,6 +31,11 @@ typedef struct
   float    vel_rad_s;      /**< vitesse mecanique estimee                           */
   uint16_t enc_age_us;     /**< age de l'echantillon d'angle a ce tour d'ISR        */
   uint8_t  enc_valid;      /**< 0 tant qu'aucun angle coherent n'a ete publie       */
+  float    theta_e_rad;    /**< angle électrique mesuré, [0, 2π)                    */
+  float    id_a;           /**< courant d'axe d, ampères à ±15 %                    */
+  float    iq_a;           /**< courant d'axe q                                     */
+  float    ol_theta_rad;   /**< angle commandé par la boucle ouverte, 0 hors rotation */
+  uint8_t  foc_valid;      /**< 1 quand les trois précédents sont une mesure        */
 } Ctrl_Stats_t;
 
 void Ctrl_Init(void);

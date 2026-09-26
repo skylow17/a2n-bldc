@@ -8,7 +8,7 @@ Ce fichier ne contient **aucun chiffre volatil** (nombre de tests, occupation fl
 Ces valeurs se mesurent, elles ne se recopient pas : `python tools/status.py` les relève sur le
 dépôt réel. Une valeur écrite à la main est fausse le lendemain.
 
-Dernière revue : 2026-09-26, sur carte — M2 complet ; M3 commencé : armement en place, étape 10 validée, la boucle ouverte tourne et s'arrête comme prévu.
+Dernière revue : 2026-09-26, sur carte — M2 complet ; M3 : étape 10 validée, étape 11 entamée — Id et Iq mesurés et vérifiés en boucle ouverte, aucune boucle fermée encore.
 
 > **Reprise suivante — par où commencer.** Les deux défauts matériels sont **expliqués**, et
 > aucun des deux n'est une panne : ce sont deux erreurs de conception, l'une et l'autre
@@ -69,7 +69,7 @@ Dernière revue : 2026-09-26, sur carte — M2 complet ; M3 commencé : armement
 | **M1d** | CLI de bring-up | Validé sur simulateur **et sur carte** — toutes les commandes, `firmware-update` compris | — |
 | **Boot** | Bootloader A/B, probation et rollback | **Validé sur carte le 2026-09-16** : installation SWD, `BOOT_INFO`, mise à jour nominale promue, rollback sur image qui ne confirme jamais | Rien ; un défaut trouvé sur carte, corrigé, rejoué |
 | **M2** | Étage de puissance et capteurs (étapes 2 à 9) | **Étape 2 : validée le 2026-09-16, régression du 2026-09-21 réparée et revalidée le 2026-09-26** — écriture-relecture par `DRV.PROBE`, et une écriture de registre dont l'effet se lit sur la mesure analogique. Voir plus bas. Pour mémoire, la validation d'origine : le DRV8304 répond en SPI, sept registres relus cohérents avec la fiche technique, écriture-relecture par `DRV.PROBE`, fautes lisibles. **Étape 3 validée à l'oscilloscope le 2026-09-18** : trois bras complémentaires à 20 kHz, temps mort 500 ns aux deux fronts, rapports 20/50/80 % suivis, aucune conduction croisée — après avoir trouvé que les sorties basses n'avaient jamais été activées. **Étape 4 entamée le 2026-09-18**, puis reprise le 2026-09-20 après remplacement de U3 : un défaut d'acquisition corrigé, et **deux défauts matériels isolés** — voir plus bas | Étape 4 : **offsets et bruit mesurés et documentés le 2026-09-21** — zéro de chaîne à 1–11 counts de la mi-échelle, répétable à ±1 count sur quatre campagnes, écart-type de 1,4 à 2,0 counts avec `CAL` levé. Ni SPI ni sortie de puissance requis. Gain relu à 20 V/V le 2026-09-26. **Depuis le 2026-09-26 le zéro est mesuré à chaque démarrage**, sorties coupées, et refusé s'il n'est pas plausible. Pour mémoire, ce qui bloquait avant : D'abord `VREF` qui oscille de ±370 mV, ce qui fausse toute mesure de tension de la carte ; ensuite les trois entrées de courant flottantes, que le remplacement du DRV n'a pas corrigées — continuité et masse à vérifier à l'ohmmètre. Le chemin nFAULT → coupure de `MOE` est écrit mais **jamais déclenché** : **décision de l'utilisateur le 2026-09-26, on passe à l'étape 5 sans l'éprouver physiquement** — voir « Décisions ». **Étape 5 close le 2026-09-26** : limites de courant éprouvées, gains par voie corrigés, somme des courants à 4,5 %, échelle absolue ≈ 1,82 mA par count à ±15 % mesurée à l'étape 7. **Étape 7 close le 2026-09-26** : R ≈ 3,6 Ω et L ≈ 1,1 mH par phase, stockés en NVM avec p, φ, le sens et l'échelle de courant — la persistance du dictionnaire est implémentée et éprouvée. **Étapes 8 et 9 validées sur carte le 2026-09-26** : 7 paires de pôles sur quatre essais, décalage électrique 178,1° reproductible à 0,1°, redémarrage compris. **Étape 6 écrite hors séquence et éprouvée sur carte** (2026-09-21) puisqu'elle ne dépend ni de 4 ni de 5 : AS5600 en DMA à 1 MHz, transfert 57 µs, un échantillon toutes les 59 µs, ISR à 2,60 µs au pire. **Verte à titre provisoire** : le critère « angle monotone à la main » a été validé par l'utilisateur, aimant monté, et je n'ai pas assisté à la mesure — une réserve reste à lever, voir la section de l'étape 6 |
-| **M3** | Asservissements (étapes 10 à 13) | **Étape 10 validée sur carte le 2026-09-26** : la boucle ouverte tourne de 2 à 20 Hz électriques dans les deux sens, vitesse à 1 % près, courant maîtrisé ; l'armement existe, watchdog et `STOP` éprouvés en rotation | Étape 11, boucle de courant Id/Iq — sin/cos par le CORDIC ; l'ISR est à 4,0 µs au repos depuis son passage en CCM SRAM |
+| **M3** | Asservissements (étapes 10 à 13) | **Étape 10 validée sur carte le 2026-09-26** : la boucle ouverte tourne de 2 à 20 Hz électriques dans les deux sens, vitesse à 1 % près, courant maîtrisé ; l'armement existe, watchdog et `STOP` éprouvés en rotation | Étape 11, boucle de courant Id/Iq — **premier point validé** : Id et Iq mesurés, plats en boucle ouverte ; reste les deux PI et le premier essai en boucle fermée, Id seul, rotor immobile |
 
 **Le moteur tourne depuis le 2026-09-26, en boucle ouverte** — étape 10. Aucune boucle fermée
 n'existe encore.
@@ -1349,6 +1349,57 @@ travail local n'existe pas. Un outil de constat qui ne distingue pas l'absence d
 constate rien. D'où les deux règles ci-dessous.
 
 ---
+
+## M3, étape 11 — premier point : Id et Iq mesurés, vérifiés en boucle ouverte (2026-09-26)
+
+**La mesure seule, sans aucune commande.** Nouveau module `foc.c`, exécuté en CCM SRAM avec le
+reste de l'ISR : angle électrique θe = φ + sens · p · θméca, tiré des paramètres en NVM, sinus
+et cosinus par le **CORDIC** du G473, Clarke à amplitude conservée sur les trois phases, Park.
+Cinq signaux de scope — `foc.theta_e_rad`, `foc.id_a`, `foc.iq_a`, `ol.theta_rad`,
+`foc.valid` — et `FOC?` en console. L'ISR passe de 4,0 à 4,8 µs au repos.
+
+**Prérequis corrigé en chemin : la position de l'encodeur n'était pas absolue.** Elle partait
+de zéro au démarrage : juste pour compter des tours, inutilisable pour commuter, puisque
+l'étape 8 a mesuré φ sur l'angle absolu `RAW_ANGLE`. Elle est désormais recalée sur l'angle
+absolu au démarrage et après tout trou — perte d'aimant, reprise du bus —, et reste congrue à
+`RAW_ANGLE`. Vérifié : `raw=1247` donne `pos_mrad=1912`, et θe tombe à 11 mrad du calcul à la
+main.
+
+**Le critère de ce point : en boucle ouverte, où le vecteur appliqué est connu, Id et Iq
+doivent rester plats pendant que les trois phases ondulent.** Il a d'abord échoué, et c'est
+lui qui a trouvé le défaut : Id et Iq oscillaient à la fréquence électrique, module constant.
+Les trois courants de phase, capturés à part, étaient pourtant de belles sinusoïdes équilibrées
+à ±120°. Cause : **la configuration du CORDIC ne tenait pas** — écrite juste après l'activation
+de son horloge, elle était perdue, CSR restait à sa valeur de reset, un seul résultat ; le
+« sinus » lu en second valait toujours −1 et Park tournait sur un axe figé. La même écriture
+rejouée plus tard tenait. `Foc_Init` écrit désormais CSR jusqu'à la relire, puis vérifie un
+calcul connu — cos et sin d'un quart de tour ; un CORDIC qui échoue rend la mesure invalide
+(`cfg=0`), jamais fausse.
+
+**Après correction, à 40 ‰ d'amplitude :**
+
+| Fréquence électrique | Angle de charge | Courant − tension | Id | Iq | \|I\| |
+|---|---|---|---|---|---|
+| 2 Hz | 6° | −4° | 0,108 A | 0,002 A | 0,110 A |
+| 10 Hz | 29° | −22° | 0,089 ± 0,016 A | 0,011 ± 0,018 A | 0,091 A |
+| −5 Hz | −24° | +10° | 0,098 A | −0,023 A | 0,104 A |
+| 20 Hz | 73° | — | 0,021 A | 0,013 A | 0,032 A |
+
+Tout se recoupe. Le retard du courant sur la tension, −21,5° à 10 Hz, est celui que donne
+l'analyse phase par phase, −21,6°. L'écart entre angle de charge et retard, 7,3°, redonne
+Iq/Id = 0,124 contre tan 7,3° = 0,128. Le sens inverse est l'image miroir, Iq change de signe.
+À 20 Hz la force contre-électromotrice équilibre presque la tension appliquée : le courant
+tombe et l'angle de charge approche le décrochage, ce qu'on attend à amplitude fixe — la
+mesure y redevient bruitée, le courant retombant dans la zone morte des amplis.
+
+**Deux défauts trouvés en chemin, corrigés :**
+- `check` du CLI finissait son essai d'écriture par une remise à zéro de **tout** le
+  dictionnaire. Depuis la persistance, il effaçait en RAM les paramètres moteur restaurés de la
+  NVM jusqu'au reset suivant. Il ne remet plus que le paramètre qu'il a touché. Le bouton
+  « Reset defaults » de l'interface fait la même chose, mais sur demande explicite : suivi
+  d'un « Save to flash », il effacerait la calibration pour de bon.
+- En boucle ouverte, `cosf` et `sinf`, restés en flash, portent l'ISR à 12,8 µs au pire. La
+  boucle de courant passera par le CORDIC ; la boucle ouverte pourra l'y rejoindre.
 
 ## M3, étape 10 — la boucle ouverte tourne, et l'armement existe (2026-09-26)
 

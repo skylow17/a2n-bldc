@@ -71,6 +71,10 @@ void Openloop_OnControlTick(void);
 
 void Openloop_GetStatus(Openloop_Status_t *out);
 
+/** ISR : angle électrique appliqué en ce moment, 0 hors rotation. Lu avant
+ *  `Openloop_OnControlTick`, c'est celui sous lequel les courants de ce passage ont été lus. */
+float Openloop_ThetaRad(void);
+
 #ifdef __cplusplus
 }
 #endif

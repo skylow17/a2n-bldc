@@ -86,8 +86,12 @@ void Encoder_Process(void);
  *         ne voit pas d'aimant** (`magnet_ok`). Dans ce second cas position et vitesse
  *         valent zéro et `age_us` reste renseigné. Un appelant qui asservit doit tenir
  *         compte du faux : l'angle rendu n'est alors pas une mesure.
+ *
+ * `pos_rad` compte les tours et reste congru à `RAW_ANGLE` : modulo 2π, c'est l'angle
+ * absolu du capteur. `turn` est ce même angle absolu en fraction de tour, [0, 1) à
+ * l'extrapolation près — celui dont la commutation a besoin.
  */
-bool Encoder_Sample(float *pos_rad, float *vel_rad_s, uint16_t *age_us);
+bool Encoder_Sample(float *pos_rad, float *vel_rad_s, float *turn, uint16_t *age_us);
 
 void Encoder_Get(Encoder_t *out);
 

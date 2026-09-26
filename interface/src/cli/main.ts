@@ -619,6 +619,7 @@ async function cmdCheck(o: GlobalOptions): Promise<number> {
     if (target === undefined) {
       step('write/read-back', false, 'dbg.echo_f32 missing from the dictionary');
     } else {
+      const [before] = await c.readParams([target.id]);
       const [w] = await c.writeParams([{ id: target.id, value: 12.5 }]);
       const [r] = await c.readParams([target.id]);
       step(
@@ -626,7 +627,11 @@ async function cmdCheck(o: GlobalOptions): Promise<number> {
         w?.status === ParamStatus.OK && r?.value === 12.5,
         `wrote 12.5, read ${num(r?.value ?? Number.NaN)}`,
       );
-      await c.resetDefaults();
+      // Remet ce paramètre-là, et lui seul. C'était un `resetDefaults` : depuis la
+      // persistance, il effaçait en RAM les paramètres moteur calibrés restaurés de la NVM,
+      // et la carte restait sans p, φ ni échelle de courant jusqu'au reset suivant — vu le
+      // 2026-09-26, quand la mesure Id/Iq s'est déclarée invalide après un `check`.
+      if (before !== undefined) await c.writeParams([{ id: target.id, value: before.value }]);
     }
 
     // Un refus doit être un refus : une écriture en lecture seule ne doit pas passer.

@@ -822,7 +822,7 @@ export class DeviceCore {
   async sendSafeConsole(line: string, source: LogSource = 'mcp'): Promise<string> {
     const verb = line.trim().split(/\s+/, 1)[0]?.toUpperCase() ?? '';
     const allowed = new Set(['PING', 'INFO?', 'STATS?', 'LINK?', 'PROTO?', 'SELFTEST', 'PWM?',
-      'DRV?', 'SENS.ALL?', 'SAFETY?', 'STOP']);
+      'DRV?', 'SENS.ALL?', 'SAFETY?', 'ENC?', 'IMOT?', 'NVM?', 'OL?', 'FOC?', 'STOP']);
     if (!allowed.has(verb)) {
       throw new Error(`console command not allowed through MCP: ${verb || '(empty)'}`);
     }

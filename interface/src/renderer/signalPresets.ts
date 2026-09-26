@@ -1,7 +1,7 @@
 /**
  * Préréglages de souscription télémétrie.
  *
- * Seize signaux sont souscriptibles (`docs/protocol.md` §6), mais en cocher seize n'aide
+ * Jusqu'à seize signaux se souscrivent à la fois (`docs/protocol.md` §6), mais en cocher seize n'aide
  * personne : seize courbes sur un écran ne se lisent pas, et la palette n'a que huit teintes
  * distinctes. Un préréglage est donc d'abord une **sélection**, pas un raccourci.
  *
@@ -81,6 +81,15 @@ export const SIGNAL_PRESETS: readonly SignalPreset[] = [
     label: 'Loop health',
     hint: 'Where the 50 us budget goes, and whether anything delays it.',
     names: ['loop.duration_ns', 'loop.max_duration_ns', 'loop.load_pct', 'enc.age_us'],
+  },
+  {
+    // M3, étape 11. En boucle ouverte, `ol.theta_rad` face à `foc.theta_e_rad` donne l'angle
+    // de charge, et Id, Iq doivent rester plats pendant que les trois phases ondulent : c'est
+    // le critère qui a démasqué un CORDIC mal configuré le 2026-09-26.
+    id: 'rotor',
+    label: 'Rotor frame',
+    hint: 'Id and Iq should stay flat while the phases swing; commanded against measured angle gives the load angle.',
+    names: ['foc.id_a', 'foc.iq_a', 'foc.theta_e_rad', 'ol.theta_rad', 'foc.valid'],
   },
 ];
 

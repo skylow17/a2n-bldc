@@ -103,6 +103,11 @@ void Openloop_OnControlTick(void)
   Apply(s_theta);
 }
 
+float Openloop_ThetaRad(void)
+{
+  return s_active ? s_theta : 0.0f;
+}
+
 void Openloop_GetStatus(Openloop_Status_t *out)
 {
   out->active    = s_active;

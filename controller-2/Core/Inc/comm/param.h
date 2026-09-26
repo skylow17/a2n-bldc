@@ -97,6 +97,21 @@ bool Param_SerializeEntry(uint16_t index, uint8_t *dst);
 ParamStatus_t Param_ReadValue(uint16_t id, float *out);
 ParamStatus_t Param_WriteValue(uint16_t id, float value);
 
+/** Paramètres moteur, tels que le dictionnaire les tient. */
+typedef struct
+{
+  uint8_t pole_pairs;
+  float   r_ohm;
+  float   l_h;
+  float   elec_offset_rad;
+  int8_t  direction;
+  float   imot_scale_a;
+} Param_Motor_t;
+
+/** Copie des paramètres moteur, pour la superloop. L'ISR n'appelle jamais ceci : elle lit
+ *  la copie que `Foc_Process` lui prépare. */
+void Param_GetMotor(Param_Motor_t *out);
+
 /** CRC-32/ISO-HDLC d'un bloc — celui du hash, partage avec la NVM plutot que recopie. */
 uint32_t Param_Crc32(const void *data, size_t len);
 

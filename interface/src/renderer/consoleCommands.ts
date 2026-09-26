@@ -77,6 +77,7 @@ export const CONSOLE_GROUPS: ConsoleGroup[] = [
       { verb: 'DISARM', syntax: 'DISARM', summary: 'Cuts the outputs and disarms.' },
       { verb: 'OL', syntax: 'OL <amp_pm> <elec_hz> <ms> | STOP', summary: 'Open loop: a voltage vector turns at the given electrical frequency, reached by a ramp. At most 57 per mille, 20 Hz and 10 s; needs ARM. STOP ends it without disarming.', arms: true },
       { verb: 'OL?', syntax: 'OL?', summary: 'Open-loop state: target and ramped frequency, electrical angle, time left.' },
+      { verb: 'FOC?', syntax: 'FOC?', summary: 'Rotor-frame current, measurement only: electrical angle from the encoder, Id and Iq in mA. cfg=0 when the motor parameters are implausible or the CORDIC failed its boot self-test.' },
       { verb: 'PWM', syntax: 'PWM ON | OFF | <a> <b> <c>', summary: 'Enables or cuts the outputs, or sets the three duty cycles in per mille (0 to 800, at most 100 apart). Enabling refuses on a latched fault, without a measured current zero, or with no host.', arms: true },
       { verb: 'PWM.PULSE', syntax: 'PWM.PULSE <a> <b> <c> <ms>', summary: 'Step 5 test: applies the duty cycles for 1 to 200 ms, timed by the control loop, then cuts the outputs by itself. Same limits as PWM; an overcurrent cuts it short.', arms: true },
     ],

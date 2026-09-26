@@ -19,6 +19,7 @@
 #include "dbg_pin.h"
 #include "drv8304.h"
 #include "encoder.h"
+#include "foc.h"
 #include "imot.h"
 #include "nvm.h"
 #include "sensors.h"
@@ -113,6 +114,7 @@ int main(void)
   Imot_Init();      /* offsets de la chaine de courant, avant le premier tour d'ISR */
   Sensors_Init();   /* ADC2 : rails, VREFINT, relecture lente des courants          */
   Encoder_Init();   /* AS5600 sur I2C4 en DMA, lecture continue, jamais bloquante   */
+  Foc_Init();       /* CORDIC ; les paramètres moteur suivent depuis la superloop    */
 
   /* Zéro de la chaîne de courant, mesuré à chaque démarrage : sans lui les courants centrés
    * restaient décalés de 10 à 20 counts jusqu'à ce que quelqu'un pense à lancer `IMOT.CAL`.
@@ -151,6 +153,7 @@ int main(void)
     Sensors_Process();   /* une conversion lente par passage, jamais bloquant */
     Encoder_Process();   /* reprend la chaine I2C si une erreur l'a arretee   */
     Imot_Process();      /* clot une campagne d'offset terminee, rabaisse CAL */
+    Foc_Process();       /* recopie p, phi, sens et echelle pour l'ISR       */
     Link_Pump();         /* écoule le tampon d'émission vers l'USB           */
 
     /* Les deux moitiés de la règle §4.3, dans un seul module : l'hôte qui disparaît —

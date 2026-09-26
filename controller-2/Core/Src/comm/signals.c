@@ -50,6 +50,12 @@ static float ReadEncPosRad(const Signal_Snapshot_t *snap)  { return snap->pos_ra
 static float ReadEncValid(const Signal_Snapshot_t *snap) { return (float)snap->enc_valid; }
 static float ReadEncVelRadS(const Signal_Snapshot_t *snap) { return snap->vel_rad_s; }
 
+static float ReadThetaE(const Signal_Snapshot_t *snap)   { return snap->theta_e_rad; }
+static float ReadId(const Signal_Snapshot_t *snap)       { return snap->id_a; }
+static float ReadIq(const Signal_Snapshot_t *snap)       { return snap->iq_a; }
+static float ReadOlTheta(const Signal_Snapshot_t *snap)  { return snap->ol_theta_rad; }
+static float ReadFocValid(const Signal_Snapshot_t *snap) { return (float)snap->foc_valid; }
+
 static float ReadEncAgeUs(const Signal_Snapshot_t *snap)
 {
   /* Age de l'echantillon d'angle au moment ou l'ISR l'a lu. C'est la moitie mesurable du
@@ -97,6 +103,11 @@ static const SignalDesc_t s_signals[] = {
   { 11U, "current.ib_count",    "count", ReadCentIb            },
   { 12U, "current.ic_count",    "count", ReadCentIc            },
   { 13U, "enc.valid",           "bool",  ReadEncValid          },
+  { 14U, "foc.theta_e_rad",     "rad",   ReadThetaE            },
+  { 15U, "foc.id_a",            "A",     ReadId                },
+  { 16U, "foc.iq_a",            "A",     ReadIq                },
+  { 17U, "ol.theta_rad",        "rad",   ReadOlTheta           },
+  { 18U, "foc.valid",           "bool",  ReadFocValid          },
 };
 
 #define SIGNAL_COUNT  ((uint16_t)(sizeof(s_signals) / sizeof(s_signals[0])))

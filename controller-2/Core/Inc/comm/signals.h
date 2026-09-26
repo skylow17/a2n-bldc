@@ -67,6 +67,11 @@ typedef struct
   float    vel_rad_s;    /**< vitesse mecanique estimee                         */
   uint16_t enc_age_us;   /**< age de l'echantillon d'angle a cet instant        */
   uint8_t  enc_valid;    /**< 0 tant qu'aucun angle coherent n'a ete publie     */
+  float    theta_e_rad;  /**< angle electrique mesure, [0, 2pi)                 */
+  float    id_a;         /**< courant d'axe d, amperes a +-15 %                 */
+  float    iq_a;         /**< courant d'axe q                                   */
+  float    ol_theta_rad; /**< angle commande par la boucle ouverte              */
+  uint8_t  foc_valid;    /**< 1 quand les trois premiers sont une mesure        */
 } Signal_Snapshot_t;
 
 /**

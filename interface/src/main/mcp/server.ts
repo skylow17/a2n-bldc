@@ -527,7 +527,8 @@ export function createA2nMcpServer(core: DeviceCore): { server: McpServer; dispo
       title: 'Send a diagnostic console command',
       description:
         'Send one ASCII console line. Strictly allow-listed to diagnostics and STOP: ' +
-        'PING, INFO?, STATS?, LINK?, PROTO?, PWM?, SELFTEST, STOP. Anything that could ' +
+        'PING, INFO?, STATS?, LINK?, PROTO?, PWM?, DRV?, SENS.ALL?, SAFETY?, ENC?, IMOT?, ' +
+        'NVM?, OL?, FOC?, SELFTEST, STOP. Anything that could ' +
         'start motion is refused here, not filtered out silently. SELFTEST makes the ' +
         'firmware run the protocol reference vectors on target, which separates a codec ' +
         'problem from a cable or host problem.',

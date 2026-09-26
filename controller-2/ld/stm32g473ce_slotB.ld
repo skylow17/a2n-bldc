@@ -60,6 +60,7 @@ SECTIONS
     *imot.o(.text .text.*)
     *safety.o(.text .text.*)
     *openloop.o(.text .text.*)
+    *foc.o(.text .text.*)
     *pwm.o(.text .text.*)
     *scope.o(.text .text.*)
     *signals.o(.text .text.*)

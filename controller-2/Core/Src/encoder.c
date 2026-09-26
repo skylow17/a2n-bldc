@@ -273,32 +273,38 @@ static void StartNext(void)
 /** Publie un nouvel angle. Appelé depuis l'interruption de fin de transfert. */
 static void PublishAngle(uint16_t raw, uint32_t stamp)
 {
+  /* Sans aimant, l'angle est du bruit : on n'intègre pas ses sauts en tours, et la vitesse
+   * n'a pas de sens. `magnet_ok` est écrit dans cette même interruption : aucune course
+   * possible. */
+  const bool usable = s_pub.magnet_ok;
   int32_t delta = 0;
 
-  if (s_have_prev) {
+  if (usable && s_have_prev) {
     /* Chemin le plus court sur le cercle : l'écart est ramené dans ±2048 pas. C'est ce
      * qui gère le passage 4095 → 0 sans cas particulier, et c'est correct tant que
      * l'arbre tourne de moins d'un demi-tour entre deux échantillons — soit, à 8 kHz,
      * moins de 240 000 tr/min. */
     delta = (int32_t)((uint32_t)((raw - s_prev_raw) + 2048U) & 0x0FFFU) - 2048;
+  } else if (usable) {
+    /* Premier échantillon, ou premier après un trou — démarrage, reprise du bus, retour de
+     * l'aimant. On ne sait pas de combien l'arbre a tourné entre-temps, mais on sait où il
+     * est : la position est recalée sur l'angle absolu par le chemin le plus court. Elle
+     * reste ainsi congrue à `RAW_ANGLE` modulo un tour, et c'est sur l'angle absolu que
+     * l'étape 8 a mesuré le décalage électrique. Jusqu'au 2026-09-26 elle partait de zéro
+     * au démarrage : juste pour compter des tours, inutilisable pour commuter. */
+    delta = (int32_t)((uint32_t)((raw - ((uint32_t)s_pos_cnt & 0x0FFFU)) + 2048U) & 0x0FFFU)
+          - 2048;
   }
+  /* L'écart n'a de sens pour la vitesse que d'un échantillon utilisable au suivant. */
+  const bool continuous = usable && s_have_prev;
   s_prev_raw  = raw;
-  s_have_prev = true;
-
-  /* Sans aimant, l'angle est du bruit : on n'intègre pas ses sauts en tours, et la vitesse
-   * n'a pas de sens. `s_prev_raw` continue de suivre, pour que le premier échantillon
-   * après le retour de l'aimant ne produise pas un saut fantôme. `magnet_ok` est écrit
-   * dans cette même interruption : aucune course possible. */
-  const bool usable = s_pub.magnet_ok;
-  if (!usable) {
-    delta = 0;
-  }
+  s_have_prev = usable;
 
   const uint32_t dt_cyc = stamp - s_prev_stamp;
   s_prev_stamp = stamp;
 
   float vel = usable ? s_vel_cnt_s : 0.0f;
-  if (usable && (dt_cyc > 0U) && (dt_cyc < (BOARD_SYSCLK_HZ / 10UL))) {   /* trous > 100 ms écartés */
+  if (continuous && (dt_cyc > 0U) && (dt_cyc < (BOARD_SYSCLK_HZ / 10UL))) {   /* trous > 100 ms écartés */
     const float inst = ((float)delta * (float)BOARD_SYSCLK_HZ) / (float)dt_cyc;
     /* IIR du premier ordre. Même forme que partout ailleurs dans ce firmware : pas de
      * tableau d'historique, coût constant, et la constante de temps se lit dans le nom. */
@@ -478,7 +484,7 @@ void Encoder_Process(void)
   }
 }
 
-bool Encoder_Sample(float *pos_rad, float *vel_rad_s, uint16_t *age_us)
+bool Encoder_Sample(float *pos_rad, float *vel_rad_s, float *turn, uint16_t *age_us)
 {
   const uint32_t s1 = s_seq;
   __DMB();
@@ -513,17 +519,26 @@ bool Encoder_Sample(float *pos_rad, float *vel_rad_s, uint16_t *age_us)
   if (!s_pub.magnet_ok) {
     *pos_rad   = 0.0f;
     *vel_rad_s = 0.0f;
+    *turn      = 0.0f;
     *age_us    = age_us_now;
     return false;
   }
 
-  const float lead_s = ((float)age_cyc / (float)BOARD_SYSCLK_HZ)
-                     + ((float)ENC_LAG_COMP_US * 1e-6f);
-  const float cnt    = (float)s_isr_pos_cnt + (s_isr_vel_cnt_s * lead_s);
-  const float k      = (2.0f * (float)M_PI) / (float)ENC_COUNTS_PER_REV;
+  /* Une multiplication par une constante, pas une division : l'en-tête promet « aucune
+   * division », et la `vdiv` qu'il y avait ici coûtait 14 cycles à chaque passage. */
+  const float lead_s   = ((float)age_cyc * (1.0f / (float)BOARD_SYSCLK_HZ))
+                       + ((float)ENC_LAG_COMP_US * 1e-6f);
+  const float lead_cnt = s_isr_vel_cnt_s * lead_s;
+  const float cnt      = (float)s_isr_pos_cnt + lead_cnt;
+  const float k        = (2.0f * (float)M_PI) / (float)ENC_COUNTS_PER_REV;
 
   *pos_rad   = cnt * k;
   *vel_rad_s = s_isr_vel_cnt_s * k;
+  /* L'angle dans le tour, depuis la position repliée plutôt que depuis `cnt` : en flottant,
+   * une position de plusieurs milliers de tours perdrait la résolution dont la commutation
+   * a besoin. Le repli d'un entier en complément à deux par masque est exact. */
+  *turn      = ((float)((uint32_t)s_isr_pos_cnt & 0x0FFFU) + lead_cnt)
+             * (1.0f / (float)ENC_COUNTS_PER_REV);
   *age_us    = age_us_now;
   return true;
 }

@@ -23,6 +23,7 @@ const AVAILABLE = [
   'enc.pos_rad', 'enc.vel_rad_s', 'enc.age_us',
   'current.ia_count', 'current.ib_count', 'current.ic_count',
   'enc.valid',
+  'foc.theta_e_rad', 'foc.id_a', 'foc.iq_a', 'ol.theta_rad', 'foc.valid',
 ];
 
 const diagnostic = SIGNAL_PRESETS[0]!;

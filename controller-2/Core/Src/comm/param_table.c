@@ -89,3 +89,13 @@ const ParamDesc_t g_param_table[] = {
 };
 
 const uint16_t g_param_count = (uint16_t)(sizeof(g_param_table) / sizeof(g_param_table[0]));
+
+void Param_GetMotor(Param_Motor_t *out)
+{
+  out->pole_pairs      = s_motor_pole_pairs;
+  out->r_ohm           = s_motor_r_ohm;
+  out->l_h             = s_motor_l_h;
+  out->elec_offset_rad = s_enc_elec_offset_rad;
+  out->direction       = s_enc_direction;
+  out->imot_scale_a    = s_imot_scale_a;
+}

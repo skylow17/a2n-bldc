@@ -78,6 +78,7 @@ APP_C_SOURCES := \
   Core/Src/imot.c \
   Core/Src/nvm.c \
   Core/Src/openloop.c \
+  Core/Src/foc.c \
   Core/Src/safety.c \
   Core/Src/ctrl.c \
   Core/Src/link_usb.c \
@@ -199,7 +200,7 @@ endif
 # repos, mesure le 2026-09-26, pour un budget de 50 us que la boucle de courant va entamer.
 # Le reste du firmware — console, protocole, superloop — n'a pas d'echeance et reste lisible
 # au debogueur. Une option -O posterieure l'emporte sur la premiere : l'ajout suffit.
-ISR_PATH := ctrl adc_sync encoder imot safety openloop pwm scope dbg_pin stm32g4xx_it
+ISR_PATH := ctrl adc_sync encoder imot safety openloop foc pwm scope dbg_pin stm32g4xx_it
 $(addprefix $(BUILD)/obj/,$(addsuffix .o,$(ISR_PATH))): CFLAGS += -O2
 
 # Affectation differee : $@ n'existe qu'au moment de la recette. Avec := ici,

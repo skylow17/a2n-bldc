@@ -311,13 +311,18 @@ Signaux présents à M2 :
 | 4 | `loop.duration_ns` | `ns` | dernier passage dans l'ISR |
 | 5 | `loop.max_duration_ns` | `ns` | pire passage depuis le reset des stats |
 | 6 | `loop.load_pct` | `%` | `duration / 50 us × 100` |
-| 7 | `enc.pos_rad` | `rad` | AS5600, angle mécanique **extrapolé** à l'instant de l'ISR. Vaut 0 quand `enc.valid` vaut 0 |
+| 7 | `enc.pos_rad` | `rad` | AS5600, angle mécanique **extrapolé** à l'instant de l'ISR, non replié : il compte les tours. **Congru à `RAW_ANGLE`** depuis le 2026-09-26 — modulo 2π, c'est l'angle absolu du capteur, celui sur lequel l'étape 8 a mesuré le décalage électrique. Au démarrage et après tout trou (perte d'aimant, reprise du bus), la position est recalée sur l'angle absolu par le chemin le plus court. Vaut 0 quand `enc.valid` vaut 0 |
 | 8 | `enc.vel_rad_s` | `rad/s` | vitesse mécanique estimée depuis deux angles consécutifs, filtrée. Vaut 0 quand `enc.valid` vaut 0 |
 | 9 | `enc.age_us` | `us` | âge de l'échantillon d'angle au moment où l'ISR l'a lu |
 | 10 | `current.ia_count` | `count` | ADC1 IN1 **moins l'offset mesuré, corrigé du gain de sa voie**, signé. Les trois voies n'ont pas le même gain sur cette carte (B lit 0,656 et C 1,195 fois ce que lit A, mesuré à l'étape 5) : chacune est ramenée à l'**échelle de la voie C**, la plus sensible, pour que les trois courants soient comparables entre eux. En counts et non en ampères : l'échelle absolue n'est connue qu'à ±15 %. L'échelle absolue, mesurée à l'étape 7 contre un ampèremètre, vaut ≈ 1,82 mA par count à ±15 % — et non les 4,03 mA nominaux de 20 V/V sur 10 mΩ : les trois voies lisent trop haut. **Reconstruit par la loi des nœuds** quand sa voie est dans sa zone morte — voir « Zone morte des amplis de courant » plus bas. Les signaux bruts 1 à 3 ne le sont jamais |
 | 11 | `current.ib_count` | `count` | ADC1 IN2, centré et corrigé, même échelle |
 | 12 | `current.ic_count` | `count` | ADC1 IN3, centré, voie de référence de l'échelle |
 | 13 | `enc.valid` | `bool` | 1 quand l'ISR dispose d'un angle exploitable : échantillon cohérent **et** champ suffisant, c'est-à-dire `MAGNITUDE` du capteur au moins égale à 256 (4 mesuré sans aimant, 1818 avec l'aimant de la carte). À 0, les signaux 7 et 8 valent 0 et ne doivent pas être lus comme une mesure |
+| 14 | `foc.theta_e_rad` | `rad` | angle électrique **mesuré**, [0, 2π) : θe = φ + sens · p · θméca, avec θméca l'angle absolu du capteur et p, φ, sens les paramètres `motor.pole_pairs`, `enc.elec_offset_rad`, `enc.direction`. C'est la convention de l'étape 8 : un champ commandé à l'angle θe aligne le rotor à θe. Vaut 0 quand `foc.valid` vaut 0 |
+| 15 | `foc.id_a` | `A` | courant d'axe d, dans le repère du rotor : Clarke à amplitude conservée puis Park sur `foc.theta_e_rad`, à partir des courants corrigés 10 à 12 multipliés par `imot.scale_a`. **En ampères à ±15 %**, l'incertitude de l'échelle mesurée à l'étape 7. Vaut 0 quand `foc.valid` vaut 0 |
+| 16 | `foc.iq_a` | `A` | courant d'axe q, même chaîne. Vaut 0 quand `foc.valid` vaut 0 |
+| 17 | `ol.theta_rad` | `rad` | angle électrique **commandé** par la boucle ouverte pendant la période où les courants ont été lus, [0, 2π). Vaut 0 hors boucle ouverte. Comparé à 14, il donne l'angle de charge |
+| 18 | `foc.valid` | `bool` | 1 quand 14 à 16 sont une mesure : angle valide (`enc.valid`) **et** paramètres moteur plausibles — p de 1 à 64, sens ±1, échelle de courant non nulle — **et** CORDIC vérifié au démarrage. Une carte dont la NVM est vide ne mesure donc rien, plutôt que de mesurer faux |
 
 **Zone morte des amplis de courant.** Mesurée le 2026-09-26 : chaque voie a une plage de
 courant sur laquelle sa sortie reste collée **exactement** à la mi-échelle, 2048 counts bruts,
@@ -673,6 +678,14 @@ mesuré, `CAL`, `CSA_CONTROL` — plus trois limites du firmware :
 | `OL <amp_pm> <elec_hz> <ms>` | `OK` / `ERR ARG` / `ERR LIMIT` / `ERR BUSY` / réponses de `PWM ON` | Lance la rotation : amplitude en pour mille, fréquence électrique en hertz — signée, décimale admise —, durée en millisecondes. L'angle électrique part de 0, là où l'étape 8 a aligné le rotor, et la fréquence monte par rampe. `ERR BUSY` si les sorties sont déjà actives |
 | `OL?` | `OK active=<0\|1> amp_pm=<n> hz_target_milli=<n> hz_milli=<n> theta_mrad=<n> left_ms=<n>` | État : la fréquence visée et celle atteinte par la rampe, en millihertz, l'angle électrique courant, le temps restant |
 | `OL STOP` | `OK` | Arrête la rotation et coupe les sorties, **sans désarmer** — contrairement à `STOP` |
+
+**Courant dans le repère du rotor** (M3, étape 11, premier point) — la mesure seule, sans
+aucune commande : elle ne pilote rien. Le sinus et le cosinus de l'angle électrique viennent du
+coprocesseur CORDIC du G473, pas de la bibliothèque mathématique. Voir les signaux 14 à 18.
+
+| Commande | Réponse | Rôle |
+|---|---|---|
+| `FOC?` | `OK valid=<0\|1> cfg=<0\|1> theta_e_mrad=<n> id_ma=<n> iq_ma=<n>` | Dernière mesure de l'ISR : angle électrique en milliradians, Id et Iq en milliampères. `cfg` dit si les paramètres moteur sont plausibles **et** si le CORDIC a passé l'auto-test du démarrage — cos et sin d'un quart de tour ; `valid` exige en plus un angle valide |
 
 **`host`** est la présence de l'hôte vue du firmware : DTR levé par le port ouvert côté PC et
 bus USB actif. Elle retombe quand le port se ferme, quand le câble part ou quand le bus se

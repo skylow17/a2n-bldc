@@ -26,6 +26,7 @@
 #include "imot.h"
 #include "nvm.h"
 #include "openloop.h"
+#include "foc.h"
 #include "sensors.h"
 #include "comm/param.h"
 #include "comm/proto.h"
@@ -1167,6 +1168,13 @@ void Console_ExecuteLine(const char *line)
     Link_TxPrintf("OK enabled=%u a=%u b=%u c=%u host=%u peak=%u,%u,%u\r\n",
                   Pwm_IsEnabled() ? 1U : 0U, a, b, c, Link_HostAttached() ? 1U : 0U,
                   pk[0], pk[1], pk[2]);
+  } else if (Match(line, "FOC?", NULL)) {
+    Foc_Meas_t f;
+    Foc_GetMeas(&f);
+    Link_TxPrintf("OK valid=%u cfg=%u theta_e_mrad=%ld id_ma=%ld iq_ma=%ld\r\n",
+                  f.valid ? 1U : 0U, Foc_ConfigOk() ? 1U : 0U,
+                  (long)(f.theta_e_rad * 1000.0f), (long)(f.id_a * 1000.0f),
+                  (long)(f.iq_a * 1000.0f));
   } else if (Match(line, "OL?", NULL)) {
     CmdOpenloopStatus();
   } else if (Match(line, "OL", &arg)) {

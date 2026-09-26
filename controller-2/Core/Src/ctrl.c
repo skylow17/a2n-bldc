@@ -15,6 +15,7 @@
 #include "pwm.h"
 #include "safety.h"
 #include "openloop.h"
+#include "foc.h"
 #include "comm/scope.h"
 
 /* Compteur de cycles du cœur : 1 cycle = 1 / 144 MHz ≈ 6.94 ns. C'est la seule mesure
@@ -49,9 +50,9 @@ void Ctrl_Isr(void)
    * et publie ; l'ISR ne fait qu'extrapoler depuis le dernier échantillon publié et son
    * horodatage. C'est la différence exacte avec le v1, où cette ligne était une lecture
    * I2C bloquante qui plafonnait tout le firmware à 1,5 kHz. */
-  float pos_rad = 0.0f, vel_rad_s = 0.0f;
+  float pos_rad = 0.0f, vel_rad_s = 0.0f, turn = 0.0f;
   uint16_t enc_age_us = 0U;
-  const bool enc_ok = Encoder_Sample(&pos_rad, &vel_rad_s, &enc_age_us);
+  const bool enc_ok = Encoder_Sample(&pos_rad, &vel_rad_s, &turn, &enc_age_us);
 
   /* Etape 4 : accumulation d'une campagne d'offset, et centrage. Hors campagne, la
    * premiere ne coute qu'une comparaison ; la seconde est une soustraction par phase. */
@@ -63,6 +64,15 @@ void Ctrl_Isr(void)
    * coupure ne dépend ni de la superloop ni de l'hôte. Hors sorties actives, une
    * comparaison. */
   Safety_OnControlTick(cia, cib, cic);
+
+  /* M3, étape 11 : le courant dans le repère du rotor. Une mesure, rien de plus — elle ne
+   * commande rien tant que les régulateurs n'existent pas. */
+  Foc_Meas_t foc;
+  Foc_OnControlTick(cia, cib, cic, enc_ok, turn, &foc);
+
+  /* L'angle que la boucle ouverte applique en ce moment, lu avant qu'elle ne pose celui du
+   * passage suivant : c'est sous lui que les courants de ce passage ont été lus. */
+  const float ol_theta = Openloop_ThetaRad();
 
   /* M3, étape 10 : la boucle ouverte pose les rapports cycliques du passage suivant. Après
    * la surveillance du courant, pour qu'une coupure prise ici ne soit jamais suivie d'une
@@ -82,6 +92,11 @@ void Ctrl_Isr(void)
   s_stats.vel_rad_s  = vel_rad_s;
   s_stats.enc_age_us = enc_age_us;
   s_stats.enc_valid  = enc_ok ? 1U : 0U;
+  s_stats.theta_e_rad  = foc.theta_e_rad;
+  s_stats.id_a         = foc.id_a;
+  s_stats.iq_a         = foc.iq_a;
+  s_stats.ol_theta_rad = ol_theta;
+  s_stats.foc_valid    = foc.valid ? 1U : 0U;
 
   s_stats.raw_ia = ia;
   s_stats.raw_ib = ib;
@@ -104,6 +119,11 @@ void Ctrl_Isr(void)
     .vel_rad_s = vel_rad_s,
     .enc_age_us = enc_age_us,
     .enc_valid = enc_ok ? 1U : 0U,
+    .theta_e_rad = foc.theta_e_rad,
+    .id_a = foc.id_a,
+    .iq_a = foc.iq_a,
+    .ol_theta_rad = ol_theta,
+    .foc_valid = foc.valid ? 1U : 0U,
   };
   Scope_OnControlTick(&snapshot);
 
