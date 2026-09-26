@@ -25,6 +25,7 @@ import {
 } from './protocol.js';
 import {
   PARAM_ENTRY_WIRE_LEN,
+  PARAM_FLAG,
   paramDictHash,
   writeParamEntry,
   type ParamDesc,
@@ -257,8 +258,9 @@ export class SimulatedDevice implements Transport {
     return this.open;
   }
 
-  private resetValues(): void {
+  private resetValues(keepCalibrated = false): void {
     for (const p of this.params) {
+      if (keepCalibrated && (p.flags & PARAM_FLAG.CALIBRATED) !== 0) continue;
       this.values.set(p.id, DEFAULT_RO_VALUES[p.name] ?? p.def);
     }
   }
@@ -365,7 +367,8 @@ export class SimulatedDevice implements Transport {
         this.onWrite(seq, payload);
         break;
       case MSG.PARAM_RESET_DEFAULTS:
-        this.resetValues();
+        // Comme le firmware : les entrées `calibrated` sont des mesures, pas des réglages.
+        this.resetValues(true);
         this.replyFrame(MSG.PARAM_RESET_DEFAULTS, seq, new Uint8Array(0));
         break;
       case MSG.PARAM_SAVE_NVM: {
@@ -396,6 +399,12 @@ export class SimulatedDevice implements Transport {
         break;
       case MSG.SCOPE_READ:
         this.onScopeRead(seq, payload);
+        break;
+      case MSG.SCOPE_DISARM:
+        // Le simulateur termine chaque capture à l'armement : désarmer revient à la perdre.
+        if (payload.length !== 0) return this.replyError(MSG.SCOPE_DISARM, seq, PROTO_ERR.LEN);
+        this.scopeSamples = [];
+        this.replyFrame(MSG.SCOPE_STATUS, seq, this.scopeStatusPayload());
         break;
       case MSG.BOOT_ENTER:
         if (payload.length !== 0) this.replyError(MSG.BOOT_ENTER, seq, PROTO_ERR.LEN);

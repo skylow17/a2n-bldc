@@ -29,6 +29,7 @@
 #define MSG_SCOPE_ARM             0x0051U
 #define MSG_SCOPE_STATUS          0x0052U
 #define MSG_SCOPE_READ            0x0053U
+#define MSG_SCOPE_DISARM          0x0054U
 #define MSG_BOOT_ENTER            0x0070U
 #define MSG_BOOT_INFO             0x0071U
 #define MSG_BOOT_ERASE            0x0072U

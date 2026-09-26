@@ -444,6 +444,17 @@ static void OnScopeArm(uint8_t seq, uint16_t len)
   Send(MSG_SCOPE_STATUS, FRAME_FLAG_RESPONSE, seq, s_payload, n);
 }
 
+static void OnScopeDisarm(uint8_t seq, uint16_t len)
+{
+  if (len != 0U) {
+    Proto_SendError(MSG_SCOPE_DISARM, seq, PROTO_ERR_LEN);
+    return;
+  }
+  Scope_Disarm();
+  const uint16_t n = PutScopeStatus(s_payload);
+  Send(MSG_SCOPE_STATUS, FRAME_FLAG_RESPONSE, seq, s_payload, n);
+}
+
 static void OnScopeStatus(uint8_t seq, uint16_t len)
 {
   if (len != 0U) {
@@ -579,6 +590,10 @@ void Proto_HandleFrame(uint16_t msg_id, uint8_t flags, uint8_t seq,
 
     case MSG_SCOPE_READ:
       OnScopeRead(seq, payload, payload_len);
+      break;
+
+    case MSG_SCOPE_DISARM:
+      OnScopeDisarm(seq, payload_len);
       break;
 
     case MSG_BOOT_ENTER:

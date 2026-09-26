@@ -183,11 +183,16 @@ ParamStatus_t Param_WriteValue(uint16_t id, float value)
   return PARAM_OK;
 }
 
+/* Les entrées `calibrated` sont épargnées : ce sont des mesures, pas des réglages. Les remettre
+ * à zéro rendait la carte incapable de commuter, et un `PARAM_SAVE_NVM` à la suite effaçait la
+ * calibration pour de bon — un clic sur « Reset defaults » puis « Save to flash » y suffisait.
+ * Elles se changent une à une, par `PARAM_WRITE`. Épargnées aussi pour une seconde raison :
+ * toutes portent `requires_disarm`, et cette remise à zéro n'est pas refusée sorties actives. */
 void Param_ResetDefaults(void)
 {
   for (uint16_t i = 0U; i < g_param_count; i++) {
     const ParamDesc_t *p = &g_param_table[i];
-    if ((p->flags & PARAM_FLAG_READ_ONLY) == 0U) {
+    if ((p->flags & (PARAM_FLAG_READ_ONLY | PARAM_FLAG_CALIBRATED)) == 0U) {
       StoreFromFloat(p, p->def);
     }
   }

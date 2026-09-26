@@ -918,14 +918,18 @@ La réponse classique sur G4 est de faire tourner le chemin de contrôle depuis 
 
 Relevées en écrivant M1c, à trancher dans `docs/protocol.md` avant d'y toucher des deux côtés :
 
-- **Pas de désarmement du scope.** `SCOPE_CONFIG` répond `ERR_BUSY` pendant une capture (§6), et
-  aucun message ne permet d'annuler un armement. Un scope armé sur un front qui n'arrive jamais
-  n'est donc plus reconfigurable jusqu'au reset. Le firmware implémente la spécification telle
-  qu'elle est écrite ; le test hors cible fige ce comportement pour qu'un changement se voie.
-- **`SCOPE_ARM` pendant une capture n'est pas spécifié.** Le device simulé accepte le réarmement,
-  `proto.c` prévoit un `ERR_BUSY`. Le firmware suit le simulateur — réarmer relance la capture —
-  parce qu'un écart de comportement entre carte et simulateur est exactement ce qui a déjà coûté
-  deux défauts à ce projet. À écrire dans la spécification dans un sens ou dans l'autre.
+- ~~**Pas de désarmement du scope.**~~ **Tranché le 2026-09-26** : message `0x0054`
+  `SCOPE_DISARM`, ajouté sans toucher aux messages figés — un firmware antérieur répond
+  `ERR_ID`. Il ramène le scope à `idle` depuis n'importe quel état, configuration conservée. Le
+  défaut n'était pas théorique : pendant les essais de l'étape 11, un scope armé sur un front
+  manqué refusait toute configuration, et côté interface une capture déclenchée qui expirait
+  laissait la carte dans cet état jusqu'au reset. Le client désarme désormais après un délai
+  dépassé, et désarme puis réessaie une fois sur `ERR_BUSY`. Vérifié sur carte : armement sur
+  un seuil inatteignable, `ERR_BUSY` à la reconfiguration, désarmement, reconfiguration
+  acceptée, capture expirée qui laisse le scope à `idle`, capture immédiate qui passe ensuite.
+  Le test hors cible `test_m1c.c` n'en dit rien encore — pas de compilateur hôte sur ce poste.
+- ~~**`SCOPE_ARM` pendant une capture n'est pas spécifié.**~~ **Écrit dans la spécification le
+  2026-09-26** dans le sens du firmware et du simulateur : réarmer relance la capture.
 
 ### Bloquants identifiés, à ne pas perdre de vue
 
@@ -2012,6 +2016,9 @@ paramètres ».
   pas été touchée — l'ISR de contrôle et `nFAULT` sont prioritaires sur l'I²C — mais une carte
   figée ne se relance pas seule. Un watchdog interagit avec la probation du bootloader : à
   décider, pas à glisser.
+- ~~« Reset defaults » efface la calibration~~ — **corrigé le 2026-09-26** : `PARAM_RESET_DEFAULTS`
+  épargne les entrées `calibrated`, firmware et simulateur. Vérifié sur carte : les six mesures
+  moteur survivent, un réglage ordinaire revient à sa valeur par défaut.
 - **Deux défauts du CLI `firmware-update`**, qui ont coûté deux sessions : sur erreur il ne
   referme pas le port, donc un refus ressemble à un blocage ; et il n'examine pas l'image
   avant d'effacer le slot, alors que le vecteur de reset se lit sur l'hôte.

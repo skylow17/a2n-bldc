@@ -9,8 +9,9 @@ d'abord, puis des deux côtés dans la même passe.
 > paramètres (§5) et les messages `0x0001`–`0x0015`. Ces formats sont verrouillés par des
 > vecteurs de référence (§11) que le firmware et l'interface vérifient tous les deux.
 >
-> La télémétrie et le scope (§6, messages `0x0040`–`0x0053`) sont également figés. Le
-> Le bootloader USB (§8, messages `0x0070`–`0x0075`) est également figé. Le transport CAN
+> La télémétrie et le scope (§6, messages `0x0040`–`0x0053`) sont également figés ;
+> `0x0054` `SCOPE_DISARM` s'y est **ajouté** le 2026-09-26 sans rien changer aux autres — un
+> firmware antérieur y répond `ERR_ID`. Le bootloader USB (§8, messages `0x0070`–`0x0075`) est également figé. Le transport CAN
 > reste proposé et sera verrouillé au moment de son implémentation.
 
 - Version de protocole décrite : **2.0**
@@ -103,6 +104,7 @@ Codes : `CRC`, `LEN`, `ID`, `ARG`, `RANGE`, `STATE`, `BUSY`, `NOTARMED`, `LOCKED
 | `0x0051` | `SCOPE_ARM` | PC → FW | Armement de la capture |
 | `0x0052` | `SCOPE_STATUS` | FW → PC | Armé / déclenché / plein |
 | `0x0053` | `SCOPE_READ` | PC → FW | Lecture du buffer (fragmentée) |
+| `0x0054` | `SCOPE_DISARM` | PC → FW | Abandon d'une capture armée ou en cours |
 | `0x0060` | `LOG_EVENT` | FW → PC | Push : message de journal horodaté |
 | `0x0070` | `BOOT_ENTER` | PC → FW | Reboot en bootloader |
 | `0x0071` | `BOOT_INFO` | BL → PC | Slots, versions, CRC, validité |
@@ -193,7 +195,11 @@ une lecture, 85 pour une écriture. Le firmware réduit `count` plutôt que de r
 un décalage d'angle changé moteur alimenté changerait la commutation en marche.
 
 `PARAM_RESET_DEFAULTS` remet les valeurs **en RAM** ; la flash n'est pas touchée tant qu'un
-`PARAM_SAVE_NVM` ne suit pas.
+`PARAM_SAVE_NVM` ne suit pas. **Les entrées `calibrated` n'y sont pas soumises** depuis le
+2026-09-26 : ce sont des mesures du moteur et de la carte — paires de pôles, décalage électrique,
+R, L, échelle de courant —, pas des réglages. Les remettre à zéro rendait la carte incapable de
+commuter, et un « Save to flash » à la suite effaçait la calibration pour de bon. Une entrée
+calibrée se change par `PARAM_WRITE`, explicitement, une à une.
 
 ### Persistance
 
@@ -387,7 +393,12 @@ u16  signal_id[signal_count]
 ```
 
 `SCOPE_CONFIG` est refusé par `ERR_BUSY` pendant une capture. `SCOPE_ARM` a un payload vide et
-répond par un `SCOPE_STATUS`. Le firmware émet aussi `SCOPE_STATUS` en push à chaque transition :
+répond par un `SCOPE_STATUS` ; **envoyé pendant une capture, il la relance** : le tampon repart
+de zéro, avec la même configuration. `SCOPE_DISARM` (depuis le 2026-09-26) a un payload vide,
+répond par un `SCOPE_STATUS` et ramène le scope à `idle` depuis n'importe quel état, capture
+perdue, configuration conservée ; il est sans effet à `idle`. Sans lui, un scope armé sur un
+front qui n'arrivait jamais refusait toute nouvelle configuration jusqu'au reset de la carte.
+Un hôte qui abandonne une capture — délai dépassé, annulation — doit l'envoyer. Le firmware émet aussi `SCOPE_STATUS` en push à chaque transition :
 
 ```
 u8   state                 0=idle, 1=armed, 2=triggered, 3=complete

@@ -143,7 +143,11 @@ export function Tuning({ state }: { state: DeviceSnapshot }): ReactNode {
         <Button onClick={() => void run(() => api().refresh())} disabled={busy}>
           Read all
         </Button>
-        <Button onClick={() => void run(() => api().resetDefaults())} disabled={busy}>
+        <Button
+          onClick={() => void run(() => api().resetDefaults())}
+          disabled={busy}
+          title="Back to defaults in RAM. Calibrated entries — pole pairs, offset, R, L, current scale — are measurements and are left alone."
+        >
           Reset defaults
         </Button>
         {canSave && (

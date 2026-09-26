@@ -220,6 +220,28 @@ bool Scope_Arm(void)
   return true;
 }
 
+void Scope_Disarm(void)
+{
+  /* Meme remise a zero que l'armement, jusqu'a l'etat : `idle`, et donc plus rien pour
+   * l'ISR, qui ne regarde que `armed` et `triggered`. */
+  __disable_irq();
+  const bool changed = (s_state != SCOPE_IDLE);
+  s_write              = 0U;
+  s_filled             = 0U;
+  s_captured           = 0U;
+  s_decim_count        = 0U;
+  s_post_remaining     = 0U;
+  s_start_index        = 0U;
+  s_trigger_index      = SCOPE_TRIGGER_INDEX_NONE;
+  s_start_timestamp_us = 0U;
+  s_prev_valid         = false;
+  s_state              = SCOPE_IDLE;
+  if (changed) {
+    s_status_dirty = true;
+  }
+  __enable_irq();
+}
+
 bool Scope_ConsumeStatusDirty(void)
 {
   __disable_irq();

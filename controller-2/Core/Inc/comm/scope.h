@@ -114,11 +114,16 @@ bool Scope_Configure(const ScopeConfig_t *cfg);
  * aussi le reamorcage. Refuser ici creerait un ecart de comportement entre la carte et le
  * simulateur — exactement la classe de defaut que ce depot a deja payee deux fois.
  *
- * Consequence a garder en tete : un scope arme sur un front qui n'arrive jamais ne peut
- * pas etre reconfigure, puisque SCOPE_CONFIG repond ERR_BUSY. Le protocole n'offre pas de
- * desarmement. C'est un manque de la specification, pas du firmware — voir STATUS.md.
+ * Un scope arme sur un front qui n'arrive jamais refuse SCOPE_CONFIG (ERR_BUSY) : c'est
+ * `Scope_Disarm` qui l'en sort, depuis le 2026-09-26.
  */
 bool Scope_Arm(void);
+
+/**
+ * @brief Abandonne la capture, quel que soit l'etat, et revient a `idle`. La configuration
+ *        est conservee, le tampon perdu. Sans effet a `idle`.
+ */
+void Scope_Disarm(void);
 
 /**
  * @brief Lit un point de la capture terminee.

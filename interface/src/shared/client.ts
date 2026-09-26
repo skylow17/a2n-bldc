@@ -47,7 +47,7 @@ import {
 } from './messages.js';
 import { FrameStream, encodeFrame, type Frame } from './frame.js';
 import { ParamDictionary, type ParamDesc } from './params.js';
-import { MSG, FRAME_FLAG, ScopeState, type DeviceInfo, type SignalDesc } from './protocol.js';
+import { MSG, FRAME_FLAG, PROTO_ERR, ScopeState, type DeviceInfo, type SignalDesc } from './protocol.js';
 import { Emitter, type Transport } from './transport.js';
 import { crc32 } from './crc16.js';
 
@@ -375,6 +375,17 @@ export class DeviceClient {
     return decodeScopeStatus(f.payload);
   }
 
+  /** Abandonne une capture armée ou en cours ; le scope revient à `idle`. */
+  async disarmScope(): Promise<ScopeStatus> {
+    const f = await this.request(
+      MSG.SCOPE_DISARM,
+      MSG.SCOPE_STATUS,
+      new Uint8Array(0),
+      'SCOPE_DISARM',
+    );
+    return decodeScopeStatus(f.payload);
+  }
+
   async scopeStatus(): Promise<ScopeStatus> {
     const f = await this.request(
       MSG.SCOPE_STATUS,
@@ -406,11 +417,26 @@ export class DeviceClient {
   }
 
   async captureScope(config: ScopeConfig, timeoutMs = 3000): Promise<ScopeCapture> {
-    const applied = await this.configureScope(config);
+    // Une capture abandonnée plus tôt — un front qui n'est jamais venu — laisse le scope
+    // armé, et `SCOPE_CONFIG` répond alors `ERR_BUSY` jusqu'au reset de la carte. On le
+    // désarme et on réessaie, une fois.
+    let applied: ScopeConfig;
+    try {
+      applied = await this.configureScope(config);
+    } catch (e) {
+      if (!(e instanceof ProtocolError) || e.code !== PROTO_ERR.BUSY) throw e;
+      await this.disarmScope();
+      applied = await this.configureScope(config);
+    }
     let status = await this.armScope();
     const deadline = Date.now() + timeoutMs;
     while (status.state !== ScopeState.COMPLETE) {
-      if (Date.now() >= deadline) throw new TimeoutError('scope capture', timeoutMs);
+      if (Date.now() >= deadline) {
+        // Ne pas laisser derrière soi un scope armé que plus personne n'attend. Un firmware
+        // antérieur à `SCOPE_DISARM` répond `ERR_ID` : l'échec du délai reste l'erreur rendue.
+        await this.disarmScope().catch(() => undefined);
+        throw new TimeoutError('scope capture', timeoutMs);
+      }
       await new Promise<void>((resolve) => setTimeout(resolve, 5));
       status = await this.scopeStatus();
     }

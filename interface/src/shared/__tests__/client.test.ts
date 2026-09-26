@@ -237,6 +237,32 @@ describe('lecture et écriture', () => {
     await client.resetDefaults();
     expect((await client.readParams([id]))[0]!.value).toBe(0);
   });
+
+  it('épargne les entrées calibrées à la remise par défaut', async () => {
+    // Une calibration effacée par « Reset defaults » puis enregistrée par « Save to flash »
+    // était perdue pour de bon : le firmware ne les touche plus, le simulateur non plus.
+    const { client } = connect();
+    const dict = await client.readDictionary();
+    const id = dict.get('motor.pole_pairs')!.id;
+
+    await client.writeParams([{ id, value: 7 }]);
+    await client.resetDefaults();
+    expect((await client.readParams([id]))[0]!.value).toBe(7);
+  });
+});
+
+describe('scope', () => {
+  it('désarme une capture et revient à idle', async () => {
+    const { client } = connect();
+    const sigs = await client.readSignals();
+    await client.captureScope({
+      depth: 16, decimation: 1, pretriggerSamples: 0, triggerMode: 0,
+      triggerSignalId: sigs[0]!.id, threshold: 0, signalIds: [sigs[0]!.id],
+    });
+    const st = await client.disarmScope();
+    expect(st.state).toBe(0);
+    expect(st.captured).toBe(0);
+  });
 });
 
 describe('erreurs et robustesse', () => {
