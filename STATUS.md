@@ -22,7 +22,7 @@ Dernière revue : 2026-09-26, sur carte — le SPI du DRV réparé et prouvé pa
 >
 > **Le SPI du DRV répond de nouveau (2026-09-26), prouvé de bout en bout.** Panne constatée
 > le 2026-09-21, localisée par la mesure sur `SCLK` ou `SDI` sans oscilloscope, réparée à la
-> main. `DRV.PROBE` passe, les registres se relisent aux valeurs de reset de la fiche
+> main : **le fil `SCLK` était soudé du mauvais côté de la piste coupée**. `DRV.PROBE` passe, les registres se relisent aux valeurs de reset de la fiche
 > technique, et surtout **une écriture change une mesure analogique** : `VREF_DIV = 0` fait
 > monter les trois `SOx` à `VREF − 0,3 V`, `SPI_CAL = 1` effondre leur bruit, et tout revient au
 > count près. Le gain des amplis relu est bien **20 V/V**. Détail dans « Le SPI du DRV ne
@@ -716,8 +716,12 @@ nulle part ailleurs.**
 
 
 
-**Réparé et revalidé le 2026-09-26.** Après la reprise à la main des deux fils désignés, tout
-répond, et la preuve ne repose plus sur des relectures qui pourraient être des zéros :
+**Réparé et revalidé le 2026-09-26. La cause : le fil `SCLK` de la retouche était soudé du
+mauvais côté de la piste coupée**, sur le tronçon mort, donc l'horloge n'atteignait jamais `U3`.
+C'est la première chose à regarder si le symptôme revient, avec l'hypothèse que ce fil se soit
+dessoudé ; la signature et la méthode sont notées dans `AGENTS.md`, « Écarts connus du
+schéma ». Resoudé côté `U3`, tout répond, et la preuve ne repose plus sur des relectures qui
+pourraient être des zéros :
 
 | Écriture dans `CSA_CONTROL` | Moyennes `SOx`, counts | Écart-type, counts |
 |---|---|---|
