@@ -92,6 +92,7 @@ describe('surface publiée', () => {
       'param_get',
       'param_list',
       'param_reset_defaults',
+      'param_save_nvm',
       'param_set',
       'safety_clear_fault',
       'safety_status',
@@ -193,6 +194,15 @@ describe('paramètres', () => {
     // C'est l'écriture la plus large qui soit : elle ne peut pas être moins gardée que
     // l'écriture unitaire.
     const res = await call(h, 'param_reset_defaults');
+    expect(res.isError).toBe(true);
+    expect(res.text).toContain('AI control is off');
+  });
+
+  it("refuse d'écrire en flash tant que « AI control » est coupé", async () => {
+    const h = await harness();
+    // Une écriture en flash survit au reset : elle ne peut pas être moins gardée qu'une
+    // écriture en RAM.
+    const res = await call(h, 'param_save_nvm');
     expect(res.isError).toBe(true);
     expect(res.text).toContain('AI control is off');
   });

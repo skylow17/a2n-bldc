@@ -336,8 +336,9 @@ export function createA2nMcpServer(core: DeviceCore): { server: McpServer; dispo
     {
       title: 'Reset parameters to defaults',
       description:
-        'Reset every writable parameter to its compiled default. Requires AI control. ' +
-        'This discards the current tuning: it is the widest write there is.',
+        'Reset every writable parameter to its compiled default, in RAM. Requires AI ' +
+        'control. Calibrated entries (pole pairs, offset, direction, R, L, current scale) ' +
+        'are measurements and are left alone. This discards the current tuning.',
       annotations: { readOnlyHint: false, destructiveHint: true },
     },
     async () =>
@@ -345,6 +346,21 @@ export function createA2nMcpServer(core: DeviceCore): { server: McpServer; dispo
         await core.resetDefaults('mcp');
         return { reset: true };
       }),
+  );
+
+  server.registerTool(
+    'param_save_nvm',
+    {
+      title: 'Save parameters to flash',
+      description:
+        'Write every persistent parameter to flash, then read the record back. Requires AI ' +
+        'control. Refused while the power outputs are live: the write stalls the core for ' +
+        'about 22 ms, control loop included. What is saved survives a reset and a firmware ' +
+        'update; read the values first with param_get.',
+      annotations: { readOnlyHint: false, destructiveHint: false },
+    },
+    async () =>
+      invoke(core, 'param_save_nvm', undefined, async () => core.saveNvm('mcp')),
   );
 
   /* ------------------------------------------------------------------ sécurité */
