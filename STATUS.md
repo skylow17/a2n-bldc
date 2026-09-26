@@ -8,7 +8,7 @@ Ce fichier ne contient **aucun chiffre volatil** (nombre de tests, occupation fl
 Ces valeurs se mesurent, elles ne se recopient pas : `python tools/status.py` les relève sur le
 dépôt réel. Une valeur écrite à la main est fausse le lendemain.
 
-Dernière revue : 2026-09-26, sur carte — firmware stabilisé, puis étape 5 préparée : limites de courant et de rapport cyclique dans le firmware, pas encore éprouvées sur carte.
+Dernière revue : 2026-09-26, sur carte — étape 5 : premiers courants, limites éprouvées, et un gain différent par voie de mesure à expliquer avant de monter en courant.
 
 > **Reprise suivante — par où commencer.** Les deux défauts matériels sont **expliqués**, et
 > aucun des deux n'est une panne : ce sont deux erreurs de conception, l'une et l'autre
@@ -1365,7 +1365,7 @@ mesure, et ce fichier ne doit pas laisser croire l'inverse.
   En attendant, une carte figée se relance par un cycle d'alimentation, et la sécurité ne
   dépend pas de lui : l'ISR de contrôle et `nFAULT` sont prioritaires sur tout le reste.
 
-## Étape 5 — préparée le 2026-09-26, pas encore éprouvée
+## Étape 5 — premiers courants le 2026-09-26 : les limites tiennent, la mesure a un défaut de gain par voie
 
 Le moteur est branché : c'est la première fois que l'étage de puissance débite dans un
 bobinage. Avant d'écrire la mesure, il a fallu **fermer ce qui permettait de détruire la
@@ -1401,6 +1401,74 @@ le firmware n'avait **aucune limite de courant**.
 3. Écart croissant par pas de 10 ‰ à partir de 510/500/500, en lisant à chaque fois le
    régime établi, la somme Ia + Ib + Ic et la constante de temps sur la capture scope. On
    s'arrête bien avant la limite.
+
+### Ce que la carte a montré
+
+**Les protections fonctionnent comme écrites.** Tous les refus répondent sans lever `MOE`
+(`ERR LIMIT`, `ERR ARG`). Vingt impulsions de 50 ms, jusqu'à l'écart maximal, se sont toutes
+coupées d'elles-mêmes (`reason=requested`, rien de latché), et la carte n'a jamais approché la
+limite : pic à 162 counts, soit ≈ 0,65 A lus, pour 500.
+
+**Écart nul, courant nul.** 500/500/500 pendant 50 ms : moyennes et bruit identiques
+commutation ou non. Le pic relevé par le firmware pendant l'impulsion tombe exactement sur
+l'extrême de la capture, ce qui situe l'impulsion dans la fenêtre. **Cela tranche la question
+laissée ouverte à l'étape 4, et ma supposition était fausse** : l'écart d'une dizaine de counts
+entre la lecture hors `CAL` et le zéro `CAL` ne venait pas d'une entrée flottante — il est là
+aussi transistors bas conducteurs. Le vrai zéro de fonctionnement est la lecture hors `CAL`,
+≈ 16/8/9 counts au-dessus du zéro `CAL`. Négligeable pour la limite ; **à reprendre avant la
+boucle de courant**, en calibrant hors `CAL`, sorties coupées.
+
+**Le moteur.** ≈ 7 Ω de A vers B ∥ C, soit ≈ 4,7 Ω par phase : un moteur de type gimbal. Le
+rotor s'aligne à chaque impulsion (jusqu'à 0,6 rad), puis revient partiellement à la coupure.
+Pour une mesure en régime, on répète chaque impulsion et on garde la seconde, rotor déjà
+aligné.
+
+**Une correction à ce que j'avais écrit plus haut.** La limite de courant de l'alimentation
+n'est **pas** la première ligne dans cet essai : le courant de phase circule en roue libre
+dans les transistors bas, et l'alimentation n'en fournit que l'écart de rapport cyclique, un
+à dix pour cent. La protection réelle est la résistance du bobinage, et la coupure du
+firmware — efficace ici, parce que l'inductance borne la montée par période bien sous la
+limite.
+
+**Le critère Ia + Ib + Ic ≈ 0 échoue, et le défaut est dans la mesure.** La somme se tenait à
+30 ‰ d'écart, et s'en écartait de 22 % à 100 ‰. Deux causes, trouvées dans cet ordre :
+
+1. **Le temps d'échantillonnage** des voies injectées, 6,5 cycles (180 ns), jamais réglé sur
+   une source réelle. Porté à 47,5 cycles (1,32 µs) : le cas A dominant passe de 22 % à 4 %.
+   Le plafond d'essai descend de 900 à 800 ‰ en conséquence — la troisième voie échantillonne
+   jusqu'à 4,5 µs après le sommet, il faut que le transistor bas conduise encore.
+2. **Un gain différent par voie.** Chaque phase tour à tour dominante, dans les deux sens :
+   chaque voie est **linéaire et symétrique** — A lit ±103, B et C ∓33 et ∓62, quel que soit
+   le sens. En moyennant les deux sens et en imposant Ia + Ib + Ic = 0, un modèle de gain par
+   voie ajusté sur deux essais prédit le troisième à 0,2 % près :
+
+   | Voie | Gain relatif à A |
+   |---|---|
+   | A | 1 |
+   | B | **0,66** |
+   | C | **1,18** |
+
+   Corrigés de ces gains, **les trois bobinages sont égaux à 7 % près** : le moteur est sain.
+   Un écart de 1,8 entre B et C est hors de portée des amplis du DRV8304, dont le gain est
+   commun ; le suspect est le **chemin des shunts** de 10 mΩ, où quelques milliohms de soudure
+   ou de cuivre entre les points de mesure suffisent. On ne sait pas encore quelle voie est
+   juste — seul un courant de référence le dira.
+
+**Réserve de sécurité, à lever avant de monter en courant.** La limite de 500 counts vaut
+2 A sur A, **≈ 3 A réels sur B**, ≈ 1,7 A sur C. C'est un élargissement silencieux de la
+limite sur une phase, exactement ce que `AGENTS.md` §4 interdit. Sans conséquence aux courants
+de cet essai — moins de 0,5 A —, mais **aucun essai plus fort avant** que la limite soit
+exprimée par voie, calée sur la voie la moins sensible, ou que la cause matérielle soit
+corrigée.
+
+**Ce qui reste pour clore l'étape 5 :**
+
+- trouver la cause des gains par voie : relever la tension aux bornes de chaque shunt pendant
+  une impulsion, au plus près de ses pastilles, et la comparer à `SOx` ;
+- selon la cause, corriger la carte, ou calibrer un gain par voie contre un courant de
+  référence et l'appliquer dans `Imot_Apply` ;
+- recalibrer le zéro hors `CAL` ;
+- rejouer les trois phases dominantes : la somme doit tenir sous quelques pour cent.
 
 **Critères (`controller-2/AGENTS.md` §5) :** somme Ia + Ib + Ic ≈ 0 ; cohérence avec le
 courant d'alimentation. Le second ne se lit pas sur une impulsion de 50 ms — l'afficheur de

@@ -541,11 +541,11 @@ activité avant M3. Elles valaient à vide jusqu'au 2026-09-26 ; le moteur est d
 et **trois limites du firmware** s'appliquent. Aucune ne se règle depuis l'hôte, aucune ne
 s'élargit pour faire passer un essai (`AGENTS.md` §4).
 
-- **Rapports cycliques bornés.** Chaque bras entre **0 et 900 ‰**, et **au plus 100 ‰
+- **Rapports cycliques bornés.** Chaque bras entre **0 et 800 ‰**, et **au plus 100 ‰
   d'écart** entre deux bras. L'écart fixe la tension appliquée au bobinage — 100 ‰ font 1,5 V
-  sous 15 V. Le plafond de 900 ‰ garde au transistor bas une conduction d'au moins 5 µs autour
-  du sommet du comptage, où l'ADC échantillonne : au-delà, l'amplificateur n'a plus le temps
-  de s'établir (1,55 µs, fiche technique) et le courant ne serait plus mesuré — donc plus
+  sous 15 V. Le plafond garde au transistor bas une conduction d'au moins 5 µs après le sommet
+  du comptage : la troisième voie injectée y finit d'échantillonner 4,5 µs après lui. Au-delà,
+  le courant de la phase la plus chargée serait lu transistor ouvert — plus mesuré, donc plus
   surveillé. Refus : `ERR LIMIT`.
 - **Coupure sur surintensité, dans l'ISR.** Si un courant centré dépasse **500 counts**
   (≈ 2,0 A : 20 V/V sur 10 mΩ, 4,03 mA par count) sur l'une des trois phases, `MOE` tombe dans

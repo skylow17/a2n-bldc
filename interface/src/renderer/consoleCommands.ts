@@ -73,7 +73,7 @@ export const CONSOLE_GROUPS: ConsoleGroup[] = [
     title: 'Power stage',
     commands: [
       { verb: 'PWM?', syntax: 'PWM?', summary: 'Timer state, duty cycles in per mille, and whether the outputs are enabled.' },
-      { verb: 'PWM', syntax: 'PWM ON | OFF | <a> <b> <c>', summary: 'Enables or cuts the outputs, or sets the three duty cycles in per mille (0 to 900, at most 100 apart). Enabling refuses on a latched fault, without a measured current zero, or with no host.', arms: true },
+      { verb: 'PWM', syntax: 'PWM ON | OFF | <a> <b> <c>', summary: 'Enables or cuts the outputs, or sets the three duty cycles in per mille (0 to 800, at most 100 apart). Enabling refuses on a latched fault, without a measured current zero, or with no host.', arms: true },
       { verb: 'PWM.PULSE', syntax: 'PWM.PULSE <a> <b> <c> <ms>', summary: 'Step 5 test: applies the duty cycles for 1 to 200 ms, timed by the control loop, then cuts the outputs by itself. Same limits as PWM; an overcurrent cuts it short.', arms: true },
     ],
   },

@@ -113,11 +113,18 @@ void Board_FatalError(const char *what);
 #define ADC_CH_IMOTA        ADC_CHANNEL_1
 #define ADC_CH_IMOTB        ADC_CHANNEL_2
 #define ADC_CH_IMOTC        ADC_CHANNEL_3
-/* Temps d'échantillonnage des trois voies injectées. À 36 MHz, 6,5 cycles = 180 ns : trop
- * court pour cette source, mesuré sur carte (lecture instable, sous la valeur lente).
- * Valeur retenue après comparaison avec une relecture lente à 247,5 cycles — voir STATUS. */
+/* Temps d'échantillonnage des trois voies injectées : 47,5 cycles, soit 1,32 µs à 36 MHz.
+ *
+ * C'était 6,5 cycles (180 ns), jamais réglé sur une source réelle faute d'entrées de courant
+ * qui fonctionnent. Réglé à l'étape 5, moteur branché, le 2026-09-26 : avec 180 ns, la somme
+ * Ia + Ib + Ic d'une impulsion A dominante s'écartait de zéro de 22 % ; avec 1,32 µs, de 4 %.
+ *
+ * Le prix se paie en rapport cyclique. Une voie coûte 60 cycles (échantillonnage et
+ * conversion), 1,67 µs ; la troisième finit d'échantillonner 4,5 µs après le sommet du
+ * comptage, et il faut que le transistor bas conduise encore à ce moment-là. D'où le
+ * plafond d'essai de 800 ‰ dans `pwm.h` — qui descend, et c'est le bon sens pour une limite. */
 #ifndef ADC_IMOT_SAMPLETIME
-#define ADC_IMOT_SAMPLETIME ADC_SAMPLETIME_6CYCLES_5
+#define ADC_IMOT_SAMPLETIME ADC_SAMPLETIME_47CYCLES_5
 #endif
 
 /* Driver de grille DRV8304S — SPI2 + signaux discrets.
