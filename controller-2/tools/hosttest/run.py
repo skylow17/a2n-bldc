@@ -15,8 +15,8 @@ compiles avec un bouchon de `board.h` et un masquage d'interruption simule. Un j
 « passe » uniquement quand `npm run cli -- check` est vert sur la vraie carte — voir
 STATUS.md.
 
-N'importe quel compilateur C de l'hote fait l'affaire : cl (Visual Studio), gcc ou clang.
-Le script prend le premier qu'il trouve.
+N'importe quel compilateur C de l'hote fait l'affaire : cl (Visual Studio), gcc ou clang —
+a defaut, celui du paquet Python `ziglang`. Le script prend le premier qu'il trouve.
 """
 import io
 import os
@@ -70,6 +70,16 @@ def find_compiler():
         if os.path.isfile(vc):
             # Chaine, pas liste : vcvars doit s'executer dans le meme shell que cl.
             return "cl", '"%s" >nul 2>nul && cl' % vc
+    # Dernier recours : le clang embarque par le paquet Python `ziglang`
+    # (`pip install --user ziglang`). Aucun droit d'administration, rien dans le PATH : c'est
+    # ce qui a rendu cette etape executable sur le poste de reference, qui n'avait aucun
+    # compilateur C hote.
+    try:
+        import importlib.util
+        if importlib.util.find_spec("ziglang") is not None:
+            return "clang", [sys.executable, "-m", "ziglang", "cc"]
+    except Exception:  # pragma: no cover - environnement exotique
+        pass
     return None, None
 
 

@@ -927,7 +927,8 @@ Relevées en écrivant M1c, à trancher dans `docs/protocol.md` avant d'y touche
   dépassé, et désarme puis réessaie une fois sur `ERR_BUSY`. Vérifié sur carte : armement sur
   un seuil inatteignable, `ERR_BUSY` à la reconfiguration, désarmement, reconfiguration
   acceptée, capture expirée qui laisse le scope à `idle`, capture immédiate qui passe ensuite.
-  Le test hors cible `test_m1c.c` n'en dit rien encore — pas de compilateur hôte sur ce poste.
+  Le test hors cible `test_m1c.c` le couvre aussi : désarmement depuis `armed`, configuration
+  conservée, ISR muette ensuite, sans effet à `idle`.
 - ~~**`SCOPE_ARM` pendant une capture n'est pas spécifié.**~~ **Écrit dans la spécification le
   2026-09-26** dans le sens du firmware et du simulateur : réarmer relance la capture.
 
@@ -2074,7 +2075,12 @@ paramètres ».
 1. `python tools/status.py sources` — aucun fichier cité par le `Makefile` ne manque
 2. `cd interface && npm test` — l'ensemble passe
 3. `npm run typecheck`
-4. `python controller-2/tools/hosttest/run.py` — logique firmware testable hors cible
+4. `python controller-2/tools/hosttest/run.py` — logique firmware testable hors cible. **Exécutable
+   sur le poste de référence depuis le 2026-09-26** grâce au clang du paquet Python `ziglang`
+   (`pip install --user ziglang`), qui n'avait jusque-là aucun compilateur C hôte. Sa première
+   exécution a trouvé `test_m1c.c` en échec depuis M1c — il exigeait 6 signaux, le firmware en
+   publie 22 —, sans que personne l'ait vu. Il vérifie désormais des identifiants 1 à N sans
+   trou. 314 vérifications, aucun échec.
 5. `cd controller-2 && make` — build propre, sans avertissement
 6. `cd interface && npm run cli -- check --sim` — vert de bout en bout
 7. `npm run mcp:check` — surface MCP complète, sur simulateur

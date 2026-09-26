@@ -25,7 +25,7 @@ static void check(int cond, const char *what)
 static void check_f(float got, float want, float tol, const char *what)
 {
   if (fabsf(got - want) <= tol) { s_pass++; }
-  else { s_fail++; printf("  ECHEC : %s (obtenu %g, attendu %g)\n", what, got, want); }
+  else { s_fail++; printf("  ECHEC : %s (obtenu %g, attendu %g)\n", what, (double)got, (double)want); }
 }
 
 /* --- generation d'instantanes ------------------------------------------------ */
@@ -74,7 +74,16 @@ static void test_signals(void)
 {
   printf("dictionnaire de signaux\n");
   check(SIGNAL_ENTRY_WIRE_LEN == 44, "SIGNAL_ENTRY_WIRE_LEN vaut 44");
-  check(Signal_Count() == 6, "6 signaux publies");
+  /* Le compte suit le dictionnaire, qui grandit a chaque etape : ce qui compte est qu'il
+   * y en ait, et que les identifiants aillent de 1 a N sans trou. Ce test exigeait 6 signaux
+   * depuis M1c et personne ne l'a vu tomber : le poste n'avait pas de compilateur hote. */
+  const uint16_t n = Signal_Count();
+  check(n >= 6, "au moins les 6 signaux de M1c publies");
+  bool contiguous = true;
+  for (uint16_t id = 1U; id <= n; id++) {
+    contiguous = contiguous && Signal_IsKnown(id);
+  }
+  check(contiguous, "identifiants 1 a N, sans trou");
 
   uint8_t e[64];
   memset(e, 0xAA, sizeof(e));
@@ -86,10 +95,10 @@ static void test_signals(void)
   check(e[4 + 20] == 0, "nom complete par des zeros");
   check(strncmp((const char *)&e[4 + 32], "count", 5) == 0, "unite en clair");
   check(e[4 + 32 + 5] == 0, "unite completee par des zeros");
-  check(!Signal_SerializeEntry(6, e), "index hors table refuse");
+  check(!Signal_SerializeEntry(n, e), "index hors table refuse");
 
-  check(Signal_IsKnown(1) && Signal_IsKnown(6), "ids 1 et 6 connus");
-  check(!Signal_IsKnown(0) && !Signal_IsKnown(7), "ids 0 et 7 inconnus");
+  check(Signal_IsKnown(1) && Signal_IsKnown(n), "ids 1 et N connus");
+  check(!Signal_IsKnown(0) && !Signal_IsKnown((uint16_t)(n + 1U)), "ids 0 et N+1 inconnus");
 
   Signal_Snapshot_t s;
   memset(&s, 0, sizeof(s));
@@ -379,22 +388,28 @@ static void test_busy(void)
   check(st.state == SCOPE_COMPLETE, "capture terminee");
   check(Scope_Configure(&other), "reconfiguration acceptee apres complete");
 
-  /* Une capture armee sur un front qui n'arrive jamais ne peut plus etre reconfiguree :
-   * le protocole ne prevoit pas de desarmement. Le test fige ce comportement pour qu'un
-   * changement de specification se voie ici. */
+  /* Une capture armee sur un front qui n'arrive jamais refuse toute reconfiguration.
+   * Jusqu'au 2026-09-26 rien ne l'en sortait avant le reset ; `SCOPE_DISARM` le fait. */
   ScopeConfig_t never = base_config(4, 1, 0, SCOPE_TRIG_RISING, 1, 50000.0f);
   check(Scope_Configure(&never), "configuration a seuil tres haut");
   check(Scope_Arm(), "armement");
   for (int i = 0; i < 50; i++) { tick(1.0f); }
   Scope_GetStatus(&st);
   check(st.state == SCOPE_ARMED, "toujours arme : le seuil n'est jamais franchi");
-  check(!Scope_Configure(&other), "reconfiguration impossible : manque de la specification");
+  check(!Scope_Configure(&other), "reconfiguration refusee tant qu'il est arme");
 
-  /* Le seul retour au repos est d'aller au bout d'une capture — c'est precisement le
-   * manque signale ci-dessus. On franchit donc le seuil pour liberer le scope. */
-  for (int i = 0; i < 4; i++) { tick(60000.0f); }
+  Scope_Disarm();
   Scope_GetStatus(&st);
-  check(st.state == SCOPE_COMPLETE, "capture liberee par un franchissement");
+  check(st.state == SCOPE_IDLE && st.captured == 0, "desarme : idle, tampon vide");
+  check(Scope_GetConfig()->depth == 4, "desarme : configuration conservee");
+  for (int i = 0; i < 10; i++) { tick(60000.0f); }
+  Scope_GetStatus(&st);
+  check(st.state == SCOPE_IDLE, "desarme : l'ISR n'ecrit plus rien");
+  check(Scope_Configure(&other), "reconfiguration acceptee apres desarmement");
+
+  Scope_Disarm();
+  Scope_GetStatus(&st);
+  check(st.state == SCOPE_IDLE, "desarmer au repos est sans effet");
 }
 
 /* --- 9. profondeur maximale -------------------------------------------------- */
