@@ -255,6 +255,21 @@ static void CmdOpenloopStatus(void)
                 (unsigned long)(o.active ? Safety_PulseLeftMs() : 0UL));
 }
 
+static void ReplyLoop(Foc_ClResult_t r, SafetyEnable_t en)
+{
+  switch (r) {
+    case FOC_CL_OK:         Reply("OK");        break;
+    case FOC_CL_ERR_LIMIT:  Reply("ERR LIMIT"); break;
+    case FOC_CL_ERR_BUSY:   Reply("ERR BUSY");  break;
+    case FOC_CL_ERR_CFG:    Reply("ERR CFG");   break;
+    case FOC_CL_ERR_VBUS:   Reply("ERR VBUS");  break;
+    case FOC_CL_ERR_ANGLE:  Reply("ERR ANGLE"); break;
+    case FOC_CL_ERR_ENABLE: ReplyEnable(en);    break;
+    case FOC_CL_ERR_ARG:
+    default:                Reply("ERR ARG");   break;
+  }
+}
+
 /* `CL <id_ma> <iq_ma> <ms>`, `CL STOP` — la boucle de courant de l'étape 11. Les mêmes
  * contrôles du DRV que `PWM ON` ; ses limites propres sont dans `foc.c`. */
 static void CmdCurrentLoop(const char *arg)
@@ -286,17 +301,59 @@ static void CmdCurrentLoop(const char *arg)
     }
   }
   SafetyEnable_t en = SAFETY_EN_OK;
-  switch (Foc_ClStart((int32_t)id, (int32_t)iq, (uint32_t)ms, &en)) {
-    case FOC_CL_OK:         Reply("OK");        break;
-    case FOC_CL_ERR_LIMIT:  Reply("ERR LIMIT"); break;
-    case FOC_CL_ERR_BUSY:   Reply("ERR BUSY");  break;
-    case FOC_CL_ERR_CFG:    Reply("ERR CFG");   break;
-    case FOC_CL_ERR_VBUS:   Reply("ERR VBUS");  break;
-    case FOC_CL_ERR_ANGLE:  Reply("ERR ANGLE"); break;
-    case FOC_CL_ERR_ENABLE: ReplyEnable(en);    break;
-    case FOC_CL_ERR_ARG:
-    default:                Reply("ERR ARG");   break;
+  ReplyLoop(Foc_ClStart((int32_t)id, (int32_t)iq, (uint32_t)ms, &en), en);
+}
+
+/* `SL <mrad_s> <ms>`, `SL STOP` — la boucle de vitesse de l'étape 12, par-dessus la boucle de
+ * courant. Mêmes contrôles du DRV. */
+static void CmdSpeedLoop(const char *arg)
+{
+  if (strcasecmp(arg, "STOP") == 0) {
+    Foc_ClStop();
+    Reply("OK");
+    return;
   }
+  char *end = NULL;
+  const long w = strtol(arg, &end, 10);
+  if (end == arg) { Reply("ERR ARG"); return; }
+  const char *p = end;
+  const unsigned long ms = strtoul(p, &end, 10);
+  if (end == p) { Reply("ERR ARG"); return; }
+  /* Bande passante optionnelle, en hertz : c'est le réglage qu'on cherche à l'étape 12. */
+  float bw = FOC_SL_BW_HZ;
+  while (*end == ' ') { end++; }
+  if (*end != '\0') {
+    p = end;
+    bw = strtof(p, &end);
+    if (end == p) { Reply("ERR ARG"); return; }
+    while (*end == ' ') { end++; }
+    if (*end != '\0') { Reply("ERR ARG"); return; }
+  }
+
+  if (!Pwm_IsEnabled()) {
+    Drv8304_Status_t st;
+    if (!Drv8304_ReadFaults()) { Reply("ERR DRV"); return; }
+    Drv8304_GetStatus(&st);
+    if (st.nfault_low || ((st.fault_status_1 & DRV_FS1_FAULT) != 0U)) {
+      Reply("ERR FAULT");
+      return;
+    }
+  }
+  SafetyEnable_t en = SAFETY_EN_OK;
+  ReplyLoop(Foc_SlStart((int32_t)w, (uint32_t)ms, bw, &en), en);
+}
+
+static void CmdSpeedLoopStatus(void)
+{
+  Foc_SlStatus_t s;
+  Foc_SlGetStatus(&s);
+  Link_TxPrintf("OK active=%u ref_mrad_s=%ld vel_mrad_s=%ld vel_avg_mrad_s=%ld iq_ref_ma=%ld "
+                "iq_sat_ticks=%lu ticks=%lu left_ms=%lu kp_ua_rad_s=%ld ki_ua_rad=%ld\r\n",
+                s.active ? 1U : 0U, (long)(s.ref * 1000.0f), (long)(s.vel * 1000.0f),
+                (long)(s.vel_avg * 1000.0f), (long)(s.iq_ref * 1000.0f),
+                (unsigned long)s.iq_sat_ticks, (unsigned long)s.ticks,
+                (unsigned long)(s.active ? Safety_PulseLeftMs() : 0UL),
+                (long)(s.kp * 1e6f), (long)(s.ki * 1e6f));
 }
 
 static void CmdCurrentLoopStatus(void)
@@ -1233,6 +1290,10 @@ void Console_ExecuteLine(const char *line)
                   f.valid ? 1U : 0U, Foc_ConfigOk() ? 1U : 0U,
                   (long)(f.theta_e_rad * 1000.0f), (long)(f.id_a * 1000.0f),
                   (long)(f.iq_a * 1000.0f));
+  } else if (Match(line, "SL?", NULL)) {
+    CmdSpeedLoopStatus();
+  } else if (Match(line, "SL", &arg)) {
+    CmdSpeedLoop(arg);
   } else if (Match(line, "CL?", NULL)) {
     CmdCurrentLoopStatus();
   } else if (Match(line, "CL", &arg)) {

@@ -100,6 +100,15 @@ export const SIGNAL_PRESETS: readonly SignalPreset[] = [
     hint: 'Id and Iq against what the regulators ask for; a voltage stuck at its cap means the back-EMF took the margin.',
     names: ['foc.id_a', 'foc.iq_a', 'foc.vd_v', 'foc.vq_v', 'enc.vel_rad_s', 'foc.valid'],
   },
+  {
+    // La boucle de vitesse : la vitesse, la consigne d'Iq qu'elle en tire, et l'Iq obtenu.
+    // Une consigne d'Iq en dents de scie pendant que la vitesse colle puis saute, c'est
+    // l'adhérence-glissement qu'un Kp trop faible laissait passer à 10 Hz.
+    id: 'speed-loop',
+    label: 'Speed loop',
+    hint: 'Speed, the Iq the speed loop asks for, and the Iq the current loop delivers.',
+    names: ['enc.vel_rad_s', 'foc.iq_ref_a', 'foc.iq_a', 'foc.vq_v', 'foc.valid'],
+  },
 ];
 
 /** Plafond du protocole — `docs/protocol.md` §6, `u8 count 0..16`. */

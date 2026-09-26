@@ -325,6 +325,7 @@ Signaux présents à M2 :
 | 18 | `foc.valid` | `bool` | 1 quand 14 à 16 sont une mesure : angle valide (`enc.valid`) **et** paramètres moteur plausibles — p de 1 à 64, sens ±1, échelle de courant non nulle — **et** CORDIC vérifié au démarrage. Une carte dont la NVM est vide ne mesure donc rien, plutôt que de mesurer faux |
 | 19 | `foc.vd_v` | `V` | tension d'axe d demandée par la boucle de courant, après limitation. 0 hors boucle de courant |
 | 20 | `foc.vq_v` | `V` | tension d'axe q, même chose |
+| 21 | `foc.iq_ref_a` | `A` | consigne d'Iq de la boucle de courant : celle de `CL`, ou celle que calcule la boucle de vitesse. 0 hors boucle de courant |
 
 **Zone morte des amplis de courant.** Mesurée le 2026-09-26 : chaque voie a une plage de
 courant sur laquelle sa sortie reste collée **exactement** à la mi-échelle, 2048 counts bruts,
@@ -713,6 +714,25 @@ plus :
 | `CL <id_ma> <iq_ma> <ms>` | `OK` / `ERR ARG` / `ERR LIMIT` / `ERR BUSY` / `ERR CFG` / `ERR VBUS` / `ERR ANGLE` / réponses de `PWM ON` | Lance la boucle : consignes en milliampères, signées, durée en millisecondes. Les intégrateurs partent de zéro et la tension de 50 % partout. `ERR BUSY` si les sorties sont déjà actives |
 | `CL?` | `OK active=<0\|1> id_ref_ma=<n> iq_ref_ma=<n> id_avg_ma=<n> iq_avg_ma=<n> vd_mv=<n> vq_mv=<n> sat_ticks=<n> ticks=<n> left_ms=<n> kp_mv_a=<n> ki_v_as=<n>` | État : consignes, **moyennes** de Id et Iq depuis le départ — la mesure instantanée se lit dans `FOC?` —, dernière tension demandée, nombre de passages où la limite de tension a mordu sur le nombre total, temps restant, et les gains calculés, Kp en mV/A et Ki en V/(A·s) |
 | `CL STOP` | `OK` | Arrête la boucle et coupe les sorties, **sans désarmer** |
+
+**Boucle de vitesse** (M3, étape 12) — un PI de vitesse calcule la consigne d'Iq de la boucle
+de courant, Id restant à zéro. Réglé **dans le firmware** sur le modèle mécanique mesuré le
+2026-09-26 — rotor libre, ≈ 1,1·10⁻⁴ A par rad/s², tiré d'une accélération de 450 rad/s² sous
+48 mA — : Kp = 2π · f · 1,1·10⁻⁴ — ≈ 20,7 mA par rad/s à 30 Hz —, zéro de l'intégrateur au quart
+de la bande passante f — **30 Hz par défaut**, réglable par la commande. La vitesse est celle de l'encodeur (`enc.vel_rad_s`), mécanique. Mêmes
+barrières que `CL`, plus :
+
+- **consigne ≤ 20 rad/s** en valeur absolue, sous la coupure en survitesse à 25 rad/s ;
+- **Iq ≤ 150 mA** en valeur absolue ; quand ce plafond mord, l'intégrateur de vitesse se fige ;
+- **durée ≤ 10 s**, watchdog de flux comme ailleurs.
+
+| Commande | Réponse | Rôle |
+|---|---|---|
+| `SL <mrad_s> <ms> [bw_hz]` | réponses de `CL` | Lance la boucle de vitesse : consigne mécanique en milliradians par seconde, signée, durée en millisecondes, et **bande passante optionnelle** en hertz, 30 par défaut, de 1 à 40 — les gains en découlent par la même règle. Intégrateurs à zéro au départ. `ERR LIMIT` au-delà des limites ci-dessus |
+| `SL?` | `OK active=<0\|1> ref_mrad_s=<n> vel_mrad_s=<n> vel_avg_mrad_s=<n> iq_ref_ma=<n> iq_sat_ticks=<n> ticks=<n> left_ms=<n> kp_ua_rad_s=<n> ki_ua_rad=<n>` | État : consigne, vitesse instantanée et **moyenne depuis le départ**, dernière consigne d'Iq, passages où le plafond d'Iq a mordu sur le total, temps restant, gains — Kp en µA par rad/s, Ki en µA par rad |
+| `SL STOP` | `OK` | Arrête la boucle et coupe les sorties, **sans désarmer** |
+
+`CL?` rend compte de la boucle de courant sous-jacente pendant une boucle de vitesse.
 
 **`host`** est la présence de l'hôte vue du firmware : DTR levé par le port ouvert côté PC et
 bus USB actif. Elle retombe quand le port se ferme, quand le câble part ou quand le bus se

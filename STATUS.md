@@ -8,7 +8,7 @@ Ce fichier ne contient **aucun chiffre volatil** (nombre de tests, occupation fl
 Ces valeurs se mesurent, elles ne se recopient pas : `python tools/status.py` les relève sur le
 dépôt réel. Une valeur écrite à la main est fausse le lendemain.
 
-Dernière revue : 2026-09-26, sur carte — M2 complet ; M3 : étape 10 validée, étape 11 fermée — la boucle de courant tient Id et Iq, première boucle fermée du projet.
+Dernière revue : 2026-09-26, sur carte — M2 complet ; M3 : étapes 10 à 12 validées — boucle ouverte, boucle de courant, boucle de vitesse. Reste l'étape 13, la position.
 
 > **Reprise suivante — par où commencer.** Les deux défauts matériels sont **expliqués**, et
 > aucun des deux n'est une panne : ce sont deux erreurs de conception, l'une et l'autre
@@ -69,11 +69,11 @@ Dernière revue : 2026-09-26, sur carte — M2 complet ; M3 : étape 10 validée
 | **M1d** | CLI de bring-up | Validé sur simulateur **et sur carte** — toutes les commandes, `firmware-update` compris | — |
 | **Boot** | Bootloader A/B, probation et rollback | **Validé sur carte le 2026-09-16** : installation SWD, `BOOT_INFO`, mise à jour nominale promue, rollback sur image qui ne confirme jamais | Rien ; un défaut trouvé sur carte, corrigé, rejoué |
 | **M2** | Étage de puissance et capteurs (étapes 2 à 9) | **Étape 2 : validée le 2026-09-16, régression du 2026-09-21 réparée et revalidée le 2026-09-26** — écriture-relecture par `DRV.PROBE`, et une écriture de registre dont l'effet se lit sur la mesure analogique. Voir plus bas. Pour mémoire, la validation d'origine : le DRV8304 répond en SPI, sept registres relus cohérents avec la fiche technique, écriture-relecture par `DRV.PROBE`, fautes lisibles. **Étape 3 validée à l'oscilloscope le 2026-09-18** : trois bras complémentaires à 20 kHz, temps mort 500 ns aux deux fronts, rapports 20/50/80 % suivis, aucune conduction croisée — après avoir trouvé que les sorties basses n'avaient jamais été activées. **Étape 4 entamée le 2026-09-18**, puis reprise le 2026-09-20 après remplacement de U3 : un défaut d'acquisition corrigé, et **deux défauts matériels isolés** — voir plus bas | Étape 4 : **offsets et bruit mesurés et documentés le 2026-09-21** — zéro de chaîne à 1–11 counts de la mi-échelle, répétable à ±1 count sur quatre campagnes, écart-type de 1,4 à 2,0 counts avec `CAL` levé. Ni SPI ni sortie de puissance requis. Gain relu à 20 V/V le 2026-09-26. **Depuis le 2026-09-26 le zéro est mesuré à chaque démarrage**, sorties coupées, et refusé s'il n'est pas plausible. Pour mémoire, ce qui bloquait avant : D'abord `VREF` qui oscille de ±370 mV, ce qui fausse toute mesure de tension de la carte ; ensuite les trois entrées de courant flottantes, que le remplacement du DRV n'a pas corrigées — continuité et masse à vérifier à l'ohmmètre. Le chemin nFAULT → coupure de `MOE` est écrit mais **jamais déclenché** : **décision de l'utilisateur le 2026-09-26, on passe à l'étape 5 sans l'éprouver physiquement** — voir « Décisions ». **Étape 5 close le 2026-09-26** : limites de courant éprouvées, gains par voie corrigés, somme des courants à 4,5 %, échelle absolue ≈ 1,82 mA par count à ±15 % mesurée à l'étape 7. **Étape 7 close le 2026-09-26** : R ≈ 3,6 Ω et L ≈ 1,1 mH par phase, stockés en NVM avec p, φ, le sens et l'échelle de courant — la persistance du dictionnaire est implémentée et éprouvée. **Étapes 8 et 9 validées sur carte le 2026-09-26** : 7 paires de pôles sur quatre essais, décalage électrique 178,1° reproductible à 0,1°, redémarrage compris. **Étape 6 écrite hors séquence et éprouvée sur carte** (2026-09-21) puisqu'elle ne dépend ni de 4 ni de 5 : AS5600 en DMA à 1 MHz, transfert 57 µs, un échantillon toutes les 59 µs, ISR à 2,60 µs au pire. **Verte à titre provisoire** : le critère « angle monotone à la main » a été validé par l'utilisateur, aimant monté, et je n'ai pas assisté à la mesure — une réserve reste à lever, voir la section de l'étape 6 |
-| **M3** | Asservissements (étapes 10 à 13) | **Étape 10 validée sur carte le 2026-09-26** : la boucle ouverte tourne de 2 à 20 Hz électriques dans les deux sens, vitesse à 1 % près, courant maîtrisé ; l'armement existe, watchdog et `STOP` éprouvés en rotation | Étape 11 — **boucle de courant fermée le 2026-09-26** : Id et Iq tenus à leur consigne, erreur de régime nulle, montée ≈ 1 ms, rotor immobile sous Id, couple dans le bon sens sous Iq. Coupure en survitesse et compensation du temps mort en place : montée 0,4 ms, les PI ne demandent plus que R·I. Suite : étape 12, boucle de vitesse |
+| **M3** | Asservissements (étapes 10 à 13) | **Étape 10 validée sur carte le 2026-09-26** : la boucle ouverte tourne de 2 à 20 Hz électriques dans les deux sens, vitesse à 1 % près, courant maîtrisé ; l'armement existe, watchdog et `STOP` éprouvés en rotation | Étape 11 — **boucle de courant fermée le 2026-09-26** : Id et Iq tenus à leur consigne, erreur de régime nulle, montée ≈ 1 ms, rotor immobile sous Id, couple dans le bon sens sous Iq. Coupure en survitesse et compensation du temps mort en place : montée 0,4 ms, les PI ne demandent plus que R·I. **Étape 12 validée le même jour** : la boucle de vitesse tient de 2 à 15 rad/s dans les deux sens, à 0,1–0,5 % dès 5 rad/s. Suite : étape 13, boucle de position |
 
 **Le moteur tourne depuis le 2026-09-26** : en boucle ouverte — étape 10 —, puis sous la
-**boucle de courant**, première boucle fermée du projet — étape 11. Ni vitesse ni position ne
-sont encore régulées.
+**boucle de courant**, première boucle fermée du projet — étape 11 —, et sous la **boucle de
+vitesse** — étape 12. La position n'est pas encore régulée.
 
 La seconde passe du 2026-09-16 a rejoué sur la carte tout ce que la première n'avait fait que
 compiler : les huit étapes de la [règle de vérification](#règle-de-vérification-avant-dannoncer-un-jalon),
@@ -1350,6 +1350,43 @@ travail local n'existe pas. Un outil de constat qui ne distingue pas l'absence d
 constate rien. D'où les deux règles ci-dessous.
 
 ---
+
+## M3, étape 12 — la boucle de vitesse tient ses consignes (2026-09-26)
+
+**Un PI de vitesse au-dessus de la boucle de courant**, dans `foc.c` : il calcule la consigne
+d'Iq, Id restant à zéro. Réglé dans le firmware sur un modèle mécanique **mesuré** — rotor
+libre, 48 mA d'Iq l'accélèrent à ≈ 450 rad/s², soit ≈ 1,1·10⁻⁴ A par rad/s² — : Kp = ωs · B,
+zéro de l'intégrateur à ωs/4. Commande `SL <mrad_s> <ms> [bw_hz]`, consigne ≤ 20 rad/s — sous
+la coupure en survitesse à 25 —, Iq plafonné à 150 mA avec intégrateur figé, ≤ 10 s. Signal
+`foc.iq_ref_a`. Refus vérifiés sur carte.
+
+**Le réglage a été trouvé sur carte, et c'est la bande passante qui décide.** À 10 Hz, Kp ne
+donnait que 14 mA pour 2 rad/s d'erreur, moins que le décollage du rotor : **adhérence-
+glissement** — le rotor colle, l'intégrateur monte Iq vers −35 mA, le rotor décolle, dépasse à
+4 rad/s, recolle, toutes les ≈ 250 ms. À 30 Hz le phénomène disparaît. 30 Hz est le défaut ;
+40 Hz, la borne, gagne peu et rapproche la limite que fixe le filtre de vitesse.
+
+| Consigne | Bande passante | Vitesse moyenne | Ondulation |
+|---|---|---|---|
+| 2 rad/s | 10 Hz | 1,92 rad/s | ±1,69 — adhérence-glissement |
+| 2 rad/s | 30 Hz | 1,99 rad/s | ±0,60 |
+| 2 rad/s | 40 Hz | 1,99 rad/s | ±0,46 |
+| −2 rad/s | 30 Hz | −1,99 rad/s | ±0,69 |
+| ±5 rad/s | 30 Hz | ±4,99 rad/s | ±0,77 |
+| 10 rad/s | 30 Hz | 9,97 rad/s | ±0,79 |
+| ±15 rad/s | 30 Hz | ±14,93 rad/s | ±0,75 |
+
+Moyennes sur 1,5 s, erreur de 0,1 à 0,5 % dès 5 rad/s. À 15 rad/s, le plafond d'Iq ne mord que
+pendant le démarrage, 0,5 % des passages, et la coupure en survitesse ne se déclenche pas.
+L'ondulation restante, ±0,6 à 0,8 rad/s, est du même ordre que le bruit de l'estimateur de
+vitesse — ±0,4 rad/s rotor arrêté. Coût de l'ISR avec les trois étages : 10,2 µs au pire,
+20 % du budget.
+
+**Ce qui reste.** Le modèle mécanique est celui du rotor libre : chargé, le moteur répondrait
+plus lentement, sans instabilité. Un temps de montée propre ne se mesure pas encore — à ces
+vitesses, l'échelon est du même ordre que le bruit ; un estimateur de vitesse moins bruité,
+ou une rampe de consigne, sont la suite. Interface : panneau « Speed loop » dans l'onglet
+Control, préréglage de courbes du même nom.
 
 ## M3, étape 11 — la boucle de courant tient ses consignes (2026-09-26)
 

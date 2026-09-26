@@ -80,6 +80,40 @@ export function parseCl(reply: string): ClStatus | null {
   };
 }
 
+export interface SlStatus {
+  active: boolean;
+  refRadS: number | null;
+  velRadS: number | null;
+  velAvgRadS: number | null;
+  iqRefMa: number | null;
+  /** Part des passages où le plafond d'Iq a mordu, 0..1 ; `null` avant tout passage. */
+  iqSatRatio: number | null;
+  leftMs: number | null;
+  /** mA par rad/s */
+  kpMaRadS: number | null;
+}
+
+export function parseSl(reply: string): SlStatus | null {
+  const m = parseKv(reply);
+  if (m === null || !m.has('active')) return null;
+  const milli = (k: string): number | null => {
+    const v = get(m, k);
+    return v === null ? null : v / 1000;
+  };
+  const ticks = get(m, 'ticks');
+  const sat = get(m, 'iq_sat_ticks');
+  return {
+    active: m.get('active') === 1,
+    refRadS: milli('ref_mrad_s'),
+    velRadS: milli('vel_mrad_s'),
+    velAvgRadS: milli('vel_avg_mrad_s'),
+    iqRefMa: get(m, 'iq_ref_ma'),
+    iqSatRatio: ticks !== null && sat !== null && ticks > 0 ? sat / ticks : null,
+    leftMs: get(m, 'left_ms'),
+    kpMaRadS: milli('kp_ua_rad_s'),
+  };
+}
+
 export interface FocStatus {
   valid: boolean;
   cfg: boolean;

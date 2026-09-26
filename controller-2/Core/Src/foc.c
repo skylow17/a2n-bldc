@@ -48,6 +48,13 @@ static float    s_sum_id, s_sum_iq;
 static uint32_t s_cl_ticks, s_sat_ticks;
 static float    s_vd, s_vq;
 
+/* Boucle de vitesse, au-dessus de la boucle de courant : elle n'écrit que `s_iq_ref`. Même
+ * règle de propriété — l'ISR seule une fois `s_sl_active` levé. */
+static volatile bool s_sl_active;
+static float    s_w_ref, s_w_int, s_w_last, s_w_sum;
+static uint32_t s_sl_ticks, s_iq_sat_ticks;
+static float    s_sl_kp, s_sl_ki_ts;   /* A par rad/s ; A par rad, fois Ts */
+
 /* Cosinus et sinus d'un angle en tours, [0, 1). Le CORDIC prend l'angle en Q1.31 sur
  * [−π, π) : un tour vaut 2^32, et la conversion en entier signé replie d'elle-même
  * [½, 1) sur [−½, 0). Deux arguments écrits — l'angle puis le module 1 — et deux résultats
@@ -238,8 +245,32 @@ static void Regulate(float c, float s, float id, float iq)
   Pwm_SetDutyRaw((uint16_t)(da * arr1), (uint16_t)(db * arr1), (uint16_t)(dc * arr1));
 }
 
+/* Un passage de la boucle de vitesse : PI, plafond d'Iq, intégrateur figé quand il mord.
+ * Le couple suit Iq dans le sens électrique ; en mécanique, il suit le signe de `sens` —
+ * −1 sur ce moteur, où un Iq positif fait tourner l'arbre en arrière (étape 11). */
+static void SpeedTick(float vel)
+{
+  const float dir = (s_cfg.k < 0.0f) ? -1.0f : 1.0f;
+  const float e = s_w_ref - vel;
+  const float integ = s_w_int + (s_sl_ki_ts * e);
+  float u = (s_sl_kp * e) + integ;
+  if (u > FOC_SL_IQ_MAX_A) {
+    u = FOC_SL_IQ_MAX_A;
+    s_iq_sat_ticks++;
+  } else if (u < -FOC_SL_IQ_MAX_A) {
+    u = -FOC_SL_IQ_MAX_A;
+    s_iq_sat_ticks++;
+  } else {
+    s_w_int = integ;
+  }
+  s_iq_ref = dir * u;
+  s_w_last = vel;
+  s_w_sum += vel;
+  s_sl_ticks++;
+}
+
 void Foc_OnControlTick(int16_t ia, int16_t ib, int16_t ic, bool enc_ok, float turn,
-                       Foc_Meas_t *out)
+                       float vel_rad_s, Foc_Meas_t *out)
 {
   const bool  ok      = s_cfg.ok;
   const float offset  = s_cfg.offset_turns;
@@ -248,6 +279,7 @@ void Foc_OnControlTick(int16_t ia, int16_t ib, int16_t ic, bool enc_ok, float tu
 
   out->vd_v = 0.0f;
   out->vq_v = 0.0f;
+  out->iq_ref_a = 0.0f;
 
   if (!ok || !enc_ok) {
     out->valid       = false;
@@ -258,6 +290,7 @@ void Foc_OnControlTick(int16_t ia, int16_t ib, int16_t ic, bool enc_ok, float tu
     /* Sans angle, la boucle commuterait à l'aveugle : elle coupe, et c'est une faute. */
     if (s_cl_active) {
       s_cl_active = false;
+      s_sl_active = false;
       Safety_Cut(SAFETY_ANGLE_LOST);
     }
     return;
@@ -297,8 +330,13 @@ void Foc_OnControlTick(int16_t ia, int16_t ib, int16_t ic, bool enc_ok, float tu
      * watchdog, `STOP`. La boucle s'arrête avec elles, et ne repartira pas seule. */
     if (!Pwm_IsEnabled()) {
       s_cl_active = false;
+      s_sl_active = false;
     } else {
+      if (s_sl_active) {
+        SpeedTick(vel_rad_s);
+      }
       Regulate(c, s, out->id_a, out->iq_a);
+      out->iq_ref_a = s_iq_ref;
       s_sum_id += out->id_a;
       s_sum_iq += out->iq_a;
       s_cl_ticks++;
@@ -357,9 +395,54 @@ Foc_ClResult_t Foc_ClStart(int32_t id_ma, int32_t iq_ma, uint32_t ms, SafetyEnab
   return FOC_CL_OK;
 }
 
+Foc_ClResult_t Foc_SlStart(int32_t mrad_s, uint32_t ms, float bw_hz, SafetyEnable_t *enable)
+{
+  if ((mrad_s > FOC_SL_MAX_MRAD_S) || (mrad_s < -FOC_SL_MAX_MRAD_S)
+      || !(bw_hz >= (float)FOC_SL_BW_MIN_HZ) || !(bw_hz <= (float)FOC_SL_BW_MAX_HZ)) {
+    return FOC_CL_ERR_LIMIT;
+  }
+  if (Pwm_IsEnabled()) {
+    return FOC_CL_ERR_BUSY;
+  }
+  s_w_ref        = (float)mrad_s * 1e-3f;
+  s_w_int        = 0.0f;
+  s_w_last       = 0.0f;
+  s_w_sum        = 0.0f;
+  s_sl_ticks     = 0U;
+  s_iq_sat_ticks = 0U;
+  /* Kp = ωs · B ; zéro de l'intégrateur à ωs/4. */
+  const float ws = 2.0f * 3.14159265f * bw_hz;
+  s_sl_kp    = ws * FOC_SL_B_A_S2_RAD;
+  s_sl_ki_ts = s_sl_kp * ws * 0.25f * FOC_TS_S;
+  /* Levé avant la boucle de courant : son premier passage régulé calcule déjà Iq. Sorties
+   * coupées, l'ISR ne lit pas ce drapeau. */
+  s_sl_active = true;
+  const Foc_ClResult_t r = Foc_ClStart(0, 0, ms, enable);
+  if (r != FOC_CL_OK) {
+    s_sl_active = false;
+  }
+  return r;
+}
+
+void Foc_SlGetStatus(Foc_SlStatus_t *out)
+{
+  __disable_irq();
+  out->active       = s_sl_active;
+  out->ref          = s_w_ref;
+  out->vel          = s_w_last;
+  out->vel_avg      = (s_sl_ticks > 0U) ? (s_w_sum / (float)s_sl_ticks) : 0.0f;
+  out->iq_ref       = s_iq_ref;
+  out->ticks        = s_sl_ticks;
+  out->iq_sat_ticks = s_iq_sat_ticks;
+  out->kp           = s_sl_kp;
+  out->ki           = s_sl_ki_ts * (float)PWM_FREQ_HZ;
+  __enable_irq();
+}
+
 void Foc_ClStop(void)
 {
   s_cl_active = false;
+  s_sl_active = false;
   Safety_Cut(SAFETY_REQUESTED);    /* coupe sans désarmer : un arrêt voulu, pas une faute */
 }
 

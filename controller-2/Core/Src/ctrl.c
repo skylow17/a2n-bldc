@@ -71,7 +71,7 @@ void Ctrl_Isr(void)
    * coupure prise ici n'est jamais suivie d'une écriture de rapports. Les deux boucles ne
    * tournent jamais ensemble — chacune refuse de démarrer sorties actives. */
   Foc_Meas_t foc;
-  Foc_OnControlTick(cia, cib, cic, enc_ok, turn, &foc);
+  Foc_OnControlTick(cia, cib, cic, enc_ok, turn, vel_rad_s, &foc);
 
   /* L'angle que la boucle ouverte applique en ce moment, lu avant qu'elle ne pose celui du
    * passage suivant : c'est sous lui que les courants de ce passage ont été lus. */
@@ -102,6 +102,7 @@ void Ctrl_Isr(void)
   s_stats.foc_valid    = foc.valid ? 1U : 0U;
   s_stats.vd_v         = foc.vd_v;
   s_stats.vq_v         = foc.vq_v;
+  s_stats.iq_ref_a     = foc.iq_ref_a;
 
   s_stats.raw_ia = ia;
   s_stats.raw_ib = ib;
@@ -131,6 +132,7 @@ void Ctrl_Isr(void)
     .foc_valid = foc.valid ? 1U : 0U,
     .vd_v = foc.vd_v,
     .vq_v = foc.vq_v,
+    .iq_ref_a = foc.iq_ref_a,
   };
   Scope_OnControlTick(&snapshot);
 

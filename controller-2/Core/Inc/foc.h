@@ -42,6 +42,20 @@ extern "C" {
 #define FOC_L_MIN_H       1e-5f
 #define FOC_L_MAX_H       0.1f
 
+/* Boucle de vitesse, étape 12. Le modèle mécanique est une mesure : rotor libre, 48 mA d'Iq
+ * l'ont accéléré à ≈ 450 rad/s² le 2026-09-26 — il faut donc ≈ 1,1·10⁻⁴ A par rad/s². Un
+ * moteur chargé en demanderait plus : la bande passante réelle baisserait d'autant, sans
+ * instabilité. Kp = ωs · B, zéro de l'intégrateur à ωs/4 : ≈ 75° de marge de phase. */
+/* 30 Hz par défaut, choisi sur carte le 2026-09-26 : à 10 Hz, Kp ne donnait que 14 mA pour
+ * 2 rad/s d'erreur, moins que le décollage du rotor — adhérence-glissement, ±1,7 rad/s
+ * d'ondulation à 2 rad/s. À 30 Hz, ±0,6 rad/s, près du bruit de l'estimateur. */
+#define FOC_SL_BW_HZ        30.0f      /**< par défaut ; `SL` en accepte une autre       */
+#define FOC_SL_BW_MIN_HZ    1L
+#define FOC_SL_BW_MAX_HZ    40L        /**< ≈ 50° de marge avec le filtre de vitesse     */
+#define FOC_SL_B_A_S2_RAD   1.1e-4f
+#define FOC_SL_MAX_MRAD_S   20000L     /**< sous la coupure en survitesse, 25 rad/s      */
+#define FOC_SL_IQ_MAX_A     0.15f      /**< plafond de la consigne d'Iq                  */
+
 typedef struct
 {
   bool  valid;       /**< angle valide et paramètres moteur plausibles                */
@@ -50,6 +64,7 @@ typedef struct
   float iq_a;        /**< courant d'axe q                                               */
   float vd_v;        /**< tension d'axe d demandée, 0 hors boucle de courant            */
   float vq_v;        /**< tension d'axe q demandée                                      */
+  float iq_ref_a;    /**< consigne d'Iq, celle de `CL` ou de la boucle de vitesse       */
 } Foc_Meas_t;
 
 typedef enum
@@ -85,9 +100,10 @@ void Foc_Init(void);
  *  dictionnaire directement : elle ne voit qu'un jeu cohérent, posé d'un seul coup. */
 void Foc_Process(void);
 
-/** ISR 20 kHz. Courants en counts corrigés, `turn` l'angle mécanique absolu en tours. */
+/** ISR 20 kHz. Courants en counts corrigés, `turn` l'angle mécanique absolu en tours,
+ *  `vel_rad_s` la vitesse mécanique estimée — celle que régule la boucle de vitesse. */
 void Foc_OnControlTick(int16_t ia, int16_t ib, int16_t ic, bool enc_ok, float turn,
-                       Foc_Meas_t *out);
+                       float vel_rad_s, Foc_Meas_t *out);
 
 /** Lance la boucle de courant. Depuis la superloop, mêmes barrières que la boucle ouverte.
  *  @param enable rempli avec le refus de la barrière quand le résultat est `FOC_CL_ERR_ENABLE`. */
@@ -97,6 +113,25 @@ Foc_ClResult_t Foc_ClStart(int32_t id_ma, int32_t iq_ma, uint32_t ms, SafetyEnab
 void Foc_ClStop(void);
 
 void Foc_ClGetStatus(Foc_ClStatus_t *out);
+
+typedef struct
+{
+  bool     active;
+  float    ref;           /**< rad/s */
+  float    vel;           /**< dernière vitesse vue, rad/s */
+  float    vel_avg;       /**< moyenne depuis le départ, rad/s */
+  float    iq_ref;        /**< A */
+  uint32_t ticks;
+  uint32_t iq_sat_ticks;  /**< passages où le plafond d'Iq a mordu */
+  float    kp;            /**< A par rad/s */
+  float    ki;            /**< A par rad */
+} Foc_SlStatus_t;
+
+/** Lance la boucle de vitesse — la boucle de courant dessous, Id à zéro. Mêmes refus que
+ *  `Foc_ClStart`, plus `FOC_CL_ERR_LIMIT` au-delà de `FOC_SL_MAX_MRAD_S`. */
+Foc_ClResult_t Foc_SlStart(int32_t mrad_s, uint32_t ms, float bw_hz, SafetyEnable_t *enable);
+
+void Foc_SlGetStatus(Foc_SlStatus_t *out);
 
 /** Dernière mesure de l'ISR, copiée d'un bloc. */
 void Foc_GetMeas(Foc_Meas_t *out);

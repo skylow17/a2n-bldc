@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { parseCl, parseFoc, parseKv, parseOl } from '../controlStatus.js';
+import { parseCl, parseFoc, parseKv, parseOl, parseSl } from '../controlStatus.js';
 
 describe('réponses d état de la vue Control', () => {
   it('refuse ce qui n est pas une réponse OK', () => {
@@ -29,6 +29,17 @@ describe('réponses d état de la vue Control', () => {
   it('ne fabrique pas de saturation avant le premier passage', () => {
     const s = parseCl('OK active=0 id_ref_ma=100 iq_ref_ma=0 sat_ticks=0 ticks=0')!;
     expect(s.satRatio).toBeNull();
+  });
+
+  it('lit SL? en rad/s', () => {
+    const s = parseSl(
+      'OK active=0 ref_mrad_s=15000 vel_mrad_s=15210 vel_avg_mrad_s=14931 iq_ref_ma=-12 ' +
+        'iq_sat_ticks=164 ticks=29999 left_ms=0 kp_ua_rad_s=20734 ki_ua_rad=977090',
+    )!;
+    expect(s.refRadS).toBe(15);
+    expect(s.velAvgRadS).toBeCloseTo(14.931);
+    expect(s.iqSatRatio).toBeCloseTo(164 / 29999);
+    expect(s.kpMaRadS).toBeCloseTo(20.734);
   });
 
   it('lit OL? en hertz', () => {

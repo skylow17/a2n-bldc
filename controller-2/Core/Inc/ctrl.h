@@ -38,6 +38,7 @@ typedef struct
   uint8_t  foc_valid;      /**< 1 quand les trois précédents sont une mesure        */
   float    vd_v;           /**< tension d'axe d demandée, 0 hors boucle de courant  */
   float    vq_v;           /**< tension d'axe q demandée                            */
+  float    iq_ref_a;       /**< consigne d'Iq, 0 hors boucle de courant             */
 } Ctrl_Stats_t;
 
 void Ctrl_Init(void);

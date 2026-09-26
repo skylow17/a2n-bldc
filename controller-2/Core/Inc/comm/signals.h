@@ -74,6 +74,7 @@ typedef struct
   uint8_t  foc_valid;    /**< 1 quand les trois premiers sont une mesure        */
   float    vd_v;         /**< tension d'axe d demandee                          */
   float    vq_v;         /**< tension d'axe q demandee                          */
+  float    iq_ref_a;     /**< consigne d'Iq                                     */
 } Signal_Snapshot_t;
 
 /**
