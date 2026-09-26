@@ -19,6 +19,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { DeviceSnapshot } from '../../main/device/DeviceCore.js';
 import type { SignalDesc } from '../../shared/protocol.js';
 import { TimeSeriesChart, groupByUnit, seriesColor, type YMode } from './Chart.js';
+import { captureFileName, captureToCsv } from '../scopeExport.js';
 import { ChartStack } from './ChartStack.js';
 import { Button, Dot, Empty, Panel } from './ui.js';
 import {
@@ -69,6 +70,7 @@ export function LiveTelemetry({ state }: { state: DeviceSnapshot }): ReactNode {
   const [windowS, setWindowS] = useState<number>(5);
   const [yMode, setYMode] = useState<YMode>('auto');
   const [split, setSplit] = useState(false);
+  const [fit, setFit] = useState(0);
   const { busy, error, run } = useAction();
 
   const connected = state.connection === 'connected';
@@ -112,6 +114,37 @@ export function LiveTelemetry({ state }: { state: DeviceSnapshot }): ReactNode {
       alive = false;
     };
   }, [connected]);
+
+  /* Instantané figé du tampon, pris quand le flux s'arrête.
+   *
+   * Tant que le flux tourne, le graphe lit le tampon lui-même à chaque image et impose son
+   * échelle des temps — c'est ce qui le fait défiler, et c'est aussi ce qui effaçait tout
+   * zoom. Figé, il reçoit une copie une fois pour toutes, par le chemin des captures scope :
+   * une source statique, où zoom, molette et déplacement tiennent. La copie ne coûte qu'une
+   * fois, au gel ; le tampon ne bouge plus, faute de trames. */
+  const frozen = useMemo(() => {
+    if (streaming || !has) return null;
+    const b = buf.current;
+    return { t: b.t.slice(), series: b.series.map((s) => s.slice()) };
+    // `buf` est une référence stable : c'est le passage à l'arrêt qui compte.
+  }, [streaming, has]);
+
+  const exportCsv = (): void => {
+    if (frozen === null) return;
+    void run(async () => {
+      await api().saveText(
+        captureFileName(frozen.t.length, new Date(), 'telemetry'),
+        captureToCsv({
+          // Le tampon compte en secondes depuis le début du flux ; le CSV, en millisecondes,
+          // comme celui du scope.
+          t: frozen.t.map((s) => s * 1000),
+          series: frozen.series,
+          names: signalNames,
+          units,
+        }),
+      );
+    });
+  };
 
   /* Regroupement par unité — une échelle verticale par graphe. L'indice porté ici est
    * celui de la série dans le tampon, pas celui du dictionnaire. */
@@ -176,9 +209,17 @@ export function LiveTelemetry({ state }: { state: DeviceSnapshot }): ReactNode {
         </>
       )}
       {!streaming && has && (
-        <span className="font-mono text-[11px] text-accent">
-          <Dot tone="warn" /> frozen · {buf.current.t.length} pts
-        </span>
+        <>
+          <span className="font-mono text-[11px] text-accent">
+            <Dot tone="warn" /> frozen · {buf.current.t.length} pts
+          </span>
+          <Button onClick={() => setFit((n) => n + 1)} title="Fit the whole run back in the frame">
+            Fit
+          </Button>
+          <Button onClick={exportCsv} disabled={busy} title="Save the frozen run as CSV">
+            Export CSV
+          </Button>
+        </>
       )}
       {streaming && (
         <span className="font-mono text-[11px] text-fg-3">
@@ -314,15 +355,28 @@ export function LiveTelemetry({ state }: { state: DeviceSnapshot }): ReactNode {
             <>
           {groups.map(([groupKey, indices], g) => (
             <TimeSeriesChart
-              key={groupKey}
-              /* Les données n'arrivent pas par les props : le graphe lit le tampon
+              /* Une autre clef une fois figé : le graphe passe d'une source vivante à une
+                 source statique, et c'est un autre graphe. */
+              key={frozen === null ? groupKey : `${groupKey}~frozen`}
+              /* En flux, les données n'arrivent pas par les props : le graphe lit le tampon
                  lui-même, une fois par trame d'affichage. Voir `feed` dans Chart.tsx. */
-              t={EMPTY_NUMS}
-              series={EMPTY_SERIES}
-              feed={() => ({
-                t: buf.current.t,
-                series: indices.map((i) => buf.current.series[i] ?? EMPTY_NUMS),
-              })}
+              t={frozen === null ? EMPTY_NUMS : frozen.t}
+              series={frozen === null
+                ? EMPTY_SERIES
+                : indices.map((i) => frozen.series[i] ?? EMPTY_NUMS)}
+              {...(frozen === null
+                ? {
+                    feed: () => ({
+                      t: buf.current.t,
+                      series: indices.map((i) => buf.current.series[i] ?? EMPTY_NUMS),
+                    }),
+                  }
+                : {})}
+              /* Figé, la navigation d'une capture : la raison de la refuser — une courbe
+                 qui défile décroche sous la sélection — tombe avec le flux. */
+              interactive={frozen !== null}
+              syncKey={frozen !== null ? 'telemetry' : null}
+              resetZoom={fit}
               /* Fige : on montre tout ce qui a ete capture, sans fenetre glissante — sinon
                  la fin de l'evenement qu'on voulait examiner resterait hors cadre. */
               xWindow={streaming ? windowS : null}
@@ -343,7 +397,7 @@ export function LiveTelemetry({ state }: { state: DeviceSnapshot }): ReactNode {
               : 'One vertical scale per unit: signals sharing a unit are comparable, the others are only juxtaposed.'}{' '}
             {streaming
               ? `Showing the last ${windowS} s; the buffer holds ${buf.current.t.length} points.`
-              : `Frozen: all ${buf.current.t.length} captured points. Press Start for a new run.`}
+              : `Frozen: all ${buf.current.t.length} captured points. Drag to zoom, scroll to zoom around the pointer, shift-drag to pan, double-click or Fit to see it all; Export CSV saves it. Press Start for a new run.`}
           </p>
             </>
           )}

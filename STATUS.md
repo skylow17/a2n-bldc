@@ -32,9 +32,9 @@ Dernière revue : 2026-09-26, sur carte — M2 complet ; M3 complet rotor libre 
 > coupure ne passe pas par le SPI, mais on ne saurait ni lire une faute ni régler le gain
 > des amplis.
 >
-> **Côté interface, deux fonctions manquent** et sont notées pour la reprise : naviguer
-> dans la télémétrie figée comme dans une capture, et l'exporter en CSV. Détail et ordre
-> dans « À reprendre sur l'interface ».
+> **Côté interface, les deux fonctions qui manquaient** — naviguer dans la télémétrie figée
+> et l'exporter en CSV — sont faites depuis le 2026-09-26 ; voir « À reprendre sur
+> l'interface ».
 >
 > Côté logiciel, rien n'attend. Le **watchdog de flux de commandes** est en place des deux
 > côtés et éprouvé sur carte : c'était le dernier prérequis de M3 (`AGENTS.md` §4.3). Le
@@ -1265,6 +1265,15 @@ dans aucun firmware, il n'y a rien à interroger.
 
 Deux manques identifiés à l'usage, après la passe sur la fluidité et la mise en page. Ni
 l'un ni l'autre n'est un défaut : ce sont des fonctions qui manquent.
+
+**Fait le 2026-09-26 — les deux points ci-dessous.** Figée, la télémétrie passe du chemin
+vivant au chemin statique des captures : une copie du tampon prise au gel, avec zoom par
+sélection, molette, déplacement, graphes synchronisés et un bouton *Fit*. Il fallait
+davantage que « passer `interactive` » : la boucle d'affichage du flux réimposait l'échelle des
+temps à chaque image, et aurait effacé tout zoom. L'export CSV passe par `scopeExport.ts`,
+généralisé plutôt que dupliqué — même format, temps en millisecondes depuis le début du flux,
+nom de fichier `a2n-telemetry-…`. Vérifié par le typecheck et les tests, **pas encore à l'œil
+dans l'application**.
 
 **Naviguer dans la télémétrie figée comme dans une capture scope.** L'arrêt du flux fige
 désormais les données au lieu de les effacer, ce qui était le prérequis. Mais une fois figé,

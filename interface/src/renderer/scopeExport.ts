@@ -1,5 +1,6 @@
 /**
- * Export d'une capture scope en CSV.
+ * Export en CSV d'une capture scope ou d'une télémétrie figée — la même forme de données, et
+ * donc le même module plutôt que deux qui divergeraient.
  *
  * Un tableau et rien d'autre : une colonne de temps, une colonne par signal, pas de lignes
  * de commentaire en tête. Un en-tête décoratif oblige chaque outil qui relit le fichier à
@@ -10,7 +11,8 @@
  */
 
 export interface ScopeExport {
-  /** Temps de chaque point, en millisecondes relatives au déclenchement. */
+  /** Temps de chaque point, en millisecondes — relatives au déclenchement pour le scope, au
+   *  début du flux pour la télémétrie. */
   t: readonly number[];
   /** Une série par signal, alignée sur `t`. */
   series: ReadonlyArray<readonly number[]>;
@@ -62,10 +64,14 @@ export function captureToCsv(capture: ScopeExport): string {
  * d'une même session de réglage — et qu'une boîte de dialogue qui propose toujours le même
  * nom conduit à écraser la capture précédente.
  */
-export function captureFileName(sampleCount: number, at = new Date()): string {
+export function captureFileName(
+  sampleCount: number,
+  at = new Date(),
+  kind: 'scope' | 'telemetry' = 'scope',
+): string {
   const p = (n: number): string => String(n).padStart(2, '0');
   const stamp =
     `${at.getFullYear()}${p(at.getMonth() + 1)}${p(at.getDate())}` +
     `-${p(at.getHours())}${p(at.getMinutes())}${p(at.getSeconds())}`;
-  return `a2n-scope-${stamp}-${sampleCount}pts.csv`;
+  return `a2n-${kind}-${stamp}-${sampleCount}pts.csv`;
 }

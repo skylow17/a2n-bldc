@@ -72,4 +72,10 @@ describe('captureFileName', () => {
     const name = captureFileName(2048, new Date(2026, 8, 16, 14, 5, 9));
     expect(name).toBe('a2n-scope-20260916-140509-2048pts.csv');
   });
+
+  it('distingue une télémétrie figée d une capture scope', () => {
+    // Même module pour les deux exports : le nom dit lequel on relit.
+    const name = captureFileName(1500, new Date(2026, 8, 26, 20, 1, 2), 'telemetry');
+    expect(name).toBe('a2n-telemetry-20260926-200102-1500pts.csv');
+  });
 });
