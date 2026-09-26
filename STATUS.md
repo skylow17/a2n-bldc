@@ -1423,7 +1423,7 @@ angle. Aucune coupure sur tout l'essai, rien de latché.
 
 **Étape 9 — 7 paires de pôles.** 51,68 à 51,72° mécaniques par tour électrique, pour 51,43°
 attendus : p = 6,960 ; 6,966 ; 6,965, et 6,962 après un redémarrage. **Valeur entière stable
-sur quatre essais**, c'est le critère. L'aller et le retour se superposent à moins de 0,35°,
+sur quatre essais**, c'est le critère. L'aller et le retour se superposent à 0,46° au pire, 0,15° en moyenne,
 et le rotor revient à son départ à 0,17° près : il suit le champ sans sauter de dent.
 **Sens inverse** : quand l'angle électrique croît, l'angle mécanique lu décroît.
 
@@ -1469,7 +1469,8 @@ le firmware n'avait **aucune limite de courant**.
   (prévu ≈ 2,0 A ; **≈ 0,9 A réels** d'après l'étape 7) coupe `MOE` dans le cycle même, faute `overcurrent` latchée. Seconde ligne : la
   première est la limite de courant de l'alimentation, parce que 50 µs entre deux
   échantillons suffisent à un bobinage peu inductif pour dépasser la limite.
-- **Rapports cycliques bornés** : 0 à 900 ‰ par bras, 100 ‰ d'écart au plus (1,5 V sous
+- **Rapports cycliques bornés** : 0 à 900 ‰ par bras — *abaissé à 800 ‰ le même jour, avec
+  l'échantillonnage allongé* —, 100 ‰ d'écart au plus (1,5 V sous
   15 V). Le plafond garde 5 µs de conduction basse autour de l'échantillonnage — au-delà le
   courant ne serait plus mesuré, donc plus surveillé.
 - **`PWM.PULSE <a> <b> <c> <ms>`**, 1 à 200 ms décomptés dans l'ISR, sous le watchdog de
@@ -1508,7 +1509,8 @@ aussi transistors bas conducteurs. Le vrai zéro de fonctionnement est la lectur
 ≈ 16/8/9 counts au-dessus du zéro `CAL`. Négligeable pour la limite ; **à reprendre avant la
 boucle de courant**, en calibrant hors `CAL`, sorties coupées.
 
-**Le moteur.** ≈ 7 Ω de A vers B ∥ C, soit ≈ 4,7 Ω par phase : un moteur de type gimbal. Le
+**Le moteur.** ≈ 7 Ω de A vers B ∥ C, soit ≈ 4,7 Ω par phase — *estimation faussée par le
+temps mort et par l'échelle nominale, remplacée par l'étape 7 : ≈ 3,6 Ω par phase*. Le
 rotor s'aligne à chaque impulsion (jusqu'à 0,6 rad), puis revient partiellement à la coupure.
 Pour une mesure en régime, on répète chaque impulsion et on garde la seconde, rotor déjà
 aligné.
@@ -1521,7 +1523,7 @@ firmware — efficace ici, parce que l'inductance borne la montée par période 
 limite.
 
 **Le critère Ia + Ib + Ic ≈ 0 échoue, et le défaut est dans la mesure.** La somme se tenait à
-30 ‰ d'écart, et s'en écartait de 22 % à 100 ‰. Deux causes, trouvées dans cet ordre :
+30 ‰ d'écart, et s'en écartait de 22 à 24 % à 100 ‰ selon la fenêtre d'analyse. Deux causes, trouvées dans cet ordre :
 
 1. **Le temps d'échantillonnage** des voies injectées, 6,5 cycles (180 ns), jamais réglé sur
    une source réelle. Porté à 47,5 cycles (1,32 µs) : le cas A dominant passe de 22 % à 4 %.
@@ -1536,7 +1538,7 @@ limite.
    |---|---|
    | A | 1 |
    | B | **0,66** |
-   | C | **1,18** |
+   | C | **1,195** |
 
    Corrigés de ces gains, **les trois bobinages sont égaux à 7 % près** : le moteur est sain.
    Un écart de 1,8 entre B et C est hors de portée des amplis du DRV8304, dont le gain est
