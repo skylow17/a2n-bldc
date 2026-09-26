@@ -16,6 +16,8 @@
  */
 #include "imot.h"
 
+#include "pwm.h"
+
 #include "board.h"
 #include "drv8304.h"
 #include "stm32g4xx_hal.h"
@@ -55,6 +57,11 @@ void Imot_Init(void)
 bool Imot_StartCampaign(uint32_t samples, bool store, bool use_cal_pin)
 {
   if ((samples == 0UL) || (samples > IMOT_CAL_MAX_SAMPLES) || (s_left != 0U)) {
+    return false;
+  }
+  /* Lever `CAL` sorties actives rendrait la surveillance du courant aveugle : les amplis ne
+   * verraient plus les shunts. Le zéro se mesure sorties coupées, ou pas du tout. */
+  if (use_cal_pin && Pwm_IsEnabled()) {
     return false;
   }
   s_cal_pin = use_cal_pin;

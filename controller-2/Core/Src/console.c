@@ -131,6 +131,21 @@ static void CmdDrvStatus(void)
 
 /* ---------------------------------------------------------------- PWM à vide (M2, étape 3) */
 
+/* Traduit le refus de la barrière en réponse console. Une cause par code : un refus qu'on
+ * ne sait pas expliquer pousse à réessayer, et réessayer n'est pas la bonne réponse. */
+static void ReplyEnable(SafetyEnable_t r)
+{
+  switch (r) {
+    case SAFETY_EN_OK:      Reply("OK");          break;
+    case SAFETY_EN_LATCHED: Reply("ERR LATCHED"); break;
+    case SAFETY_EN_NOZERO:  Reply("ERR NOZERO");  break;
+    case SAFETY_EN_CAL:     Reply("ERR CAL");     break;
+    case SAFETY_EN_CSA:     Reply("ERR CSA");     break;
+    case SAFETY_EN_LINK:
+    default:                Reply("ERR LINK");    break;
+  }
+}
+
 /* `PWM ON` lève MOE ; `PWM OFF` le coupe ; `PWM <a> <b> <c>` pose les rapports cycliques en
  * pour mille. Les rapports se posent MOE coupé ou levé, indifféremment : les CCR sont
  * préchargés. Lever MOE exige un driver qui répond et aucune faute — sans quoi on
@@ -149,15 +164,9 @@ static void CmdPwm(const char *arg)
       Reply("ERR FAULT");
       return;
     }
-    /* Seule voie d'activation : la barrière connaît l'hôte et la faute latchée, et
-     * repart d'un délai de watchdog neuf. */
-    if (!Safety_EnableOutputs()) {
-      SafetyStatus_t sf;
-      Safety_GetStatus(&sf);
-      Link_TxPrintf("ERR %s\r\n", sf.latched ? "LATCHED" : "LINK");
-      return;
-    }
-    Reply("OK");
+    /* Seule voie d'activation : la barrière connaît l'hôte, la faute latchée et l'état
+     * de la surveillance du courant, et repart d'un délai de watchdog neuf. */
+    ReplyEnable(Safety_EnableOutputs(0U));
     return;
   }
   if (strcasecmp(arg, "OFF") == 0) {
@@ -182,11 +191,64 @@ static void CmdPwm(const char *arg)
     Reply("ERR ARG");
     return;
   }
+  if (!Pwm_TestDutyOk((uint16_t)d[0], (uint16_t)d[1], (uint16_t)d[2])) {
+    Reply("ERR LIMIT");
+    return;
+  }
   Pwm_SetDutyPermille((uint16_t)d[0], (uint16_t)d[1], (uint16_t)d[2]);
   Reply("OK");
 }
 
-/* `DRV.REG <addr>` lit, `DRV.REG <addr> <value>` écrit puis relit. Hexadécimal libre. */
+/* `PWM.PULSE <a> <b> <c> <ms>` — l'essai de l'étape 5. Les rapports se posent, `MOE` se
+ * lève, et c'est l'ISR qui le rabaisse au terme : la durée ne dépend ni de l'hôte ni de la
+ * superloop. Les mêmes contrôles que `PWM ON`, dans le même ordre. */
+static void CmdPwmPulse(const char *arg)
+{
+  unsigned long v[4];
+  const char *p = arg;
+  char *end = NULL;
+  for (int i = 0; i < 4; i++) {
+    v[i] = strtoul(p, &end, 10);
+    if (end == p) {
+      Reply("ERR ARG");
+      return;
+    }
+    p = end;
+    while (*p == ' ') { p++; }
+  }
+  if ((*p != '\0') || (v[3] == 0UL) || (v[3] > SAFETY_PULSE_MAX_MS) ||
+      (v[0] > 1000UL) || (v[1] > 1000UL) || (v[2] > 1000UL)) {
+    Reply("ERR ARG");
+    return;
+  }
+  if (!Pwm_TestDutyOk((uint16_t)v[0], (uint16_t)v[1], (uint16_t)v[2])) {
+    Reply("ERR LIMIT");
+    return;
+  }
+  if (Pwm_IsEnabled()) {
+    Reply("ERR BUSY");        /* une impulsion ne se greffe pas sur des sorties déjà actives */
+    return;
+  }
+  Drv8304_Status_t st;
+  if (!Drv8304_ReadFaults()) {
+    Reply("ERR DRV");
+    return;
+  }
+  Drv8304_GetStatus(&st);
+  if (st.nfault_low || ((st.fault_status_1 & DRV_FS1_FAULT) != 0U)) {
+    Reply("ERR FAULT");
+    return;
+  }
+  Pwm_SetDutyPermille((uint16_t)v[0], (uint16_t)v[1], (uint16_t)v[2]);
+  /* Les CCR sont préchargés : on laisse passer une mise à jour pour qu'ils soient en place
+   * avant que `MOE` ne se lève. Une période PWM fait 50 µs ; 1 ms est large et invisible. */
+  HAL_Delay(1U);
+  ReplyEnable(Safety_EnableOutputs((uint32_t)v[3]));
+}
+
+/* `DRV.REG <addr>` lit, `DRV.REG <addr> <value>` écrit puis relit. Hexadécimal libre.
+ * Écriture refusée sorties actives : un gain d'ampli changé en marche changerait la limite
+ * de courant en ampères sans toucher à son chiffre. */
 static void CmdDrvReg(const char *arg)
 {
   char *end = NULL;
@@ -197,6 +259,10 @@ static void CmdDrvReg(const char *arg)
   }
   while (*end == ' ') { end++; }
   if (*end != '\0') {
+    if (Pwm_IsEnabled()) {
+      Reply("ERR LIVE");
+      return;
+    }
     char *end2 = NULL;
     const unsigned long value = strtoul(end, &end2, 16);
     if ((end2 == end) || (value > DRV_DATA_MASK)) {
@@ -1027,8 +1093,13 @@ void Console_ExecuteLine(const char *line)
   } else if (Match(line, "PWM?", NULL)) {
     uint16_t a, b, c;
     Pwm_GetDutyPermille(&a, &b, &c);
-    Link_TxPrintf("OK enabled=%u a=%u b=%u c=%u host=%u\r\n", Pwm_IsEnabled() ? 1U : 0U,
-                  a, b, c, Link_HostAttached() ? 1U : 0U);
+    uint16_t pk[3];
+    Safety_GetPeaks(pk);
+    Link_TxPrintf("OK enabled=%u a=%u b=%u c=%u host=%u peak=%u,%u,%u\r\n",
+                  Pwm_IsEnabled() ? 1U : 0U, a, b, c, Link_HostAttached() ? 1U : 0U,
+                  pk[0], pk[1], pk[2]);
+  } else if (Match(line, "PWM.PULSE", &arg)) {
+    CmdPwmPulse(arg);
   } else if (Match(line, "PWM", &arg)) {
     CmdPwm(arg);
   } else if (Match(line, "ADC.HOLD", &arg)) {
@@ -1122,7 +1193,11 @@ void Console_ExecuteLine(const char *line)
     /* CAL haut : les trois CSA court-circuitent leurs entrees et sortent leur offset seul,
      * autour de VREF/2. C'est la seule source stable tant que les transistors bas ne
      * conduisent pas — sinon le shunt n'est relie qu'a une source de MOSFET ouverte. */
-    if (strcasecmp(arg, "ON") == 0)       { Drv8304_SetCal(true);  Reply("OK"); }
+    /* Refusé sorties actives : `CAL` levé aveuglerait la surveillance du courant. */
+    if (strcasecmp(arg, "ON") == 0) {
+      if (Pwm_IsEnabled()) { Reply("ERR LIVE"); }
+      else                 { Drv8304_SetCal(true); Reply("OK"); }
+    }
     else if (strcasecmp(arg, "OFF") == 0) { Drv8304_SetCal(false); Reply("OK"); }
     else                                  { Reply("ERR ARG"); }
   } else if (Match(line, "DRV.CLR", NULL)) {

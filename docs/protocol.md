@@ -481,8 +481,8 @@ commande d'arrêt et ses raisons doivent préexister au danger.
 
 | Commande | Réponse | Rôle |
 |---|---|---|
-| `SAFETY?` | `OK reason=<nom> latched=<0\|1> outputs=<0\|1> since_cmd_ms=<ms> trips=<n> host=<0\|1>` | État de la barrière. `reason` vaut `ok`, `host_gone`, `cmd_timeout`, `drv_fault` ou `requested`. `trips` compte les coupures du watchdog depuis le reset |
-| `FAULTCLR` | `OK` / `ERR CAUSE` | Acquitte la faute verrouillée. Échoue tant que la cause est encore là — un acquittement qui réussit alors que rien n'a changé n'acquitte rien |
+| `SAFETY?` | `OK reason=<nom> latched=<0\|1> outputs=<0\|1> since_cmd_ms=<ms> trips=<n> host=<0\|1>` | État de la barrière. `reason` vaut `ok`, `host_gone`, `cmd_timeout`, `drv_fault`, `overcurrent` ou `requested`. `trips` compte les coupures du watchdog depuis le reset. `overcurrent` : un courant centré a dépassé la limite du firmware, voir « PWM sous charge » |
+| `FAULTCLR` | `OK` / `ERR CAUSE` | Acquitte la faute verrouillée. Échoue tant que la cause est encore là — un acquittement qui réussit alors que rien n'a changé n'acquitte rien. Pour `drv_fault`, la cause est `nFAULT` encore basse ; pour `host_gone`, l'hôte absent |
 
 **Watchdog de flux de commandes.** Dès que les sorties de puissance sont actives, le firmware
 exige un message — n'importe lequel, trame binaire ou ligne ASCII, et même une trame au CRC
@@ -506,9 +506,9 @@ rapporte l'état, donc l'état rapporté est toujours celui de l'instant où l'h
 | `DRV.NCS` | `OK ncs=<0\|1> miso=<0\|1> verdict=<ALIVE\|MUTE\|TIED>` | `nCS` et `SDO` relus ensemble en entrée, tirages opposés — `nCS` vers le bas, `MISO` vers le haut. Aucune sortie n'est pilotée, donc aucun conflit possible. Sépare les deux lectures que `DRV.BITBANG` confond : un DRV qui répond à sa sélection, et deux lignes simplement reliées, qui donnent la même trace. `ALIVE` = lignes séparées et le composant a tiré `SDO` bas, donc le défaut est sur `SCLK` ou `SDI` ; `MUTE` = lignes séparées et le composant n'a pas répondu, donc son alimentation est en cause ; `TIED` = `nCS` reste haut malgré le tirage, donc il touche la ligne `SDO`. Restaure l'état posé par `Drv8304_Init` en sortant |
 | `DRV.BITBANG [<tx_hex>]` | `OK tx=<hex> cs=<0\|1> rise=<hex> fall=<hex> idle=<0\|1>` | Une trame de 16 bits pilotée à la main, ~10 µs par bit, `MISO` échantillonné aux **deux** fronts. Rend un oscilloscope inutile quand le périphérique matériel rend zéro sans qu'on sache pourquoi. `cs` est `MISO` juste après la descente de `nCS`, avant tout coup d'horloge : le DRV8304 ne pilote `SDO` que sélectionné, donc `cs=0` dit qu'il a pris la main et `cs=1` qu'il n'a rien vu. `fall` est ce que fait le périphérique en mode 1 ; si `rise` porte une valeur sensée alors que `fall` est nul, le défaut est un demi-coup d'horloge de décalage, donc une erreur de mode et non un fil |
 | `DRV.LOOP [<ms>]` | `OK reads=<n> ok=<n> last=<hex> ms=<n>` | Martèle une lecture de registre pendant quelques secondes, pour qu'un oscilloscope puisse déclencher sur les lignes du SPI. Une lecture isolée dure 15 µs et ne se rattrape pas à la main. `ok` compte les échanges abou[]tis au niveau du périphérique, `last` ce qu'ils ont rendu : les deux ensemble distinguent un bus muet d'un bus qui répond n'importe quoi. Plafonné à 20 s |
-| `DRV.REG <addr> [<value>]` | `OK reg=<a> value=<hex>` | Lecture, ou écriture puis relecture, d'un registre brut. Hexadécimal, 11 bits |
+| `DRV.REG <addr> [<value>]` | `OK reg=<a> value=<hex>` | Lecture, ou écriture puis relecture, d'un registre brut. Hexadécimal, 11 bits. Écriture refusée sorties actives (`ERR LIVE`) : un gain d'ampli changé en marche changerait la limite de courant en ampères sans toucher à son chiffre |
 | `DRV.CLR` | `OK` / `ERR SPI` | Pulse `CLR_FLT` |
-| `DRV.CAL ON` / `OFF` | `OK` | Broche `CAL` : haut = entrées des trois CSA court-circuitées, sortie à VREF/2 + offset |
+| `DRV.CAL ON` / `OFF` | `OK` | Broche `CAL` : haut = entrées des trois CSA court-circuitées, sortie à VREF/2 + offset. `ON` refusé sorties actives (`ERR LIVE`) : les amplis ne verraient plus les shunts |
 
 **Mesures lentes et diagnostic d'acquisition** (M2, étape 4) :
 
@@ -536,15 +536,33 @@ rapporte l'état, donc l'état rapporté est toujours celui de l'instant où l'h
 Une faute matérielle (nFAULT bas) coupe `MOE` depuis l'interruption, sans dialogue SPI ; c'est
 `DRV?` qui dit ensuite pourquoi.
 
-**PWM à vide** (M2, étape 3) — les seules commandes qui mettent une sortie de puissance en
-activité avant M3, et elles ne valent qu'à vide, moteur débranché :
+**PWM sous charge** (M2, étape 5) — les seules commandes qui mettent une sortie de puissance en
+activité avant M3. Elles valaient à vide jusqu'au 2026-09-26 ; le moteur est désormais branché,
+et **trois limites du firmware** s'appliquent. Aucune ne se règle depuis l'hôte, aucune ne
+s'élargit pour faire passer un essai (`AGENTS.md` §4).
+
+- **Rapports cycliques bornés.** Chaque bras entre **0 et 900 ‰**, et **au plus 100 ‰
+  d'écart** entre deux bras. L'écart fixe la tension appliquée au bobinage — 100 ‰ font 1,5 V
+  sous 15 V. Le plafond de 900 ‰ garde au transistor bas une conduction d'au moins 5 µs autour
+  du sommet du comptage, où l'ADC échantillonne : au-delà, l'amplificateur n'a plus le temps
+  de s'établir (1,55 µs, fiche technique) et le courant ne serait plus mesuré — donc plus
+  surveillé. Refus : `ERR LIMIT`.
+- **Coupure sur surintensité, dans l'ISR.** Si un courant centré dépasse **500 counts**
+  (≈ 2,0 A : 20 V/V sur 10 mΩ, 4,03 mA par count) sur l'une des trois phases, `MOE` tombe dans
+  le cycle même et la faute `overcurrent` est latchée. C'est une seconde ligne : l'ISR ne voit
+  qu'un échantillon toutes les 50 µs, et un bobinage de faible inductance peut dépasser la
+  limite entre deux. **La première ligne est la limite de courant de l'alimentation de labo.**
+- **Pas d'activation sans zéro mesuré.** La surveillance compare le courant à l'offset de
+  la chaîne ; sans offset mesuré (`IMOT?` `measured=0`), elle ne voudrait rien dire. Refus :
+  `ERR NOZERO`.
 
 | Commande | Réponse | Rôle |
 |---|---|---|
-| `PWM <a> <b> <c>` | `OK` / `ERR ARG` | Rapports cycliques des trois bras en pour mille, 0..1000. Préchargés, s'appliquent ensemble à l'événement de mise à jour suivant, `MOE` levé ou non |
-| `PWM ON` | `OK` / `ERR DRV` / `ERR FAULT` / `ERR LINK` | Lève `MOE`. Refusé si le DRV8304 ne répond pas, s'il signale une faute, ou sans hôte |
+| `PWM <a> <b> <c>` | `OK` / `ERR ARG` / `ERR LIMIT` | Rapports cycliques des trois bras en pour mille, dans les limites ci-dessus. Préchargés, s'appliquent ensemble à l'événement de mise à jour suivant, `MOE` levé ou non |
+| `PWM ON` | `OK` / `ERR DRV` / `ERR FAULT` / `ERR LATCHED` / `ERR LINK` / `ERR NOZERO` / `ERR CAL` / `ERR CSA` | Lève `MOE`. Refusé si le DRV8304 ne répond pas ou signale une faute, avec une faute latchée, sans hôte — et chaque fois que la surveillance du courant ne pourrait pas fonctionner : zéro jamais mesuré (`NOZERO`), broche `CAL` levée ou campagne d'offset en cours (`CAL`, les amplis ne voient plus les shunts), `CSA_CONTROL` hors de 20 V/V, `VREF_DIV` à 1 et `SPI_CAL` à 0 (`CSA`, relu à chaque activation : la limite en counts ne vaut 2 A que pour ce gain) |
+| `PWM.PULSE <a> <b> <c> <ms>` | mêmes réponses que `PWM ON`, plus `ERR ARG` / `ERR LIMIT` / `ERR BUSY` | **L'essai de l'étape 5.** Pose les rapports cycliques, lève `MOE`, et le rabaisse de lui-même au bout de `<ms>`, **1 à 200 ms**, décomptés dans l'ISR à 20 kHz : la durée ne dépend ni de l'hôte ni de la superloop. 200 ms reste sous les 250 ms du watchdog de flux, qu'une impulsion n'a donc jamais besoin d'alimenter. Répond dès que `MOE` est levé ; la fin se lit dans `PWM?` et `SAFETY?` (`reason=requested`, non latchée). Une surintensité l'interrompt comme n'importe quoi d'autre. `ERR BUSY` si les sorties sont déjà actives : une impulsion ne se greffe pas sur un `PWM ON` |
 | `PWM OFF` | `OK` | Coupe `MOE`, comme `STOP` |
-| `PWM?` | `OK enabled=<0/1> a=<‰> b=<‰> c=<‰> host=<0/1>` | État |
+| `PWM?` | `OK enabled=<0/1> a=<‰> b=<‰> c=<‰> host=<0/1> peak=<a>,<b>,<c>` | État. `peak` est le pire courant absolu vu par phase depuis la dernière activation, en counts centrés (≈ 4,03 mA par count) — la mesure de l'étape 5 sans passer par le scope |
 
 **`host`** est la présence de l'hôte vue du firmware : DTR levé par le port ouvert côté PC et
 bus USB actif. Elle retombe quand le port se ferme, quand le câble part ou quand le bus se

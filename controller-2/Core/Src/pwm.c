@@ -153,6 +153,16 @@ static uint16_t CcrToPermille(uint32_t ccr)
   return (uint16_t)((ccr * 1000UL + (PWM_ARR + 1UL) / 2UL) / (PWM_ARR + 1UL));
 }
 
+bool Pwm_TestDutyOk(uint16_t a, uint16_t b, uint16_t c)
+{
+  if ((a > PWM_TEST_MAX_PM) || (b > PWM_TEST_MAX_PM) || (c > PWM_TEST_MAX_PM)) {
+    return false;
+  }
+  const uint16_t hi = (a > b) ? ((a > c) ? a : c) : ((b > c) ? b : c);
+  const uint16_t lo = (a < b) ? ((a < c) ? a : c) : ((b < c) ? b : c);
+  return (uint16_t)(hi - lo) <= PWM_TEST_MAX_SPREAD_PM;
+}
+
 void Pwm_SetDutyPermille(uint16_t a, uint16_t b, uint16_t c)
 {
   Pwm_SetDutyRaw(PermilleToCcr(a), PermilleToCcr(b), PermilleToCcr(c));

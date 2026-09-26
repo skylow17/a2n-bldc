@@ -6,6 +6,9 @@
 
 #include "stm32g4xx_hal.h"
 
+#include "board.h"
+#include "drv8304.h"
+#include "imot.h"
 #include "link_usb.h"
 #include "pwm.h"
 
@@ -25,6 +28,8 @@ static volatile SafetyReason_t s_reason;
 static volatile bool           s_latched;
 static volatile uint32_t       s_last_cmd_ms;
 static volatile uint32_t       s_trips;
+static volatile uint32_t       s_pulse_ticks;   /* passages restants, 0 = sans terme  */
+static volatile uint16_t       s_peak[3];       /* depuis la dernière activation      */
 
 void Safety_Init(void)
 {
@@ -42,6 +47,7 @@ void Safety_NoteCommand(void)
 void Safety_Cut(SafetyReason_t reason)
 {
   Pwm_Disable();
+  s_pulse_ticks = 0U;     /* une impulsion coupée ne doit pas écourter la suivante */
   s_reason = reason;
   /* Un arrêt demandé n'est pas une faute : il n'a rien à acquitter. Toutes les autres
    * causes latchent, y compris si les sorties étaient déjà coupées — savoir que l'hôte a
@@ -75,21 +81,86 @@ void Safety_Process(void)
   }
 }
 
-bool Safety_EnableOutputs(void)
+SafetyEnable_t Safety_EnableOutputs(uint32_t pulse_ms)
 {
   if (s_latched) {
-    return false;
+    return SAFETY_EN_LATCHED;
   }
   if (!Link_HostAttached()) {
-    return false;
+    return SAFETY_EN_LINK;
   }
+  /* La surveillance du courant compare à l'offset mesuré : sans lui elle ne vaut rien. */
+  uint16_t off[3];
+  bool measured = false;
+  Imot_GetOffsets(off, &measured);
+  if (!measured) {
+    return SAFETY_EN_NOZERO;
+  }
+  /* `CAL` levé court-circuite les entrées des amplis : les courants lus valent zéro quoi
+   * qu'il passe dans les shunts, et la limite ne verrait rien. */
+  if (Imot_Busy() || Drv8304_CalActive()) {
+    return SAFETY_EN_CAL;
+  }
+  /* La limite est en counts ; elle ne vaut des ampères que pour 20 V/V, `VREF_DIV` à 1 et
+   * `SPI_CAL` à 0. Relu à chaque fois : un `DRV.REG` a pu passer entre-temps. */
+  if (!Drv8304_CsaConfigOk()) {
+    return SAFETY_EN_CSA;
+  }
+
   /* Le compteur repart d'ici : entre la dernière commande reçue et cette activation, il a
    * pu s'écouler plus que le délai, et couper immédiatement ce qu'on vient d'autoriser
    * serait faux. */
   s_last_cmd_ms = HAL_GetTick();
   s_reason      = SAFETY_OK;
+  s_peak[0] = 0U;
+  s_peak[1] = 0U;
+  s_peak[2] = 0U;
+  /* Le terme est posé **avant** `MOE`, et l'ISR ne décompte que sorties actives : un
+   * passage qui tomberait entre les deux ne peut ni couper trop tôt ni laisser filer. */
+  s_pulse_ticks = pulse_ms * (PWM_FREQ_HZ / 1000UL);
+  __DMB();
   Pwm_Enable();
-  return true;
+  return SAFETY_EN_OK;
+}
+
+static uint16_t Abs16(int16_t v)
+{
+  return (uint16_t)((v < 0) ? -(int32_t)v : (int32_t)v);
+}
+
+void Safety_OnControlTick(int16_t ia, int16_t ib, int16_t ic)
+{
+  if (!Pwm_IsEnabled()) {
+    return;                         /* le cas courant : une comparaison, rien d'autre */
+  }
+  const uint16_t a[3] = { Abs16(ia), Abs16(ib), Abs16(ic) };
+  bool over = false;
+  for (uint32_t i = 0U; i < 3U; i++) {
+    if (a[i] > s_peak[i]) {
+      s_peak[i] = a[i];
+    }
+    if (a[i] > (uint16_t)SAFETY_OC_LIMIT_COUNTS) {
+      over = true;
+    }
+  }
+  if (over) {
+    Safety_Cut(SAFETY_OVERCURRENT);
+    s_trips++;
+    return;
+  }
+  if (s_pulse_ticks != 0U) {
+    s_pulse_ticks--;
+    if (s_pulse_ticks == 0U) {
+      Safety_Cut(SAFETY_REQUESTED);  /* fin d'impulsion : un arrêt voulu, pas une faute */
+    }
+  }
+}
+
+void Safety_GetPeaks(uint16_t out[3])
+{
+  out[0] = s_peak[0];
+  out[1] = s_peak[1];
+  out[2] = s_peak[2];
 }
 
 bool Safety_ClearFault(void)
@@ -97,11 +168,19 @@ bool Safety_ClearFault(void)
   if (!s_latched) {
     return true;
   }
-  /* Acquitter ne veut pas dire ignorer : si l'hôte n'est toujours pas là, la cause tient
-   * encore et l'acquittement échoue. Les autres causes sont par nature passées au moment
-   * où quelqu'un arrive à envoyer cette commande. */
+  /* Acquitter ne veut pas dire ignorer : si la cause tient encore, l'acquittement échoue.
+   * L'hôte absent en est une ; `nFAULT` encore basse en est une autre — jusqu'au
+   * 2026-09-26 elle passait, `FAULTCLR` répondait `OK` pendant que le DRV signalait
+   * toujours sa faute. Une surintensité, elle, est passée : les sorties sont coupées. */
   if (!Link_HostAttached()) {
     return false;
+  }
+  if (s_reason == SAFETY_DRV_FAULT) {
+    Drv8304_Status_t st;
+    Drv8304_GetStatus(&st);
+    if (st.nfault_low) {
+      return false;
+    }
   }
   s_latched     = false;
   s_reason      = SAFETY_OK;
@@ -127,6 +206,7 @@ const char *Safety_ReasonName(SafetyReason_t reason)
     case SAFETY_CMD_TIMEOUT: return "cmd_timeout";
     case SAFETY_DRV_FAULT:   return "drv_fault";
     case SAFETY_REQUESTED:   return "requested";
+    case SAFETY_OVERCURRENT: return "overcurrent";
     case SAFETY_OK:
     default:                 return "ok";
   }

@@ -30,6 +30,18 @@ void Pwm_Disable(void);
 
 bool Pwm_IsEnabled(void);
 
+/* Limites des rapports cycliques des commandes d'essai (étape 5), en pour mille.
+ * `PWM_TEST_MAX_PM` garde au transistor bas au moins 5 µs de conduction autour du sommet du
+ * comptage, où l'ADC échantillonne : au-delà l'ampli n'a pas le temps de s'établir, et le
+ * courant de cette phase ne serait plus mesuré — donc plus surveillé.
+ * `PWM_TEST_MAX_SPREAD_PM` borne l'écart entre bras, c'est-à-dire la tension aux bornes du
+ * bobinage : 100 ‰ font 1,5 V sous 15 V. Des limites, pas des réglages (`AGENTS.md` §4). */
+#define PWM_TEST_MAX_PM         900U
+#define PWM_TEST_MAX_SPREAD_PM  100U
+
+/** Vrai si le triplet respecte les limites d'essai ci-dessus. */
+bool Pwm_TestDutyOk(uint16_t a, uint16_t b, uint16_t c);
+
 /** Rapports cycliques bruts, 0..PWM_ARR. Écriture directe des CCR, sans mise en forme. */
 void Pwm_SetDutyRaw(uint16_t a, uint16_t b, uint16_t c);
 

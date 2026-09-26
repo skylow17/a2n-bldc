@@ -8,7 +8,7 @@ Ce fichier ne contient **aucun chiffre volatil** (nombre de tests, occupation fl
 Ces valeurs se mesurent, elles ne se recopient pas : `python tools/status.py` les relève sur le
 dépôt réel. Une valeur écrite à la main est fausse le lendemain.
 
-Dernière revue : 2026-09-26, sur carte — SPI du DRV réparé, puis firmware stabilisé : règle de vérification rejouée depuis un clone frais, cinq défauts corrigés et éprouvés sur carte, dont un trouvé pendant la démo.
+Dernière revue : 2026-09-26, sur carte — firmware stabilisé, puis étape 5 préparée : limites de courant et de rapport cyclique dans le firmware, pas encore éprouvées sur carte.
 
 > **Reprise suivante — par où commencer.** Les deux défauts matériels sont **expliqués**, et
 > aucun des deux n'est une panne : ce sont deux erreurs de conception, l'une et l'autre
@@ -68,7 +68,7 @@ Dernière revue : 2026-09-26, sur carte — SPI du DRV réparé, puis firmware s
 | **M1c** | Télémétrie souscrite + buffer scope | **Validé sur carte le 2026-09-16** : `telem` sans trou, `scope` 2048 points sur 4 signaux à la cadence de boucle | Coût de l'échantillonnage scope dans l'ISR, voir la piste plus bas |
 | **M1d** | CLI de bring-up | Validé sur simulateur **et sur carte** — toutes les commandes, `firmware-update` compris | — |
 | **Boot** | Bootloader A/B, probation et rollback | **Validé sur carte le 2026-09-16** : installation SWD, `BOOT_INFO`, mise à jour nominale promue, rollback sur image qui ne confirme jamais | Rien ; un défaut trouvé sur carte, corrigé, rejoué |
-| **M2** | Étage de puissance et capteurs (étapes 2 à 9) | **Étape 2 : validée le 2026-09-16, régression du 2026-09-21 réparée et revalidée le 2026-09-26** — écriture-relecture par `DRV.PROBE`, et une écriture de registre dont l'effet se lit sur la mesure analogique. Voir plus bas. Pour mémoire, la validation d'origine : le DRV8304 répond en SPI, sept registres relus cohérents avec la fiche technique, écriture-relecture par `DRV.PROBE`, fautes lisibles. **Étape 3 validée à l'oscilloscope le 2026-09-18** : trois bras complémentaires à 20 kHz, temps mort 500 ns aux deux fronts, rapports 20/50/80 % suivis, aucune conduction croisée — après avoir trouvé que les sorties basses n'avaient jamais été activées. **Étape 4 entamée le 2026-09-18**, puis reprise le 2026-09-20 après remplacement de U3 : un défaut d'acquisition corrigé, et **deux défauts matériels isolés** — voir plus bas | Étape 4 : **offsets et bruit mesurés et documentés le 2026-09-21** — zéro de chaîne à 1–11 counts de la mi-échelle, répétable à ±1 count sur quatre campagnes, écart-type de 1,4 à 2,0 counts avec `CAL` levé. Ni SPI ni sortie de puissance requis. Gain relu à 20 V/V le 2026-09-26. **Depuis le 2026-09-26 le zéro est mesuré à chaque démarrage**, sorties coupées, et refusé s'il n'est pas plausible. Pour mémoire, ce qui bloquait avant : D'abord `VREF` qui oscille de ±370 mV, ce qui fausse toute mesure de tension de la carte ; ensuite les trois entrées de courant flottantes, que le remplacement du DRV n'a pas corrigées — continuité et masse à vérifier à l'ohmmètre. Le chemin nFAULT → coupure de `MOE` est écrit mais **jamais déclenché** . **Étape 6 écrite hors séquence et éprouvée sur carte** (2026-09-21) puisqu'elle ne dépend ni de 4 ni de 5 : AS5600 en DMA à 1 MHz, transfert 57 µs, un échantillon toutes les 59 µs, ISR à 2,60 µs au pire. **Verte à titre provisoire** : le critère « angle monotone à la main » a été validé par l'utilisateur, aimant monté, et je n'ai pas assisté à la mesure — une réserve reste à lever, voir la section de l'étape 6 |
+| **M2** | Étage de puissance et capteurs (étapes 2 à 9) | **Étape 2 : validée le 2026-09-16, régression du 2026-09-21 réparée et revalidée le 2026-09-26** — écriture-relecture par `DRV.PROBE`, et une écriture de registre dont l'effet se lit sur la mesure analogique. Voir plus bas. Pour mémoire, la validation d'origine : le DRV8304 répond en SPI, sept registres relus cohérents avec la fiche technique, écriture-relecture par `DRV.PROBE`, fautes lisibles. **Étape 3 validée à l'oscilloscope le 2026-09-18** : trois bras complémentaires à 20 kHz, temps mort 500 ns aux deux fronts, rapports 20/50/80 % suivis, aucune conduction croisée — après avoir trouvé que les sorties basses n'avaient jamais été activées. **Étape 4 entamée le 2026-09-18**, puis reprise le 2026-09-20 après remplacement de U3 : un défaut d'acquisition corrigé, et **deux défauts matériels isolés** — voir plus bas | Étape 4 : **offsets et bruit mesurés et documentés le 2026-09-21** — zéro de chaîne à 1–11 counts de la mi-échelle, répétable à ±1 count sur quatre campagnes, écart-type de 1,4 à 2,0 counts avec `CAL` levé. Ni SPI ni sortie de puissance requis. Gain relu à 20 V/V le 2026-09-26. **Depuis le 2026-09-26 le zéro est mesuré à chaque démarrage**, sorties coupées, et refusé s'il n'est pas plausible. Pour mémoire, ce qui bloquait avant : D'abord `VREF` qui oscille de ±370 mV, ce qui fausse toute mesure de tension de la carte ; ensuite les trois entrées de courant flottantes, que le remplacement du DRV n'a pas corrigées — continuité et masse à vérifier à l'ohmmètre. Le chemin nFAULT → coupure de `MOE` est écrit mais **jamais déclenché** : **décision de l'utilisateur le 2026-09-26, on passe à l'étape 5 sans l'éprouver physiquement** — voir « Décisions ». **Étape 6 écrite hors séquence et éprouvée sur carte** (2026-09-21) puisqu'elle ne dépend ni de 4 ni de 5 : AS5600 en DMA à 1 MHz, transfert 57 µs, un échantillon toutes les 59 µs, ISR à 2,60 µs au pire. **Verte à titre provisoire** : le critère « angle monotone à la main » a été validé par l'utilisateur, aimant monté, et je n'ai pas assisté à la mesure — une réserve reste à lever, voir la section de l'étape 6 |
 | **M3** | Asservissements (étapes 10 à 13) | Pas commencé | — |
 
 **Aucun moteur n'a encore tourné**, et les sorties restent en haute impédance.
@@ -1348,6 +1348,65 @@ travail local n'existe pas. Un outil de constat qui ne distingue pas l'absence d
 constate rien. D'où les deux règles ci-dessous.
 
 ---
+
+## Décisions
+
+Consignées ici parce qu'elles changent ce que « validé » veut dire. Une décision n'est pas une
+mesure, et ce fichier ne doit pas laisser croire l'inverse.
+
+- **2026-09-26 — le chemin nFAULT → coupure de `MOE` n'est pas éprouvé physiquement.**
+  Décision de l'utilisateur : on lui fait confiance tel qu'il est écrit, et on passe à
+  l'étape 5. Ce qui est vérifié : le code (`Drv8304_OnFaultIrq` → `Safety_Cut`, EXTI
+  priorité 1, sous l'ISR de contrôle), et `nFAULT` lu haut au repos. Ce qui ne l'est pas :
+  qu'une faute réelle du DRV coupe effectivement les sorties. Pour l'éprouver plus tard,
+  sorties coupées : tirer `PB11` à la masse à travers ~1 kΩ et lire `SAFETY?`.
+- **2026-09-26 — le watchdog matériel (IWDG) est reporté.** À implémenter plus tard ; il
+  interagit avec la probation du bootloader, qui doit rester capable de confirmer un slot.
+  En attendant, une carte figée se relance par un cycle d'alimentation, et la sécurité ne
+  dépend pas de lui : l'ISR de contrôle et `nFAULT` sont prioritaires sur tout le reste.
+
+## Étape 5 — préparée le 2026-09-26, pas encore éprouvée
+
+Le moteur est branché : c'est la première fois que l'étage de puissance débite dans un
+bobinage. Avant d'écrire la mesure, il a fallu **fermer ce qui permettait de détruire la
+carte**. La commande `PWM` acceptait n'importe quel rapport cyclique — les 20/50/80 % de
+l'essai à vide de l'étape 3 auraient mis 9 V sur un bobinage de quelques dixièmes d'ohm — et
+le firmware n'avait **aucune limite de courant**.
+
+**Ce qui est en place, et dont aucune partie ne se règle depuis l'hôte :**
+
+- **Coupure sur surintensité dans l'ISR** : un courant centré au-delà de 500 counts
+  (≈ 2,0 A) coupe `MOE` dans le cycle même, faute `overcurrent` latchée. Seconde ligne : la
+  première est la limite de courant de l'alimentation, parce que 50 µs entre deux
+  échantillons suffisent à un bobinage peu inductif pour dépasser la limite.
+- **Rapports cycliques bornés** : 0 à 900 ‰ par bras, 100 ‰ d'écart au plus (1,5 V sous
+  15 V). Le plafond garde 5 µs de conduction basse autour de l'échantillonnage — au-delà le
+  courant ne serait plus mesuré, donc plus surveillé.
+- **`PWM.PULSE <a> <b> <c> <ms>`**, 1 à 200 ms décomptés dans l'ISR, sous le watchdog de
+  flux. `PWM?` rend le pire courant vu par phase (`peak=`).
+- **Pas d'activation si la surveillance serait aveugle** : zéro jamais mesuré, `CAL` levé ou
+  campagne en cours, ou `CSA_CONTROL` hors de 20 V/V, `VREF_DIV` à 1, `SPI_CAL` à 0 — relu à
+  chaque activation, parce qu'à 5 V/V les mêmes 500 counts feraient 8 A. Réciproquement,
+  `DRV.REG` en écriture, `DRV.CAL ON` et une campagne `IMOT.CAL` sont refusés sorties actives.
+- **`FAULTCLR` n'acquitte plus une faute driver tant que `nFAULT` est basse** — il répondait
+  `OK` en contradiction avec la règle de `AGENTS.md` §4.
+
+**Le protocole d'essai, dans l'ordre, alimentation limitée à 0,5 A :**
+
+1. Refus d'abord, sans jamais lever `MOE` : écart trop grand, rapport au-delà de 900 ‰,
+   durée hors bornes.
+2. `PWM.PULSE 500 500 500 50` — **écart nul, donc courant nul** : le premier passage de
+   courant par les transistors bas, et la réponse à la question laissée ouverte à l'étape 4,
+   le zéro vu transistors bas conducteurs.
+3. Écart croissant par pas de 10 ‰ à partir de 510/500/500, en lisant à chaque fois le
+   régime établi, la somme Ia + Ib + Ic et la constante de temps sur la capture scope. On
+   s'arrête bien avant la limite.
+
+**Critères (`controller-2/AGENTS.md` §5) :** somme Ia + Ib + Ic ≈ 0 ; cohérence avec le
+courant d'alimentation. Le second ne se lit pas sur une impulsion de 50 ms — l'afficheur de
+l'alimentation n'a pas le temps — et le courant qu'elle fournit n'est que le courant de phase
+multiplié par l'écart de rapport cyclique, quelques pour cent : il faudra un palier plus long,
+ou le reporter à l'étape 7 qui mesure R.
 
 ## Stabilisation du firmware (2026-09-26)
 

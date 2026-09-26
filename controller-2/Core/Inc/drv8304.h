@@ -61,6 +61,14 @@
  * un DRV alimenté et jamais configuré répond exactement cela. */
 #define DRV_CSA_CONTROL_RESET    0x0283U
 
+/* Bits de CSA Control relus avant toute activation — fiche technique DRV8304, table 19.
+ * Attention : le bit 4 est `SPI_CAL`, **commun aux trois amplis**. Le découpage par phase
+ * `CSA_CAL_A/B/C` est celui du DRV8323, pas de ce composant. */
+#define DRV_CSA_VREF_DIV         (1U << 9)
+#define DRV_CSA_GAIN_MASK        (3U << 6)
+#define DRV_CSA_GAIN_20          (2U << 6)
+#define DRV_CSA_SPI_CAL          (1U << 4)
+
 /* ---------------------------------------------------------------- état */
 
 typedef struct
@@ -76,6 +84,16 @@ typedef struct
 
 /** GPIO, SPI2, EXTI sur nFAULT. Ne touche pas au DRV lui-même. */
 void Drv8304_Init(void);
+
+/** Vrai tant que la broche `CAL` est levée par `Drv8304_SetCal`. */
+bool Drv8304_CalActive(void);
+
+/**
+ * Relit `CSA_CONTROL` et vérifie la configuration que la limite de courant suppose :
+ * gain 20 V/V, `VREF_DIV` à 1, `SPI_CAL` à 0. Faux aussi si le SPI ne répond pas.
+ * Depuis la superloop uniquement — c'est un échange SPI.
+ */
+bool Drv8304_CsaConfigOk(void);
 
 /** Lecture d'un registre. Faux si SPI en erreur ou adresse hors carte. */
 bool Drv8304_ReadReg(uint8_t reg, uint16_t *value);

@@ -194,9 +194,28 @@ bool Drv8304_ClearFaults(void)
   return Drv8304_WriteReg(DRV_REG_DRIVER_CONTROL, ctrl | DRV_CTRL_CLR_FLT);
 }
 
+static volatile bool s_cal_active;
+
 void Drv8304_SetCal(bool enabled)
 {
   HAL_GPIO_WritePin(PIN_DRV_CAL_PORT, PIN_DRV_CAL, enabled ? GPIO_PIN_SET : GPIO_PIN_RESET);
+  s_cal_active = enabled;
+}
+
+bool Drv8304_CalActive(void)
+{
+  return s_cal_active;
+}
+
+bool Drv8304_CsaConfigOk(void)
+{
+  uint16_t v = 0U;
+  if (!Drv8304_ReadReg(DRV_REG_CSA_CONTROL, &v)) {
+    return false;
+  }
+  const uint16_t want_mask = DRV_CSA_VREF_DIV | DRV_CSA_GAIN_MASK | DRV_CSA_SPI_CAL;
+  const uint16_t want      = DRV_CSA_VREF_DIV | DRV_CSA_GAIN_20;
+  return (v & want_mask) == want;
 }
 
 void Drv8304_GetStatus(Drv8304_Status_t *out)

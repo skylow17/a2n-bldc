@@ -13,6 +13,7 @@
 #include "encoder.h"
 #include "imot.h"
 #include "pwm.h"
+#include "safety.h"
 #include "comm/scope.h"
 
 /* Compteur de cycles du cœur : 1 cycle = 1 / 144 MHz ≈ 6.94 ns. C'est la seule mesure
@@ -56,6 +57,11 @@ void Ctrl_Isr(void)
   Imot_OnSample(ia, ib, ic);
   int16_t cia, cib, cic;
   Imot_Apply(ia, ib, ic, &cia, &cib, &cic);
+
+  /* Surintensité et terme d'impulsion, dans le passage même où le courant a été lu : la
+   * coupure ne dépend ni de la superloop ni de l'hôte. Hors sorties actives, une
+   * comparaison. */
+  Safety_OnControlTick(cia, cib, cic);
 
   /* --- M1 à M3 viendront se greffer ici : Clarke/Park, régulateurs, SVPWM. --- */
 
