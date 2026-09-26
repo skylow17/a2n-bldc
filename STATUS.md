@@ -1814,10 +1814,28 @@ mesure, et ce fichier ne doit pas laisser croire l'inverse.
   priorité 1, sous l'ISR de contrôle), et `nFAULT` lu haut au repos. Ce qui ne l'est pas :
   qu'une faute réelle du DRV coupe effectivement les sorties. Pour l'éprouver plus tard,
   sorties coupées : tirer `PB11` à la masse à travers ~1 kΩ et lire `SAFETY?`.
-- **2026-09-26 — le watchdog matériel (IWDG) est reporté.** À implémenter plus tard ; il
-  interagit avec la probation du bootloader, qui doit rester capable de confirmer un slot.
-  En attendant, une carte figée se relance par un cycle d'alimentation, et la sécurité ne
-  dépend pas de lui : l'ISR de contrôle et `nFAULT` sont prioritaires sur tout le reste.
+- **2026-09-26 — le watchdog matériel (IWDG) est reporté**, puis **implémenté le même soir**,
+  l'utilisateur ayant demandé de reprendre ce qui avait été mis de côté. Deux questions le
+  retenaient, tranchées ainsi. *Un reset logiciel l'arrête-t-il ?* Oui sur ce G473, et c'est
+  une observation, pas une lecture : à chaque mise à jour, le bootloader arme l'IWDG à 2 s,
+  le candidat confirme puis se relance, et l'application a tourné des dizaines de minutes
+  ensuite sans jamais le rafraîchir. Entrer dans le bootloader le désarme donc. *La
+  probation ?* L'application ne le démarre pas en probation : rafraîchi par elle, le chien du
+  bootloader garderait en vie un candidat qui ne confirme jamais. Hors probation : 200 ms,
+  rafraîchi à chaque tour de superloop. Ce qu'il couvre : une superloop figée, où le watchdog
+  de flux de commandes ne tournerait plus. `RESET?` dit comment la carte a démarré,
+  `WDG.TEST` fige la superloop pour éprouver le chemin. **Éprouvé sur carte** : la mise à jour
+  passe — le chien de l'application ne démarre qu'après la probation —, `WDG.TEST` relance la
+  carte seule, refusé carte armée (`ERR LIVE`).
+
+  **Un piège trouvé en chemin.** Derrière le bootloader, les drapeaux de reset du RCC sont
+  toujours vides : il les efface (`HAL_RCC_DeInit`) avant de sauter sur l'application, qui ne
+  peut donc pas lire elle-même qu'elle sort d'un reset par l'IWDG. `RESET?` le dit
+  (`cause=cleared`) plutôt que d'inventer, et le complète par une marque en SRAM, dans la zone
+  partagée hors du mot que lit le bootloader : posée « en marche » au démarrage, « propre »
+  avant chaque reset demandé. Relevé : `prev=clean` après une mise à jour, `prev=unclean`
+  après `WDG.TEST`. Que le bootloader transmette la vraie cause demanderait de le reflasher
+  par SWD.
 
 ## Étape 5 — premiers courants le 2026-09-26 : limites éprouvées, gains par voie corrigés en logiciel
 

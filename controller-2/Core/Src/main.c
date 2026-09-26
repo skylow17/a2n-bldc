@@ -20,6 +20,7 @@
 #include "drv8304.h"
 #include "encoder.h"
 #include "foc.h"
+#include "wdg.h"
 #include "imot.h"
 #include "nvm.h"
 #include "sensors.h"
@@ -99,6 +100,7 @@ int main(void)
   __DSB();
   __ISB();
   CcmText_Init();
+  Wdg_CaptureCause();   /* avant que quoi que ce soit n'efface les drapeaux de reset */
   __enable_irq();
   HAL_Init();
   Board_ClockInit();
@@ -137,6 +139,10 @@ int main(void)
   HAL_Delay(500); // Delay to allow USB host to recognize the device in debug mode
   MX_USB_Device_Init();
 
+  /* Le chien de garde après les attentes du démarrage, et jamais en probation : c'est alors
+   * celui du bootloader qui décide du rollback. Voir `wdg.h`. */
+  Wdg_Start(BootShared_IsTrial());
+
   for (;;) {
     /* La superloop est vide, et c'est le point de l'étape M0.
      *
@@ -147,6 +153,7 @@ int main(void)
      * régulation vit dans l'ISR, et seulement là. Aucun appel ci-dessous n'attend quoi
      * que ce soit — ni l'USB, ni l'hôte, ni un périphérique.
      */
+    Wdg_Kick();          /* une superloop figée est relancée en 200 ms       */
     RxRouter_Process();  /* aiguille trames binaires et lignes de console   */
     Proto_Process();     /* streaming et transitions scope, jamais dans l'ISR */
     BootShared_Process(); /* confirmation d'un slot candidat, le cas échéant */

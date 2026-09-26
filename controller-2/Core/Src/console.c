@@ -27,6 +27,8 @@
 #include "nvm.h"
 #include "openloop.h"
 #include "foc.h"
+#include "wdg.h"
+#include "boot_shared.h"
 #include "sensors.h"
 #include "comm/param.h"
 #include "comm/proto.h"
@@ -1334,6 +1336,27 @@ void Console_ExecuteLine(const char *line)
     Link_TxPrintf("OK enabled=%u a=%u b=%u c=%u host=%u peak=%u,%u,%u\r\n",
                   Pwm_IsEnabled() ? 1U : 0U, a, b, c, Link_HostAttached() ? 1U : 0U,
                   pk[0], pk[1], pk[2]);
+  } else if (Match(line, "RESET?", NULL)) {
+    Link_TxPrintf("OK cause=%s prev=%s wdg=%u wdg_ms=%u\r\n", Wdg_CauseName(Wdg_Cause()),
+                  BootShared_PrevEndName(BootShared_PrevEnd()),
+                  Wdg_Running() ? 1U : 0U, (unsigned)WDG_TIMEOUT_MS);
+  } else if (Match(line, "WDG.TEST", NULL)) {
+    /* Fige la superloop pour prouver que le chien de garde relance la carte. Jamais armée
+     * ni sorties actives : l'essai ne doit rien avoir à couper. */
+    if (Pwm_IsEnabled() || Safety_IsArmed()) {
+      Reply("ERR LIVE");
+    } else if (!Wdg_Running()) {
+      Reply("ERR STATE");
+    } else {
+      Reply("OK");
+      const uint32_t t0 = HAL_GetTick();
+      while ((HAL_GetTick() - t0) < 20U) {
+        Link_Pump();   /* que la réponse parte avant le gel */
+      }
+      for (;;) {
+        /* Plus aucun rafraîchissement : l'IWDG relance la carte sous WDG_TIMEOUT_MS. */
+      }
+    }
   } else if (Match(line, "FOC?", NULL)) {
     Foc_Meas_t f;
     Foc_GetMeas(&f);

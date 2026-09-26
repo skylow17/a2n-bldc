@@ -708,6 +708,8 @@ coprocesseur CORDIC du G473, pas de la bibliothèque mathématique. Voir les sig
 
 | Commande | Réponse | Rôle |
 |---|---|---|
+| `RESET?` | `OK cause=<power\|pin\|software\|iwdg\|wwdg\|lowpower\|option\|cleared\|other> prev=<clean\|unclean\|unknown> wdg=<0\|1> wdg_ms=<n>` | Comment le dernier démarrage est arrivé. `cause` : les drapeaux de reset du RCC, relevés au boot puis effacés — **`cleared` derrière le bootloader**, qui les efface avant de sauter sur l'application (`HAL_RCC_DeInit`). `prev` le complète, d'après une marque en SRAM que l'application pose en démarrant et remplace avant chaque reset qu'elle demande : `clean` après une mise à jour ou une entrée dans le bootloader, **`unclean` quand la marche précédente s'est interrompue sans qu'elle l'ait voulu** — chien de garde, bouton reset, plantage —, `unknown` après une coupure d'alimentation. `wdg` dit si le chien de garde de l'application tourne, `wdg_ms` son délai |
+| `WDG.TEST` | `OK` puis plus rien / `ERR LIVE` / `ERR STATE` | **Fige volontairement la superloop** pour prouver que le chien de garde relance la carte : elle redémarre en moins de 200 ms, et `RESET?` dit alors `prev=unclean` — et `cause=iwdg` sans bootloader. Refusé carte armée ou sorties actives (`ERR LIVE`), et quand le chien ne tourne pas — en probation (`ERR STATE`) |
 | `FOC?` | `OK valid=<0\|1> cfg=<0\|1> theta_e_mrad=<n> id_ma=<n> iq_ma=<n>` | Dernière mesure de l'ISR : angle électrique en milliradians, Id et Iq en milliampères. `cfg` dit si les paramètres moteur sont plausibles **et** si le CORDIC a passé l'auto-test du démarrage — cos et sin d'un quart de tour ; `valid` exige en plus un angle valide |
 
 **Boucle de courant** (M3, étape 11) — deux régulateurs PI, un par axe, tiennent Id et Iq à

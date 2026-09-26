@@ -71,6 +71,26 @@ void BootShared_Init(void);
 bool BootShared_IsTrial(void);
 
 /**
+ * Comment la marche précédente de l'application s'est terminée.
+ *
+ * Les drapeaux de reset du RCC ne le disent pas derrière le bootloader : il les efface
+ * (`HAL_RCC_DeInit`) avant de sauter sur l'application. Une marque dans la zone partagée, hors
+ * du mot de message que le bootloader lit, survit à tout reset qui garde la SRAM : posée
+ * « en marche » au démarrage, remplacée par « propre » avant chaque reset que l'application
+ * demande elle-même. La retrouver « en marche » au démarrage suivant, c'est que la marche
+ * s'est interrompue sans qu'on l'ait voulu — chien de garde, bouton reset, plantage.
+ */
+typedef enum
+{
+  BOOT_PREV_UNKNOWN = 0,  /**< pas de marque lisible : mise sous tension, SRAM perdue */
+  BOOT_PREV_CLEAN,        /**< reset demandé par l'application — mise à jour, bootloader */
+  BOOT_PREV_UNCLEAN,      /**< interrompue sans le demander                              */
+} BootShared_PrevEnd_t;
+
+BootShared_PrevEnd_t BootShared_PrevEnd(void);
+const char *BootShared_PrevEndName(BootShared_PrevEnd_t p);
+
+/**
  * @brief Appelé depuis la superloop. Confirme la probation dès que la santé est établie.
  *
  * Sans effet hors probation. Quand les critères sont réunis, écrit le mot de confirmation

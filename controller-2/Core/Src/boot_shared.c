@@ -87,6 +87,44 @@ static bool     s_confirmed;
 static uint32_t s_start_ms;
 static uint32_t s_start_ticks;
 
+/* Marque de marche, 64 octets après le mot de message : le bootloader ne lit ni n'écrit que
+ * les huit premiers octets de la zone, et sa RAM s'arrête avant elle. Mot et inverse, comme le
+ * message : de la SRAM résiduelle après une coupure ne s'y trompe pas. Voir `boot_shared.h`. */
+typedef struct
+{
+  uint32_t mark;
+  uint32_t mark_inv;
+} RunMark_t;
+
+static volatile RunMark_t *const s_run = (volatile RunMark_t *)(BOOT_SHARED_BASE + 0x40U);
+
+#define RUN_MARK_RUNNING  0x52554E21UL   /* « RUN! » */
+#define RUN_MARK_CLEAN    0x434C4E21UL   /* « CLN! » */
+
+static BootShared_PrevEnd_t s_prev = BOOT_PREV_UNKNOWN;
+
+static void MarkRun(uint32_t mark)
+{
+  s_run->mark     = mark;
+  s_run->mark_inv = ~mark;
+  __DSB();
+}
+
+BootShared_PrevEnd_t BootShared_PrevEnd(void)
+{
+  return s_prev;
+}
+
+const char *BootShared_PrevEndName(BootShared_PrevEnd_t p)
+{
+  switch (p) {
+    case BOOT_PREV_CLEAN:   return "clean";
+    case BOOT_PREV_UNCLEAN: return "unclean";
+    case BOOT_PREV_UNKNOWN:
+    default:                return "unknown";
+  }
+}
+
 void BootShared_Init(void)
 {
   const uint32_t magic = Read();
@@ -97,6 +135,18 @@ void BootShared_Init(void)
 
   s_trial     = (magic == BOOT_SHARED_TRIAL);
   s_confirmed = false;
+
+  const uint32_t run = s_run->mark;
+  if (s_run->mark_inv != ~run) {
+    s_prev = BOOT_PREV_UNKNOWN;
+  } else if (run == RUN_MARK_RUNNING) {
+    s_prev = BOOT_PREV_UNCLEAN;
+  } else if (run == RUN_MARK_CLEAN) {
+    s_prev = BOOT_PREV_CLEAN;
+  } else {
+    s_prev = BOOT_PREV_UNKNOWN;
+  }
+  MarkRun(RUN_MARK_RUNNING);
   s_start_ms  = HAL_GetTick();
 
   Ctrl_Stats_t stats;
@@ -132,6 +182,7 @@ void BootShared_Process(void)
   Pwm_Disable();
   s_confirmed = true;
   Write(BOOT_SHARED_CONFIRM);
+  MarkRun(RUN_MARK_CLEAN);
   NVIC_SystemReset();
 }
 
@@ -139,6 +190,7 @@ void BootShared_RequestEnter(void)
 {
   Pwm_Disable();
   Write(BOOT_SHARED_ENTER);
+  MarkRun(RUN_MARK_CLEAN);
   NVIC_SystemReset();
 }
 

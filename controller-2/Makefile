@@ -79,6 +79,7 @@ APP_C_SOURCES := \
   Core/Src/nvm.c \
   Core/Src/openloop.c \
   Core/Src/foc.c \
+  Core/Src/wdg.c \
   Core/Src/safety.c \
   Core/Src/ctrl.c \
   Core/Src/link_usb.c \
