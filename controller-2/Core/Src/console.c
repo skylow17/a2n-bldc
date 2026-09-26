@@ -797,10 +797,13 @@ static void CmdImotStatus(void)
   Ctrl_GetStats(&st);
   /* `measured=0` veut dire que l'offset est la mi-echelle theorique et non une mesure :
    * les courants centres sont alors indicatifs, pas justes. */
-  Link_TxPrintf("OK measured=%u offset=%u,%u,%u raw=%u,%u,%u centered=%d,%d,%d\r\n",
+  uint16_t g[3];
+  Imot_GetGains(g);
+  Link_TxPrintf("OK measured=%u offset=%u,%u,%u raw=%u,%u,%u centered=%d,%d,%d "
+                "gain_pm=%u,%u,%u\r\n",
                 measured ? 1U : 0U, off[0], off[1], off[2],
                 st.raw_ia, st.raw_ib, st.raw_ic,
-                st.cent_ia, st.cent_ib, st.cent_ic);
+                st.cent_ia, st.cent_ib, st.cent_ic, g[0], g[1], g[2]);
 }
 
 static void CmdVrefRatio(void)
@@ -1121,7 +1124,9 @@ void Console_ExecuteLine(const char *line)
   } else if (Match(line, "IMOT.DECAY", NULL)) {
     CmdImotDecay();
   } else if (Match(line, "IMOT.CAL", &arg)) {
-    CmdImotCampaign(arg, true, true);
+    CmdImotCampaign(arg, true, false);    /* zéro de fonctionnement, mémorisé */
+  } else if (Match(line, "IMOT.AMP", &arg)) {
+    CmdImotCampaign(arg, false, true);    /* zéro de l'ampli seul, diagnostic */
   } else if (Match(line, "IMOT.NOISE", &arg)) {
     CmdImotCampaign(arg, false, false);
   } else if (Match(line, "IMOT?", NULL)) {

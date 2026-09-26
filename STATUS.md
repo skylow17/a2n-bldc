@@ -8,7 +8,7 @@ Ce fichier ne contient **aucun chiffre volatil** (nombre de tests, occupation fl
 Ces valeurs se mesurent, elles ne se recopient pas : `python tools/status.py` les relève sur le
 dépôt réel. Une valeur écrite à la main est fausse le lendemain.
 
-Dernière revue : 2026-09-26, sur carte — étape 5 : premiers courants, limites éprouvées, et un gain différent par voie de mesure à expliquer avant de monter en courant.
+Dernière revue : 2026-09-26, sur carte — étape 5 : limites éprouvées, gains par voie corrigés en logiciel, somme des courants à 4,5 %. Reste l'échelle absolue.
 
 > **Reprise suivante — par où commencer.** Les deux défauts matériels sont **expliqués**, et
 > aucun des deux n'est une panne : ce sont deux erreurs de conception, l'une et l'autre
@@ -1365,7 +1365,7 @@ mesure, et ce fichier ne doit pas laisser croire l'inverse.
   En attendant, une carte figée se relance par un cycle d'alimentation, et la sécurité ne
   dépend pas de lui : l'ISR de contrôle et `nFAULT` sont prioritaires sur tout le reste.
 
-## Étape 5 — premiers courants le 2026-09-26 : les limites tiennent, la mesure a un défaut de gain par voie
+## Étape 5 — premiers courants le 2026-09-26 : limites éprouvées, gains par voie corrigés en logiciel
 
 Le moteur est branché : c'est la première fois que l'étage de puissance débite dans un
 bobinage. Avant d'écrire la mesure, il a fallu **fermer ce qui permettait de détruire la
@@ -1454,21 +1454,38 @@ limite.
    ou de cuivre entre les points de mesure suffisent. On ne sait pas encore quelle voie est
    juste — seul un courant de référence le dira.
 
-**Réserve de sécurité, à lever avant de monter en courant.** La limite de 500 counts vaut
-2 A sur A, **≈ 3 A réels sur B**, ≈ 1,7 A sur C. C'est un élargissement silencieux de la
-limite sur une phase, exactement ce que `AGENTS.md` §4 interdit. Sans conséquence aux courants
-de cet essai — moins de 0,5 A —, mais **aucun essai plus fort avant** que la limite soit
-exprimée par voie, calée sur la voie la moins sensible, ou que la cause matérielle soit
-corrigée.
+**Réserve de sécurité, levée le même jour.** La limite de 500 counts valait 2 A sur A,
+**≈ 3 A réels sur B**, ≈ 1,7 A sur C — un élargissement silencieux sur une phase, ce que
+`AGENTS.md` §4 interdit. La mesure à l'oscilloscope n'étant pas possible (pas de sonde
+différentielle), la correction est logicielle :
 
-**Ce qui reste pour clore l'étape 5 :**
+- **Gains par voie dans `Imot_Apply`**, mesurés par une campagne de 18 impulsions — chaque
+  phase dominante, dans les deux sens, répétées, moindres carrés sous Ia + Ib + Ic = 0 :
+  B 0,656, C 1,195 relativement à A, confirmés à la décimale près par la première estimation.
+  Les trois voies sont **ramenées à l'échelle de la voie C**, la plus sensible.
+- **La limite s'applique aux courants corrigés.** On ignore quelle voie dit vrai ; à l'échelle
+  de C, 500 counts font 2 A réels si c'est C, 1,7 A si c'est A, 1,3 A si c'est B. **La limite
+  ne peut qu'être plus stricte qu'annoncée, sur les trois phases.**
+- **Vérifié** : la même campagne rejouée sur les courants corrigés trouve des gains relatifs
+  de 1,003 et 1,014, et la somme tient à **4,5 % en écart quadratique, 5,8 % au pire** — contre
+  41,8 % et 74,8 % brute. Le critère de l'étape est tenu à ce niveau.
 
-- trouver la cause des gains par voie : relever la tension aux bornes de chaque shunt pendant
-  une impulsion, au plus près de ses pastilles, et la comparer à `SOx` ;
-- selon la cause, corriger la carte, ou calibrer un gain par voie contre un courant de
-  référence et l'appliquer dans `Imot_Apply` ;
-- recalibrer le zéro hors `CAL` ;
-- rejouer les trois phases dominantes : la somme doit tenir sous quelques pour cent.
+**Le zéro se mesure désormais hors `CAL`**, au démarrage comme par `IMOT.CAL` — c'est le zéro
+de fonctionnement, l'essai à écart nul l'a montré. Le zéro de l'ampli seul reste lisible par
+`IMOT.AMP`, qui ne mémorise rien. Au repos, les courants centrés valent −1, 0, 0.
+
+**Un point ouvert, pour la boucle de courant.** Au repos, **aucune voie ne descend sous
+2048** — la mi-échelle exacte — et les échantillons s'y entassent : 95 % de la voie C, 12 % de
+la B, valent exactement 2048. Un signal analogique ne s'entasse pas sur une valeur ; ce n'est
+pourtant ni un offset matériel de l'ADC (aucun n'est configuré) ni un plancher dur, puisqu'en
+charge les voies descendent bien en dessous. Hypothèse, **non vérifiée** : la sortie de l'ampli
+du DRV8304 écrête à la référence quand son entrée est au zéro avec un offset légèrement
+négatif. Conséquence : une zone morte de quelques counts autour de zéro, surtout sur C. Sans
+effet sur la limite ni sur les étapes 8 et 9 ; à comprendre avant d'asservir de petits courants.
+
+**Ce qui reste pour clore l'étape 5 :** l'échelle absolue — laquelle des voies dit vrai. Une
+lecture de l'afficheur de l'alimentation pendant un maintien de quelques secondes suffit :
+elle fournit alors l'écart de rapport cyclique fois le courant de phase, ≈ 43 mA à 100 ‰.
 
 **Critères (`controller-2/AGENTS.md` §5) :** somme Ia + Ib + Ic ≈ 0 ; cohérence avec le
 courant d'alimentation. Le second ne se lit pas sur une impulsion de 50 ms — l'afficheur de

@@ -55,6 +55,24 @@ extern "C" {
  * de `VREF` — 2126, 1650 et 80 — qu'une calibration aveugle aurait pris pour un zéro. */
 #define IMOT_ZERO_TOL_COUNTS  150U
 
+/* Gain appliqué à chaque voie, en pour mille, pour ramener les trois à l'échelle de la voie C.
+ *
+ * Mesuré à l'étape 5 le 2026-09-26, moteur branché : chaque phase tour à tour dominante, dans
+ * les deux sens, 18 impulsions retenues, et la seule certitude physique imposée —
+ * Ia + Ib + Ic = 0. Par moindres carrés, B lit 0,656 et C 1,195 fois ce que lit A. Chaque voie
+ * est linéaire et symétrique ; l'écart vient du chemin des shunts, pas des amplis dont le gain
+ * est commun. Corrigée, la somme tient à 4,6 % en écart quadratique, contre 41,8 % brute.
+ *
+ * Pourquoi l'échelle de C : on sait quelles voies s'accordent, pas laquelle dit vrai. À
+ * l'échelle de la plus sensible, la limite de courant en counts ne vaut jamais plus que ce
+ * qu'elle annonce, quelle que soit la voie juste (`safety.h`).
+ *
+ * Propres à **cette** carte, rev A : une autre carte, ou celle-ci retouchée sur ses shunts,
+ * aura d'autres valeurs. Elles iront en mémoire non volatile avec l'étape 7. */
+#define IMOT_GAIN_A_PM        1195U     /* 1,195 / 1,000 */
+#define IMOT_GAIN_B_PM        1822U     /* 1,195 / 0,656 */
+#define IMOT_GAIN_C_PM        1000U
+
 typedef struct
 {
   uint16_t mean[3];        /**< moyenne par phase, en counts                          */
@@ -97,6 +115,9 @@ void Imot_GetCampaign(Imot_Campaign_t *out);
  */
 void Imot_GetOffsets(uint16_t out[3], bool *measured);
 
+/** Gains appliqués aux trois voies, en pour mille. */
+void Imot_GetGains(uint16_t out[3]);
+
 /**
  * Accumulation, appelée depuis l'ISR de contrôle juste après la lecture du groupe injecté.
  * Hors campagne elle ne coûte qu'une comparaison.
@@ -104,9 +125,10 @@ void Imot_GetOffsets(uint16_t out[3], bool *measured);
 void Imot_OnSample(uint16_t a, uint16_t b, uint16_t c);
 
 /**
- * Courants centrés, en counts signés : le brut moins l'offset. Positif = le courant entre
- * dans la phase. Toujours en counts, jamais en ampères — la conversion en ampères demande
- * le gain de l'amplificateur, qui se règle par SPI, et l'étape 5 pour la vérifier.
+ * Courants centrés et corrigés, en counts signés à l'échelle de la voie C : le brut moins
+ * l'offset, multiplié par le gain de la voie. Positif = le courant entre dans la phase.
+ * Toujours en counts, jamais en ampères — on sait quelles voies s'accordent, pas encore
+ * laquelle dit vrai.
  */
 void Imot_Apply(uint16_t a, uint16_t b, uint16_t c, int16_t *ia, int16_t *ib, int16_t *ic);
 

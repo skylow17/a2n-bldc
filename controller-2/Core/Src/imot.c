@@ -59,9 +59,9 @@ bool Imot_StartCampaign(uint32_t samples, bool store, bool use_cal_pin)
   if ((samples == 0UL) || (samples > IMOT_CAL_MAX_SAMPLES) || (s_left != 0U)) {
     return false;
   }
-  /* Lever `CAL` sorties actives rendrait la surveillance du courant aveugle : les amplis ne
-   * verraient plus les shunts. Le zéro se mesure sorties coupées, ou pas du tout. */
-  if (use_cal_pin && Pwm_IsEnabled()) {
+  /* Sorties actives : lever `CAL` rendrait la surveillance du courant aveugle, et mémoriser
+   * prendrait pour zéro le courant qui circule. Le zéro se mesure sorties coupées. */
+  if ((use_cal_pin || store) && Pwm_IsEnabled()) {
     return false;
   }
   s_cal_pin = use_cal_pin;
@@ -174,9 +174,25 @@ void Imot_GetOffsets(uint16_t out[3], bool *measured)
   }
 }
 
+/* Entier et non flottant : trois multiplications et trois décalages, sans dépendre de
+ * l'état de la FPU dans l'ISR. Le résultat tient : ±2048 counts × 1822 ‰ restent sous
+ * ±3732, loin de la saturation d'un int16. L'arrondi se fait au plus proche. */
+static int16_t Scale(int32_t centred, uint32_t gain_pm)
+{
+  const int32_t p = centred * (int32_t)gain_pm;
+  return (int16_t)((p >= 0) ? ((p + 500) / 1000) : ((p - 500) / 1000));
+}
+
 void Imot_Apply(uint16_t a, uint16_t b, uint16_t c, int16_t *ia, int16_t *ib, int16_t *ic)
 {
-  *ia = (int16_t)((int32_t)a - (int32_t)s_offset[0]);
-  *ib = (int16_t)((int32_t)b - (int32_t)s_offset[1]);
-  *ic = (int16_t)((int32_t)c - (int32_t)s_offset[2]);
+  *ia = Scale((int32_t)a - (int32_t)s_offset[0], IMOT_GAIN_A_PM);
+  *ib = Scale((int32_t)b - (int32_t)s_offset[1], IMOT_GAIN_B_PM);
+  *ic = Scale((int32_t)c - (int32_t)s_offset[2], IMOT_GAIN_C_PM);
+}
+
+void Imot_GetGains(uint16_t out[3])
+{
+  out[0] = (uint16_t)IMOT_GAIN_A_PM;
+  out[1] = (uint16_t)IMOT_GAIN_B_PM;
+  out[2] = (uint16_t)IMOT_GAIN_C_PM;
 }

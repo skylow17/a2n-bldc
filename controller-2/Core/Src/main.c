@@ -87,10 +87,12 @@ int main(void)
 
   /* Zéro de la chaîne de courant, mesuré à chaque démarrage : sans lui les courants centrés
    * restaient décalés de 10 à 20 counts jusqu'à ce que quelqu'un pense à lancer `IMOT.CAL`.
+   * Sans lever `CAL` : l'étape 5 a montré que le zéro utile est celui de la chaîne entrées
+   * sur les shunts, identique transistors bas conducteurs, et distinct de celui de l'ampli.
    * C'est le seul moment où l'on sait les sorties coupées sans avoir à le vérifier — `MOE`
    * vient d'être posé à 0 par `Pwm_Init` — et l'ISR tourne déjà depuis `AdcSync_Init`.
    * La campagne s'écoule pendant l'énumération USB, et `Imot_Process` la clôt. */
-  (void)Imot_StartCampaign(IMOT_BOOT_SAMPLES, true, true);
+  (void)Imot_StartCampaign(IMOT_BOOT_SAMPLES, true, false);
 
   /* La liaison arrive après l'étage de puissance : si l'énumération USB traîne ou échoue,
    * la boucle de contrôle tourne déjà et les sorties sont déjà sûres. */
