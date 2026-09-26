@@ -8,7 +8,7 @@ Ce fichier ne contient **aucun chiffre volatil** (nombre de tests, occupation fl
 Ces valeurs se mesurent, elles ne se recopient pas : `python tools/status.py` les relève sur le
 dépôt réel. Une valeur écrite à la main est fausse le lendemain.
 
-Dernière revue : 2026-09-26, sur carte — étape 5 : limites éprouvées, gains par voie corrigés en logiciel, somme des courants à 4,5 %. Reste l'échelle absolue.
+Dernière revue : 2026-09-26, sur carte — étape 5 : gains par voie corrigés, somme à 4,5 % ; étapes 8 et 9 validées : 7 paires de pôles, décalage électrique 178,1°.
 
 > **Reprise suivante — par où commencer.** Les deux défauts matériels sont **expliqués**, et
 > aucun des deux n'est une panne : ce sont deux erreurs de conception, l'une et l'autre
@@ -68,7 +68,7 @@ Dernière revue : 2026-09-26, sur carte — étape 5 : limites éprouvées, gain
 | **M1c** | Télémétrie souscrite + buffer scope | **Validé sur carte le 2026-09-16** : `telem` sans trou, `scope` 2048 points sur 4 signaux à la cadence de boucle | Coût de l'échantillonnage scope dans l'ISR, voir la piste plus bas |
 | **M1d** | CLI de bring-up | Validé sur simulateur **et sur carte** — toutes les commandes, `firmware-update` compris | — |
 | **Boot** | Bootloader A/B, probation et rollback | **Validé sur carte le 2026-09-16** : installation SWD, `BOOT_INFO`, mise à jour nominale promue, rollback sur image qui ne confirme jamais | Rien ; un défaut trouvé sur carte, corrigé, rejoué |
-| **M2** | Étage de puissance et capteurs (étapes 2 à 9) | **Étape 2 : validée le 2026-09-16, régression du 2026-09-21 réparée et revalidée le 2026-09-26** — écriture-relecture par `DRV.PROBE`, et une écriture de registre dont l'effet se lit sur la mesure analogique. Voir plus bas. Pour mémoire, la validation d'origine : le DRV8304 répond en SPI, sept registres relus cohérents avec la fiche technique, écriture-relecture par `DRV.PROBE`, fautes lisibles. **Étape 3 validée à l'oscilloscope le 2026-09-18** : trois bras complémentaires à 20 kHz, temps mort 500 ns aux deux fronts, rapports 20/50/80 % suivis, aucune conduction croisée — après avoir trouvé que les sorties basses n'avaient jamais été activées. **Étape 4 entamée le 2026-09-18**, puis reprise le 2026-09-20 après remplacement de U3 : un défaut d'acquisition corrigé, et **deux défauts matériels isolés** — voir plus bas | Étape 4 : **offsets et bruit mesurés et documentés le 2026-09-21** — zéro de chaîne à 1–11 counts de la mi-échelle, répétable à ±1 count sur quatre campagnes, écart-type de 1,4 à 2,0 counts avec `CAL` levé. Ni SPI ni sortie de puissance requis. Gain relu à 20 V/V le 2026-09-26. **Depuis le 2026-09-26 le zéro est mesuré à chaque démarrage**, sorties coupées, et refusé s'il n'est pas plausible. Pour mémoire, ce qui bloquait avant : D'abord `VREF` qui oscille de ±370 mV, ce qui fausse toute mesure de tension de la carte ; ensuite les trois entrées de courant flottantes, que le remplacement du DRV n'a pas corrigées — continuité et masse à vérifier à l'ohmmètre. Le chemin nFAULT → coupure de `MOE` est écrit mais **jamais déclenché** : **décision de l'utilisateur le 2026-09-26, on passe à l'étape 5 sans l'éprouver physiquement** — voir « Décisions ». **Étape 6 écrite hors séquence et éprouvée sur carte** (2026-09-21) puisqu'elle ne dépend ni de 4 ni de 5 : AS5600 en DMA à 1 MHz, transfert 57 µs, un échantillon toutes les 59 µs, ISR à 2,60 µs au pire. **Verte à titre provisoire** : le critère « angle monotone à la main » a été validé par l'utilisateur, aimant monté, et je n'ai pas assisté à la mesure — une réserve reste à lever, voir la section de l'étape 6 |
+| **M2** | Étage de puissance et capteurs (étapes 2 à 9) | **Étape 2 : validée le 2026-09-16, régression du 2026-09-21 réparée et revalidée le 2026-09-26** — écriture-relecture par `DRV.PROBE`, et une écriture de registre dont l'effet se lit sur la mesure analogique. Voir plus bas. Pour mémoire, la validation d'origine : le DRV8304 répond en SPI, sept registres relus cohérents avec la fiche technique, écriture-relecture par `DRV.PROBE`, fautes lisibles. **Étape 3 validée à l'oscilloscope le 2026-09-18** : trois bras complémentaires à 20 kHz, temps mort 500 ns aux deux fronts, rapports 20/50/80 % suivis, aucune conduction croisée — après avoir trouvé que les sorties basses n'avaient jamais été activées. **Étape 4 entamée le 2026-09-18**, puis reprise le 2026-09-20 après remplacement de U3 : un défaut d'acquisition corrigé, et **deux défauts matériels isolés** — voir plus bas | Étape 4 : **offsets et bruit mesurés et documentés le 2026-09-21** — zéro de chaîne à 1–11 counts de la mi-échelle, répétable à ±1 count sur quatre campagnes, écart-type de 1,4 à 2,0 counts avec `CAL` levé. Ni SPI ni sortie de puissance requis. Gain relu à 20 V/V le 2026-09-26. **Depuis le 2026-09-26 le zéro est mesuré à chaque démarrage**, sorties coupées, et refusé s'il n'est pas plausible. Pour mémoire, ce qui bloquait avant : D'abord `VREF` qui oscille de ±370 mV, ce qui fausse toute mesure de tension de la carte ; ensuite les trois entrées de courant flottantes, que le remplacement du DRV n'a pas corrigées — continuité et masse à vérifier à l'ohmmètre. Le chemin nFAULT → coupure de `MOE` est écrit mais **jamais déclenché** : **décision de l'utilisateur le 2026-09-26, on passe à l'étape 5 sans l'éprouver physiquement** — voir « Décisions ». **Étape 5 le 2026-09-26** : limites de courant éprouvées, gains par voie corrigés, somme des courants à 4,5 % ; reste l'échelle absolue. **Étapes 8 et 9 validées sur carte le 2026-09-26** : 7 paires de pôles sur quatre essais, décalage électrique 178,1° reproductible à 0,1°, redémarrage compris. Reste l'étape 7, mesure de R et L, qui attend l'échelle absolue du courant. **Étape 6 écrite hors séquence et éprouvée sur carte** (2026-09-21) puisqu'elle ne dépend ni de 4 ni de 5 : AS5600 en DMA à 1 MHz, transfert 57 µs, un échantillon toutes les 59 µs, ISR à 2,60 µs au pire. **Verte à titre provisoire** : le critère « angle monotone à la main » a été validé par l'utilisateur, aimant monté, et je n'ai pas assisté à la mesure — une réserve reste à lever, voir la section de l'étape 6 |
 | **M3** | Asservissements (étapes 10 à 13) | Pas commencé | — |
 
 **Aucun moteur n'a encore tourné**, et les sorties restent en haute impédance.
@@ -1348,6 +1348,35 @@ travail local n'existe pas. Un outil de constat qui ne distingue pas l'absence d
 constate rien. D'où les deux règles ci-dessous.
 
 ---
+
+## Étapes 9 et 8 — 7 paires de pôles, décalage électrique 178,1° (2026-09-26)
+
+Faites dans la foulée de l'étape 5, parce qu'elles n'ont besoin que d'un champ, pas
+d'ampères justes : l'échelle absolue du courant manque encore, pas la direction du champ.
+
+**La méthode.** Un champ fixe à l'angle électrique θe, par une impulsion `PWM.PULSE` de
+200 ms ; le rotor s'aligne ; l'angle est lu par `ENC?` pendant que le champ tient encore, à
+170 ms. θe avance de 30° par pas, deux tours électriques à l'aller, deux au retour. Amplitude
+56 ‰ autour de 500 : l'écart entre bras vaut au plus 97 ‰, sous la limite du firmware à tout
+angle. Aucune coupure sur tout l'essai, rien de latché.
+
+**Étape 9 — 7 paires de pôles.** 51,68 à 51,72° mécaniques par tour électrique, pour 51,43°
+attendus : p = 6,960 ; 6,966 ; 6,965, et 6,962 après un redémarrage. **Valeur entière stable
+sur quatre essais**, c'est le critère. L'aller et le retour se superposent à moins de 0,35°,
+et le rotor revient à son départ à 0,17° près : il suit le champ sans sauter de dent.
+**Sens inverse** : quand l'angle électrique croît, l'angle mécanique lu décroît.
+
+**Étape 8 — décalage électrique φ = 178,1°**, sur l'angle **brut absolu** de l'AS5600
+(`RAW_ANGLE`, 0 à 4095), avec θélec = φ − 7·θméca. Relevé 178,0° et 178,1° sur deux
+calibrations, puis 178,1° après un redémarrage : **reproductible à 0,1° électrique**, c'est
+le critère. Dans un même tour, les points s'écartent de 5,2° électriques en écart
+quadratique, 10,9° au pire — la denture du moteur et la non-linéarité du capteur, qu'une
+table de correction pourra reprendre si la boucle de courant le demande.
+
+**Où vivent ces valeurs.** Nulle part dans le firmware pour l'instant : rien ne les consomme
+avant M3. Elles iront en mémoire non volatile avec les R et L de l'étape 7, comme le prévoit
+`controller-2/AGENTS.md` §5. Les scripts d'essai sont restés hors du dépôt ; la méthode
+ci-dessus suffit à les refaire, et ils mériteraient de devenir des commandes du CLI.
 
 ## Décisions
 
