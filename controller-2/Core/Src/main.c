@@ -61,6 +61,33 @@ void SystemClock_Config(void)
   Board_ClockInit();
 }
 
+/* Copie le chemin de l'ISR de contrôle de la flash vers la CCM SRAM, puis protège en écriture
+ * les pages qu'il occupe : du code en RAM qu'un pointeur égaré pourrait réécrire serait un
+ * risque que la flash n'avait pas. Une écriture sur une page protégée lève une faute, et la
+ * protection ne se lève qu'au reset. Avant toute IRQ : l'ISR ne doit jamais trouver la CCM
+ * vide. Voir `.ccmram_text` dans le script de liens. */
+static void CcmText_Init(void)
+{
+  extern uint32_t _sccm_text[], _eccm_text[];
+  extern const uint32_t _siccm_text[];
+  const uint32_t words = (uint32_t)(_eccm_text - _sccm_text);
+  for (uint32_t i = 0U; i < words; i++) {
+    _sccm_text[i] = _siccm_text[i];
+  }
+
+  RCC->APB2ENR |= RCC_APB2ENR_SYSCFGEN;
+  (void)RCC->APB2ENR;
+  if (words != 0U) {
+    const uint32_t first = ((uint32_t)_sccm_text - CCMSRAM_BASE) / 1024U;
+    const uint32_t last  = (((uint32_t)_eccm_text - 1U) - CCMSRAM_BASE) / 1024U;
+    for (uint32_t p = first; p <= last; p++) {
+      SYSCFG->SWPR |= (1UL << p);
+    }
+  }
+  __DSB();
+  __ISB();
+}
+
 int main(void)
 {
   /* Installer nos vecteurs avant SysTick et retablir les IRQ, notamment apres
@@ -70,6 +97,7 @@ int main(void)
   SCB->VTOR = (uint32_t)g_pfnVectors;
   __DSB();
   __ISB();
+  CcmText_Init();
   __enable_irq();
   HAL_Init();
   Board_ClockInit();

@@ -25,7 +25,11 @@ _Min_Stack_Size = 0x800;
 
 MEMORY
 {
-  RAM    (xrw) : ORIGIN = 0x20000000, LENGTH = 0x1FF00
+  /* SRAM1 + SRAM2 seules. La CCM SRAM, visible aussi à 0x20018000 à leur suite, est
+   * adressée par son alias du bus d'instructions : on y exécute le chemin de l'ISR. Ses 256
+   * derniers octets (0x10007F00 = 0x2001FF00) sont le passage de relais avec le bootloader. */
+  RAM    (xrw) : ORIGIN = 0x20000000, LENGTH = 0x18000
+  CCMRAM (xrw) : ORIGIN = 0x10000000, LENGTH = 0x7F00
   FLASH  (rx)  : ORIGIN = DEFINED(APP_FLASH_ORIGIN) ? APP_FLASH_ORIGIN : 0x08040000,
                   LENGTH = 224K
 }
@@ -38,6 +42,32 @@ SECTIONS
     KEEP(*(.isr_vector))
     . = ALIGN(4);
   } >FLASH
+
+  /* Chemin de l'ISR de contrôle, exécuté depuis la CCM SRAM : zéro état d'attente, là où la
+   * flash en impose quatre à 144 MHz. Entre deux passages, la superloop évince le petit cache
+   * de la flash, et chaque ISR repayait ses défauts de cache — 79 cycles pour une fonction qui
+   * ne fait qu'une comparaison, mesuré le 2026-09-26. La liste des fichiers est celle de
+   * `ISR_PATH` dans le Makefile, moins `stm32g4xx_it.o` : les vecteurs de faute doivent
+   * fonctionner avant la copie. Copié par `main`, puis protégé en écriture (`SYSCFG_SWPR`).
+   * Placé avant `.text` : une section d'entrée va au premier motif qui la désigne. */
+  .ccmram_text :
+  {
+    . = ALIGN(4);
+    _sccm_text = .;
+    *ctrl.o(.text .text.*)
+    *adc_sync.o(.text .text.*)
+    *encoder.o(.text .text.*)
+    *imot.o(.text .text.*)
+    *safety.o(.text .text.*)
+    *openloop.o(.text .text.*)
+    *pwm.o(.text .text.*)
+    *scope.o(.text .text.*)
+    *signals.o(.text .text.*)
+    *dbg_pin.o(.text .text.*)
+    . = ALIGN(4);
+    _eccm_text = .;
+  } >CCMRAM AT> FLASH
+  _siccm_text = LOADADDR(.ccmram_text);
 
   .text :
   {

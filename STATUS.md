@@ -69,7 +69,7 @@ Dernière revue : 2026-09-26, sur carte — M2 complet ; M3 commencé : armement
 | **M1d** | CLI de bring-up | Validé sur simulateur **et sur carte** — toutes les commandes, `firmware-update` compris | — |
 | **Boot** | Bootloader A/B, probation et rollback | **Validé sur carte le 2026-09-16** : installation SWD, `BOOT_INFO`, mise à jour nominale promue, rollback sur image qui ne confirme jamais | Rien ; un défaut trouvé sur carte, corrigé, rejoué |
 | **M2** | Étage de puissance et capteurs (étapes 2 à 9) | **Étape 2 : validée le 2026-09-16, régression du 2026-09-21 réparée et revalidée le 2026-09-26** — écriture-relecture par `DRV.PROBE`, et une écriture de registre dont l'effet se lit sur la mesure analogique. Voir plus bas. Pour mémoire, la validation d'origine : le DRV8304 répond en SPI, sept registres relus cohérents avec la fiche technique, écriture-relecture par `DRV.PROBE`, fautes lisibles. **Étape 3 validée à l'oscilloscope le 2026-09-18** : trois bras complémentaires à 20 kHz, temps mort 500 ns aux deux fronts, rapports 20/50/80 % suivis, aucune conduction croisée — après avoir trouvé que les sorties basses n'avaient jamais été activées. **Étape 4 entamée le 2026-09-18**, puis reprise le 2026-09-20 après remplacement de U3 : un défaut d'acquisition corrigé, et **deux défauts matériels isolés** — voir plus bas | Étape 4 : **offsets et bruit mesurés et documentés le 2026-09-21** — zéro de chaîne à 1–11 counts de la mi-échelle, répétable à ±1 count sur quatre campagnes, écart-type de 1,4 à 2,0 counts avec `CAL` levé. Ni SPI ni sortie de puissance requis. Gain relu à 20 V/V le 2026-09-26. **Depuis le 2026-09-26 le zéro est mesuré à chaque démarrage**, sorties coupées, et refusé s'il n'est pas plausible. Pour mémoire, ce qui bloquait avant : D'abord `VREF` qui oscille de ±370 mV, ce qui fausse toute mesure de tension de la carte ; ensuite les trois entrées de courant flottantes, que le remplacement du DRV n'a pas corrigées — continuité et masse à vérifier à l'ohmmètre. Le chemin nFAULT → coupure de `MOE` est écrit mais **jamais déclenché** : **décision de l'utilisateur le 2026-09-26, on passe à l'étape 5 sans l'éprouver physiquement** — voir « Décisions ». **Étape 5 close le 2026-09-26** : limites de courant éprouvées, gains par voie corrigés, somme des courants à 4,5 %, échelle absolue ≈ 1,82 mA par count à ±15 % mesurée à l'étape 7. **Étape 7 close le 2026-09-26** : R ≈ 3,6 Ω et L ≈ 1,1 mH par phase, stockés en NVM avec p, φ, le sens et l'échelle de courant — la persistance du dictionnaire est implémentée et éprouvée. **Étapes 8 et 9 validées sur carte le 2026-09-26** : 7 paires de pôles sur quatre essais, décalage électrique 178,1° reproductible à 0,1°, redémarrage compris. **Étape 6 écrite hors séquence et éprouvée sur carte** (2026-09-21) puisqu'elle ne dépend ni de 4 ni de 5 : AS5600 en DMA à 1 MHz, transfert 57 µs, un échantillon toutes les 59 µs, ISR à 2,60 µs au pire. **Verte à titre provisoire** : le critère « angle monotone à la main » a été validé par l'utilisateur, aimant monté, et je n'ai pas assisté à la mesure — une réserve reste à lever, voir la section de l'étape 6 |
-| **M3** | Asservissements (étapes 10 à 13) | **Étape 10 validée sur carte le 2026-09-26** : la boucle ouverte tourne de 2 à 20 Hz électriques dans les deux sens, vitesse à 1 % près, courant maîtrisé ; l'armement existe, watchdog et `STOP` éprouvés en rotation | Étape 11, boucle de courant Id/Iq — l'ISR est à reprendre avant (6,4 µs au repos sous `-Og`) |
+| **M3** | Asservissements (étapes 10 à 13) | **Étape 10 validée sur carte le 2026-09-26** : la boucle ouverte tourne de 2 à 20 Hz électriques dans les deux sens, vitesse à 1 % près, courant maîtrisé ; l'armement existe, watchdog et `STOP` éprouvés en rotation | Étape 11, boucle de courant Id/Iq — sin/cos par le CORDIC ; l'ISR est à 4,0 µs au repos depuis son passage en CCM SRAM |
 
 **Le moteur tourne depuis le 2026-09-26, en boucle ouverte** — étape 10. Aucune boucle fermée
 n'existe encore.
@@ -1396,6 +1396,32 @@ voie, reconstruction, surveillance du courant, boucle ouverte —, appelé à ch
 fonctions non inlinées sous `-Og`. La boucle ouverte ajoute jusqu'à 8 µs de pointe en
 rotation. Admissible aujourd'hui ; à reprendre avant l'étape 11, par exemple en optimisant le
 chemin de contrôle.
+
+**Repris le même jour : 4,0 µs au repos.** Un profilage étape par étape de l'ISR a montré un
+coût diffus, et une fonction qui ne fait qu'une comparaison à 79 cycles : ce n'était pas le
+code, c'était la flash. Ses quatre états d'attente à 144 MHz ne sont masqués que par un petit
+cache, que la superloop évince entre deux passages ; chaque ISR repayait ses défauts de cache.
+Deux remèdes, mesurés séparément :
+
+| Chemin de l'ISR | Au repos | Pire relevé |
+|---|---|---|
+| Tout en `-Og`, en flash — l'état de l'étape 10 | 6,4 µs | 8,9 µs |
+| `-O2` sur les seuls fichiers de l'ISR | 5,3 µs | 5,6 µs |
+| `-O2`, et exécuté depuis la CCM SRAM | **4,0 µs** | 4,1 µs |
+
+La CCM SRAM (32 ko, `0x10000000`) s'exécute sans état d'attente. Le chemin de l'ISR — 9 ko —
+y est copié par `main` avant la première interruption, puis ses pages sont protégées en
+écriture (`SYSCFG_SWPR`) : une écriture égarée lève une faute au lieu de corrompre le code, et
+la protection ne tombe qu'au reset. Les vecteurs de faute restent en flash, pour fonctionner
+avant la copie. Conséquence sur la mémoire : la RAM de données passe à SRAM1 + SRAM2, 96 ko,
+occupée à 59 %. Le bootloader n'est pas touché — la copie est faite en C, pas dans le startup
+qu'il partage.
+
+Vérifié sur carte après le changement : `check` complet, capture du scope, télémétrie, et une
+rotation en boucle ouverte à 10 Hz électriques — vitesse −8,984 rad/s pour −8,976 attendus.
+**Ce qui reste coûteux : `cosf` et `sinf`**, restés en flash, portent l'ISR à 10,5 µs en
+rotation. L'étape 11 aura besoin de sin/cos à chaque passage pour Park : le G473 a un
+coprocesseur CORDIC qui les calcule en matériel, c'est lui qu'il faudra employer.
 
 ## La zone morte à 2048 — caractérisée, contournée par la loi des nœuds (2026-09-26)
 

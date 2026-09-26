@@ -194,6 +194,14 @@ CFLAGS := $(MCU) $(C_DEFS) $(C_INCLUDES) $(OPT) $(WARN) \
 ifeq ($(DEBUG),1)
 CFLAGS += -g3 -gdwarf-2
 endif
+# Le chemin de l'ISR de controle est compile en -O2, le reste garde $(OPT). Sous -Og, chaque
+# passage a 20 kHz enchainait des appels non inlines et des recharges de variables : 6,4 us au
+# repos, mesure le 2026-09-26, pour un budget de 50 us que la boucle de courant va entamer.
+# Le reste du firmware — console, protocole, superloop — n'a pas d'echeance et reste lisible
+# au debogueur. Une option -O posterieure l'emporte sur la premiere : l'ajout suffit.
+ISR_PATH := ctrl adc_sync encoder imot safety openloop pwm scope dbg_pin stm32g4xx_it
+$(addprefix $(BUILD)/obj/,$(addsuffix .o,$(ISR_PATH))): CFLAGS += -O2
+
 # Affectation differee : $@ n'existe qu'au moment de la recette. Avec := ici,
 # -MF recevrait une chaine vide et gcc avalerait le fichier source comme argument.
 DEPFLAGS = -MMD -MP -MF $(@:%.o=%.d)
