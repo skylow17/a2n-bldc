@@ -997,9 +997,9 @@ void Console_ExecuteLine(const char *line)
     Ctrl_ResetStats();
     Reply("OK");
   } else if (Match(line, "LINK?", NULL)) {
-    Link_TxPrintf("OK tx_dropped=%lu rx_dropped=%lu host=%u\r\n",
+    Link_TxPrintf("OK tx_dropped=%lu rx_dropped=%lu long=%lu host=%u\r\n",
                   (unsigned long)Link_TxDropped(), (unsigned long)Link_RxDropped(),
-                  Link_HostAttached() ? 1U : 0U);
+                  (unsigned long)Link_LongLines(), Link_HostAttached() ? 1U : 0U);
   } else if (Match(line, "PROTO?", NULL)) {
     Link_TxPrintf("OK rx_frames=%lu rx_errors=%lu tx_dropped=%lu overflows=%lu "
                   "params=%u dict_hash=%08lX\r\n",

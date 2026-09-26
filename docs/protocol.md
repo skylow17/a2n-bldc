@@ -456,7 +456,18 @@ vérifié, la séquence probatoire ci-dessus commence ; sinon le slot actif rest
 ## 9. Console ASCII
 
 Conservée pour le diagnostic sans outil, dans l'esprit du `docs/COMMANDS.md` du firmware v1.
-Une ligne = une commande, réponse `OK ...` ou `ERR <code>`. Elle couvre l'essentiel :
+Une ligne = une commande, réponse `OK ...` ou `ERR <code>`.
+
+**Toute réponse se termine par `CR LF`, sans exception.** Le démultiplexage du §1 décide du
+canal sur le premier octet d'un message, c'est-à-dire après une terminaison : une ligne qui en
+manquerait ferait prendre la trame binaire suivante pour la suite du texte, et la réponse
+binaire serait perdue sans erreur visible. C'est arrivé le 2026-09-26 — `ENC?` dépassait le
+tampon de mise en forme, la troncature emportait `CR LF`, et chaque capture scope expirait sur
+`TELEM_SIGNALS`. Une réponse qui ne tient pas dans le tampon (319 caractères) est donc
+**remplacée** par `ERR LONG` et comptée dans `LINK?` (`long=`) : une erreur nommée plutôt
+qu'un flux désynchronisé.
+
+La console couvre l'essentiel :
 `PING`, `INFO?`, `STATE?`, `ARM`, `DISARM`, `STOP`, `FAULTCLR`, `SENS.ALL?`, `PARAM? <name>`,
 `PARAM <name> <value>`, `MODE <mode>`, `TARGET <value>`.
 

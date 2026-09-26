@@ -82,9 +82,21 @@ bool Link_TxWrite(const void *data, uint16_t len)
   return true;
 }
 
+/* Tampon de mise en forme d'une ligne de console. Il faisait 160 octets, et `vsnprintf`
+ * tronquait en silence : c'est la terminaison `CR LF`, en fin de ligne, qui partait la
+ * première. Sans elle l'hôte ne voit jamais la fin du texte, prend la trame binaire suivante
+ * pour la suite de la ligne, et la réponse binaire se perd sans la moindre erreur — chaque
+ * capture scope de l'interface expirait ainsi sur `TELEM_SIGNALS` le 2026-09-26. Sept lignes
+ * pouvaient dépasser 159 caractères ; la plus longue, `ENC?`, en fait 258 au pire.
+ * 320 couvre toutes les lignes actuelles avec de la marge, et la règle ci-dessous couvre les
+ * suivantes. */
+#define LINK_LINE_MAX  320U
+
+static volatile uint32_t s_long_lines;
+
 bool Link_TxPrintf(const char *fmt, ...)
 {
-  char    line[160];
+  char    line[LINK_LINE_MAX];
   va_list ap;
 
   va_start(ap, fmt);
@@ -94,9 +106,18 @@ bool Link_TxPrintf(const char *fmt, ...)
   if (n <= 0) {
     return false;
   }
-  const uint16_t len = (uint16_t)((n >= (int)sizeof(line)) ? (sizeof(line) - 1U) : (size_t)n);
-  return Link_TxWrite(line, len);
+  if (n >= (int)sizeof(line)) {
+    /* Jamais de ligne sans terminaison : une erreur nommée plutôt qu'un flux désynchronisé.
+     * Le compteur rend l'incident visible dans `LINK?`, parce qu'`ERR LONG` seul pourrait
+     * passer pour un refus de la commande. */
+    s_long_lines++;
+    static const char k_long[] = "ERR LONG\r\n";
+    return Link_TxWrite(k_long, (uint16_t)(sizeof(k_long) - 1U));
+  }
+  return Link_TxWrite(line, (uint16_t)n);
 }
+
+uint32_t Link_LongLines(void) { return s_long_lines; }
 
 void Link_Pump(void)
 {

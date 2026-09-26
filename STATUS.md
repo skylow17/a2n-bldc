@@ -8,7 +8,7 @@ Ce fichier ne contient **aucun chiffre volatil** (nombre de tests, occupation fl
 Ces valeurs se mesurent, elles ne se recopient pas : `python tools/status.py` les relève sur le
 dépôt réel. Une valeur écrite à la main est fausse le lendemain.
 
-Dernière revue : 2026-09-26, sur carte — SPI du DRV réparé, puis firmware stabilisé : règle de vérification rejouée depuis un clone frais, quatre défauts corrigés et éprouvés sur carte.
+Dernière revue : 2026-09-26, sur carte — SPI du DRV réparé, puis firmware stabilisé : règle de vérification rejouée depuis un clone frais, cinq défauts corrigés et éprouvés sur carte, dont un trouvé pendant la démo.
 
 > **Reprise suivante — par où commencer.** Les deux défauts matériels sont **expliqués**, et
 > aucun des deux n'est une panne : ce sont deux erreurs de conception, l'une et l'autre
@@ -47,7 +47,7 @@ Dernière revue : 2026-09-26, sur carte — SPI du DRV réparé, puis firmware s
 > d'erreurs I²C sur longue durée, à surveiller. Détail dans la section de l'étape 6.
 >
 > **Le firmware a été stabilisé le 2026-09-26**, et c'est de là que repart la suite : les deux
-> slots portent la même image, construite depuis un clone frais du dépôt, et quatre défauts
+> slots portent la même image, construite depuis un clone frais du dépôt, et cinq défauts
 > trouvés en regardant la carte tourner sont corrigés. Voir « Stabilisation du firmware ».
 
 > **Cette revue a repris des états faux.** La passe du 2026-09-15 a marqué « validé sur carte » des
@@ -1361,7 +1361,7 @@ au bit près** : l'image du clone frais a le même CRC que celle que le bootload
 dans le slot actif. Les deux slots portent la même image, construite depuis `HEAD`. Le firmware
 s'annonce `2.0.0-m2a` — il disait encore `m1c`.
 
-**Quatre défauts corrigés, chacun éprouvé sur carte.**
+**Cinq défauts corrigés, chacun éprouvé sur carte.**
 
 1. **Un `ENC.REG` pouvait figer la carte**, et l'a fait : liaison USB muette, même au
    paramétrage du port, cycle d'alimentation nécessaire. Pour lire un registre, la console
@@ -1391,6 +1391,19 @@ s'annonce `2.0.0-m2a` — il disait encore `m1c`.
 4. **L'ISR prenait pour cohérent un angle jamais publié.** Le seqlock part de zéro, qui est
    pair : avant la première lecture du capteur, l'ISR recevait une position nulle datée de
    zéro. Effet minime, cause certaine.
+5. **Trouvé pendant la démo : aucune capture scope ne passait dans l'interface** — « pas de
+   réponse à `TELEM_SIGNALS(0)` après 1500 ms », cinq fois sur cinq, alors que le CLI passait.
+   `Link_TxPrintf` mettait en forme dans 160 octets et `vsnprintf` tronquait en silence, en
+   emportant la terminaison `CR LF`. L'ajout de `mag=` avait porté `ENC?` au-delà, une fois ses
+   compteurs grossis — environ une minute après le démarrage, ce qui explique que le CLI, testé
+   juste après chaque flash, passait. Sans terminaison, l'hôte prend la trame binaire suivante
+   pour la suite du texte, et le moniteur de l'interface envoie `ENC?` deux fois par seconde :
+   chaque réponse binaire se perdait. **Sept lignes sur 41 pouvaient dépasser** — `SENS.ALL?`,
+   `INFO?`, `SELFTEST` et les campagnes `IMOT` le pouvaient déjà ; `mag=` n'a fait que révéler un
+   défaut latent. Tampon porté à 320, et surtout **plus jamais de ligne sans terminaison** : une
+   réponse trop longue devient `ERR LONG`, comptée dans `LINK?` (`long=`). Règle écrite dans
+   `docs/protocol.md` §9. **Vérifié dans le vrai processus de l'interface**, par son serveur MCP,
+   carte en marche depuis sept minutes : cinq captures sur cinq, `long=0`, aucune perte.
 
 **Ce qui n'est pas un défaut, et qu'on lira sur le graphe.** Sorties coupées, les courants
 centrés restent à une dizaine de counts au-dessus de zéro. La calibration par `CAL` donne le
@@ -1413,6 +1426,10 @@ coupées ; **mais toute écriture en flash moteur tournant devra en tenir compte
 - **Deux défauts du CLI `firmware-update`**, qui ont coûté deux sessions : sur erreur il ne
   referme pas le port, donc un refus ressemble à un blocage ; et il n'examine pas l'image
   avant d'effacer le slot, alors que le vecteur de reset se lit sur l'hôte.
+- **Un démultiplexage plus robuste côté hôte.** `0x01` n'apparaît jamais dans le texte de la
+  console : l'hôte pourrait ouvrir une trame binaire sur cet octet même au milieu d'une ligne
+  non terminée, et un défaut comme le point 5 ne coûterait plus qu'une ligne. C'est un
+  changement de protocole, des deux côtés.
 
 ## Règle de vérification avant d'annoncer un jalon
 

@@ -919,7 +919,7 @@ export class SimulatedDevice implements Transport {
         );
         break;
       case 'LINK?':
-        this.replyLine('OK tx_dropped=0 rx_dropped=0');
+        this.replyLine('OK tx_dropped=0 rx_dropped=0 long=0 host=1');
         break;
       case 'STATS?':
         this.replyLine('OK ticks=0 ms=0 last_ns=0 max_ns=0 load_pm=0 ia=2048 ib=2048 ic=2048');

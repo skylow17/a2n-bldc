@@ -46,6 +46,9 @@ uint16_t Link_RxRead(uint8_t *dst, uint16_t max);
 uint32_t Link_TxDropped(void);
 uint32_t Link_RxDropped(void);
 
+/** Réponses de console trop longues pour le tampon, remplacées par `ERR LONG`. */
+uint32_t Link_LongLines(void);
+
 /** Alimenté par la couche CDC, en contexte interruption USB. Pas d'appel direct. */
 void Link_OnRxFromUsb(const uint8_t *data, uint16_t len);
 void Link_OnTxComplete(void);
