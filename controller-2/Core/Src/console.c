@@ -255,6 +255,64 @@ static void CmdOpenloopStatus(void)
                 (unsigned long)(o.active ? Safety_PulseLeftMs() : 0UL));
 }
 
+/* `CL <id_ma> <iq_ma> <ms>`, `CL STOP` — la boucle de courant de l'étape 11. Les mêmes
+ * contrôles du DRV que `PWM ON` ; ses limites propres sont dans `foc.c`. */
+static void CmdCurrentLoop(const char *arg)
+{
+  if (strcasecmp(arg, "STOP") == 0) {
+    Foc_ClStop();
+    Reply("OK");
+    return;
+  }
+  char *end = NULL;
+  const long id = strtol(arg, &end, 10);
+  if (end == arg) { Reply("ERR ARG"); return; }
+  const char *p = end;
+  const long iq = strtol(p, &end, 10);
+  if (end == p) { Reply("ERR ARG"); return; }
+  p = end;
+  const unsigned long ms = strtoul(p, &end, 10);
+  if (end == p) { Reply("ERR ARG"); return; }
+  while (*end == ' ') { end++; }
+  if (*end != '\0') { Reply("ERR ARG"); return; }
+
+  if (!Pwm_IsEnabled()) {
+    Drv8304_Status_t st;
+    if (!Drv8304_ReadFaults()) { Reply("ERR DRV"); return; }
+    Drv8304_GetStatus(&st);
+    if (st.nfault_low || ((st.fault_status_1 & DRV_FS1_FAULT) != 0U)) {
+      Reply("ERR FAULT");
+      return;
+    }
+  }
+  SafetyEnable_t en = SAFETY_EN_OK;
+  switch (Foc_ClStart((int32_t)id, (int32_t)iq, (uint32_t)ms, &en)) {
+    case FOC_CL_OK:         Reply("OK");        break;
+    case FOC_CL_ERR_LIMIT:  Reply("ERR LIMIT"); break;
+    case FOC_CL_ERR_BUSY:   Reply("ERR BUSY");  break;
+    case FOC_CL_ERR_CFG:    Reply("ERR CFG");   break;
+    case FOC_CL_ERR_VBUS:   Reply("ERR VBUS");  break;
+    case FOC_CL_ERR_ANGLE:  Reply("ERR ANGLE"); break;
+    case FOC_CL_ERR_ENABLE: ReplyEnable(en);    break;
+    case FOC_CL_ERR_ARG:
+    default:                Reply("ERR ARG");   break;
+  }
+}
+
+static void CmdCurrentLoopStatus(void)
+{
+  Foc_ClStatus_t s;
+  Foc_ClGetStatus(&s);
+  Link_TxPrintf("OK active=%u id_ref_ma=%ld iq_ref_ma=%ld id_avg_ma=%ld iq_avg_ma=%ld "
+                "vd_mv=%ld vq_mv=%ld sat_ticks=%lu ticks=%lu left_ms=%lu kp_mv_a=%ld ki_v_as=%ld\r\n",
+                s.active ? 1U : 0U, (long)(s.id_ref * 1000.0f), (long)(s.iq_ref * 1000.0f),
+                (long)(s.id_avg * 1000.0f), (long)(s.iq_avg * 1000.0f),
+                (long)(s.vd * 1000.0f), (long)(s.vq * 1000.0f),
+                (unsigned long)s.sat_ticks, (unsigned long)s.ticks,
+                (unsigned long)(s.active ? Safety_PulseLeftMs() : 0UL),
+                (long)(s.kp * 1000.0f), (long)s.ki);
+}
+
 /* `PWM.PULSE <a> <b> <c> <ms>` — l'essai de l'étape 5. Les rapports se posent, `MOE` se
  * lève, et c'est l'ISR qui le rabaisse au terme : la durée ne dépend ni de l'hôte ni de la
  * superloop. Les mêmes contrôles que `PWM ON`, dans le même ordre. */
@@ -1175,6 +1233,10 @@ void Console_ExecuteLine(const char *line)
                   f.valid ? 1U : 0U, Foc_ConfigOk() ? 1U : 0U,
                   (long)(f.theta_e_rad * 1000.0f), (long)(f.id_a * 1000.0f),
                   (long)(f.iq_a * 1000.0f));
+  } else if (Match(line, "CL?", NULL)) {
+    CmdCurrentLoopStatus();
+  } else if (Match(line, "CL", &arg)) {
+    CmdCurrentLoop(arg);
   } else if (Match(line, "OL?", NULL)) {
     CmdOpenloopStatus();
   } else if (Match(line, "OL", &arg)) {

@@ -36,6 +36,8 @@ typedef struct
   float    iq_a;           /**< courant d'axe q                                     */
   float    ol_theta_rad;   /**< angle commandé par la boucle ouverte, 0 hors rotation */
   uint8_t  foc_valid;      /**< 1 quand les trois précédents sont une mesure        */
+  float    vd_v;           /**< tension d'axe d demandée, 0 hors boucle de courant  */
+  float    vq_v;           /**< tension d'axe q demandée                            */
 } Ctrl_Stats_t;
 
 void Ctrl_Init(void);

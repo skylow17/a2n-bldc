@@ -323,6 +323,8 @@ Signaux présents à M2 :
 | 16 | `foc.iq_a` | `A` | courant d'axe q, même chaîne. Vaut 0 quand `foc.valid` vaut 0 |
 | 17 | `ol.theta_rad` | `rad` | angle électrique **commandé** par la boucle ouverte pendant la période où les courants ont été lus, [0, 2π). Vaut 0 hors boucle ouverte. Comparé à 14, il donne l'angle de charge |
 | 18 | `foc.valid` | `bool` | 1 quand 14 à 16 sont une mesure : angle valide (`enc.valid`) **et** paramètres moteur plausibles — p de 1 à 64, sens ±1, échelle de courant non nulle — **et** CORDIC vérifié au démarrage. Une carte dont la NVM est vide ne mesure donc rien, plutôt que de mesurer faux |
+| 19 | `foc.vd_v` | `V` | tension d'axe d demandée par la boucle de courant, après limitation. 0 hors boucle de courant |
+| 20 | `foc.vq_v` | `V` | tension d'axe q, même chose |
 
 **Zone morte des amplis de courant.** Mesurée le 2026-09-26 : chaque voie a une plage de
 courant sur laquelle sa sortie reste collée **exactement** à la mi-échelle, 2048 counts bruts,
@@ -560,7 +562,7 @@ commande d'arrêt et ses raisons doivent préexister au danger.
 
 | Commande | Réponse | Rôle |
 |---|---|---|
-| `SAFETY?` | `OK reason=<nom> latched=<0\|1> outputs=<0\|1> since_cmd_ms=<ms> trips=<n> host=<0\|1> armed=<0\|1>` | État de la barrière. `reason` vaut `ok`, `host_gone`, `cmd_timeout`, `drv_fault`, `overcurrent` ou `requested`. `trips` compte les coupures du watchdog depuis le reset. `overcurrent` : un courant centré a dépassé la limite du firmware, voir « PWM sous charge ». `armed` : l'état d'armement, voir ci-dessous |
+| `SAFETY?` | `OK reason=<nom> latched=<0\|1> outputs=<0\|1> since_cmd_ms=<ms> trips=<n> host=<0\|1> armed=<0\|1>` | État de la barrière. `reason` vaut `ok`, `host_gone`, `cmd_timeout`, `drv_fault`, `overcurrent`, `angle_lost` ou `requested`. `angle_lost` : la boucle de courant tournait et l'angle électrique a cessé d'être une mesure — aimant perdu, capteur muet —, elle a coupé plutôt que de commuter à l'aveugle. `trips` compte les coupures du watchdog depuis le reset. `overcurrent` : un courant centré a dépassé la limite du firmware, voir « PWM sous charge ». `armed` : l'état d'armement, voir ci-dessous |
 | `FAULTCLR` | `OK` / `ERR CAUSE` | Acquitte la faute verrouillée. Échoue tant que la cause est encore là — un acquittement qui réussit alors que rien n'a changé n'acquitte rien. Pour `drv_fault`, la cause est `nFAULT` encore basse ; pour `host_gone`, l'hôte absent |
 | `ARM` | `OK` / `ERR LATCHED` / `ERR LINK` | Arme la carte. **Rien ne met l'étage de puissance sous tension sans armement** (`AGENTS.md` §4, règle 1) : `PWM ON`, `PWM.PULSE` et `OL` répondent `ERR DISARMED` sinon. Refusé avec une faute latchée ou sans hôte. N'active aucune sortie par lui-même |
 | `DISARM` | `OK` | Coupe les sorties et désarme |
@@ -686,6 +688,29 @@ coprocesseur CORDIC du G473, pas de la bibliothèque mathématique. Voir les sig
 | Commande | Réponse | Rôle |
 |---|---|---|
 | `FOC?` | `OK valid=<0\|1> cfg=<0\|1> theta_e_mrad=<n> id_ma=<n> iq_ma=<n>` | Dernière mesure de l'ISR : angle électrique en milliradians, Id et Iq en milliampères. `cfg` dit si les paramètres moteur sont plausibles **et** si le CORDIC a passé l'auto-test du démarrage — cos et sin d'un quart de tour ; `valid` exige en plus un angle valide |
+
+**Boucle de courant** (M3, étape 11) — deux régulateurs PI, un par axe, tiennent Id et Iq à
+leur consigne. Ils sont réglés **dans le firmware** par compensation du pôle électrique du
+moteur, à partir de `motor.r_ohm` et `motor.l_h` : Kp = L·ωc, Ki = R·ωc, bande passante
+ωc = 2π × 500 Hz. Sortie en tension, transformée inverse de Park puis modulation sinusoïdale
+autour de 50 %, rapportée à la tension du rail moteur mesurée. Mêmes barrières que `PWM ON`,
+plus :
+
+- **tension ≤ 57 ‰ du rail**, la limite de la boucle ouverte : l'écart entre bras reste sous
+  100 ‰ à tout angle. Au rail de 15 V, ≈ 0,85 V par phase ; rotor immobile, R = 3,6 Ω plafonne
+  donc le courant vers 0,23 A **même si la boucle se trompait de signe** — loin de la coupure
+  en surintensité. Quand la limite mord, l'intégrateur se fige plutôt que de s'emballer ;
+- **consignes ≤ 300 mA** par axe en valeur absolue, **durée ≤ 10 s**, watchdog de flux
+  au-delà de 250 ms comme ailleurs ;
+- refus si les paramètres moteur ne sont pas plausibles (R de 0,1 à 100 Ω, L de 10 µH à
+  0,1 H, et ceux de `FOC?`), si le rail est sous 8 V, ou si l'angle n'est pas valide au départ ;
+- **l'angle perdu en route coupe**, faute `angle_lost` latchée.
+
+| Commande | Réponse | Rôle |
+|---|---|---|
+| `CL <id_ma> <iq_ma> <ms>` | `OK` / `ERR ARG` / `ERR LIMIT` / `ERR BUSY` / `ERR CFG` / `ERR VBUS` / `ERR ANGLE` / réponses de `PWM ON` | Lance la boucle : consignes en milliampères, signées, durée en millisecondes. Les intégrateurs partent de zéro et la tension de 50 % partout. `ERR BUSY` si les sorties sont déjà actives |
+| `CL?` | `OK active=<0\|1> id_ref_ma=<n> iq_ref_ma=<n> id_avg_ma=<n> iq_avg_ma=<n> vd_mv=<n> vq_mv=<n> sat_ticks=<n> ticks=<n> left_ms=<n> kp_mv_a=<n> ki_v_as=<n>` | État : consignes, **moyennes** de Id et Iq depuis le départ — la mesure instantanée se lit dans `FOC?` —, dernière tension demandée, nombre de passages où la limite de tension a mordu sur le nombre total, temps restant, et les gains calculés, Kp en mV/A et Ki en V/(A·s) |
+| `CL STOP` | `OK` | Arrête la boucle et coupe les sorties, **sans désarmer** |
 
 **`host`** est la présence de l'hôte vue du firmware : DTR levé par le port ouvert côté PC et
 bus USB actif. Elle retombe quand le port se ferme, quand le câble part ou quand le bus se

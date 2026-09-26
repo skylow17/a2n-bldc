@@ -253,6 +253,7 @@ const char *Safety_ReasonName(SafetyReason_t reason)
     case SAFETY_DRV_FAULT:   return "drv_fault";
     case SAFETY_REQUESTED:   return "requested";
     case SAFETY_OVERCURRENT: return "overcurrent";
+    case SAFETY_ANGLE_LOST:  return "angle_lost";
     case SAFETY_OK:
     default:                 return "ok";
   }

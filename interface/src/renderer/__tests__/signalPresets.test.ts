@@ -24,6 +24,7 @@ const AVAILABLE = [
   'current.ia_count', 'current.ib_count', 'current.ic_count',
   'enc.valid',
   'foc.theta_e_rad', 'foc.id_a', 'foc.iq_a', 'ol.theta_rad', 'foc.valid',
+  'foc.vd_v', 'foc.vq_v',
 ];
 
 const diagnostic = SIGNAL_PRESETS[0]!;

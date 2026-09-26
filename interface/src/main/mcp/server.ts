@@ -17,8 +17,9 @@
  *    barrière qui finit par diverger. Et il n'existe **aucun outil pour l'activer** —
  *    c'est une action humaine dans l'UI, point.
  * 3. **Rien qui mette le moteur en mouvement n'est exposé.** Ni `ARM`, ni consigne, ni
- *    mouvement : ces fonctions n'existent pas encore dans le firmware (jalon M3). Quand
- *    elles arriveront, elles arriveront gated.
+ *    mouvement. Ces fonctions existent dans le firmware depuis M3 — `ARM`, `OL`, `CL` — et
+ *    restent hors de portée : la console MCP n'en laisse passer que les lectures d'état
+ *    (`OL?`, `CL?`). Si un jour elles sont exposées, elles le seront gated.
  *
  * Nommage des outils : `famille_action`, avec des underscores. `interface/AGENTS.md` §5
  * prévoit `device.*`, `param.*`, etc. ; les clients MCP courants n'acceptent que
@@ -528,7 +529,7 @@ export function createA2nMcpServer(core: DeviceCore): { server: McpServer; dispo
       description:
         'Send one ASCII console line. Strictly allow-listed to diagnostics and STOP: ' +
         'PING, INFO?, STATS?, LINK?, PROTO?, PWM?, DRV?, SENS.ALL?, SAFETY?, ENC?, IMOT?, ' +
-        'NVM?, OL?, FOC?, SELFTEST, STOP. Anything that could ' +
+        'NVM?, OL?, FOC?, CL?, SELFTEST, STOP. Anything that could ' +
         'start motion is refused here, not filtered out silently. SELFTEST makes the ' +
         'firmware run the protocol reference vectors on target, which separates a codec ' +
         'problem from a cable or host problem.',

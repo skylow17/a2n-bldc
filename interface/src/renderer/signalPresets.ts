@@ -91,6 +91,15 @@ export const SIGNAL_PRESETS: readonly SignalPreset[] = [
     hint: 'Id and Iq should stay flat while the phases swing; commanded against measured angle gives the load angle.',
     names: ['foc.id_a', 'foc.iq_a', 'foc.theta_e_rad', 'ol.theta_rad', 'foc.valid'],
   },
+  {
+    // La boucle de courant : ce que les régulateurs obtiennent, et ce qu'ils demandent pour
+    // l'obtenir. Une tension collée à sa limite pendant que le courant manque sa consigne,
+    // c'est la force contre-électromotrice qui a pris toute la marge.
+    id: 'current-loop',
+    label: 'Current loop',
+    hint: 'Id and Iq against what the regulators ask for; a voltage stuck at its cap means the back-EMF took the margin.',
+    names: ['foc.id_a', 'foc.iq_a', 'foc.vd_v', 'foc.vq_v', 'enc.vel_rad_s', 'foc.valid'],
+  },
 ];
 
 /** Plafond du protocole — `docs/protocol.md` §6, `u8 count 0..16`. */

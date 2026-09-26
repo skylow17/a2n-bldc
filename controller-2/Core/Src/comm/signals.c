@@ -55,6 +55,8 @@ static float ReadId(const Signal_Snapshot_t *snap)       { return snap->id_a; }
 static float ReadIq(const Signal_Snapshot_t *snap)       { return snap->iq_a; }
 static float ReadOlTheta(const Signal_Snapshot_t *snap)  { return snap->ol_theta_rad; }
 static float ReadFocValid(const Signal_Snapshot_t *snap) { return (float)snap->foc_valid; }
+static float ReadVd(const Signal_Snapshot_t *snap)       { return snap->vd_v; }
+static float ReadVq(const Signal_Snapshot_t *snap)       { return snap->vq_v; }
 
 static float ReadEncAgeUs(const Signal_Snapshot_t *snap)
 {
@@ -108,6 +110,8 @@ static const SignalDesc_t s_signals[] = {
   { 16U, "foc.iq_a",            "A",     ReadIq                },
   { 17U, "ol.theta_rad",        "rad",   ReadOlTheta           },
   { 18U, "foc.valid",           "bool",  ReadFocValid          },
+  { 19U, "foc.vd_v",            "V",     ReadVd                },
+  { 20U, "foc.vq_v",            "V",     ReadVq                },
 };
 
 #define SIGNAL_COUNT  ((uint16_t)(sizeof(s_signals) / sizeof(s_signals[0])))

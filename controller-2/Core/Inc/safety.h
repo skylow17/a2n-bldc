@@ -35,6 +35,7 @@ typedef enum
   SAFETY_DRV_FAULT   = 3,  /**< `nFAULT` du DRV8304                                   */
   SAFETY_REQUESTED   = 4,  /**< `STOP` demandé — coupure normale, pas une faute       */
   SAFETY_OVERCURRENT = 5,  /**< un courant centré a dépassé `SAFETY_OC_LIMIT_COUNTS`  */
+  SAFETY_ANGLE_LOST  = 6,  /**< boucle de courant active et angle électrique invalide   */
 } SafetyReason_t;
 
 /* Limite de courant, en counts centrés et corrigés (échelle de la voie C, `imot.h`), sur

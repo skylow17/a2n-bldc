@@ -8,7 +8,7 @@ Ce fichier ne contient **aucun chiffre volatil** (nombre de tests, occupation fl
 Ces valeurs se mesurent, elles ne se recopient pas : `python tools/status.py` les relève sur le
 dépôt réel. Une valeur écrite à la main est fausse le lendemain.
 
-Dernière revue : 2026-09-26, sur carte — M2 complet ; M3 : étape 10 validée, étape 11 entamée — Id et Iq mesurés et vérifiés en boucle ouverte, aucune boucle fermée encore.
+Dernière revue : 2026-09-26, sur carte — M2 complet ; M3 : étape 10 validée, étape 11 fermée — la boucle de courant tient Id et Iq, première boucle fermée du projet.
 
 > **Reprise suivante — par où commencer.** Les deux défauts matériels sont **expliqués**, et
 > aucun des deux n'est une panne : ce sont deux erreurs de conception, l'une et l'autre
@@ -69,10 +69,11 @@ Dernière revue : 2026-09-26, sur carte — M2 complet ; M3 : étape 10 validée
 | **M1d** | CLI de bring-up | Validé sur simulateur **et sur carte** — toutes les commandes, `firmware-update` compris | — |
 | **Boot** | Bootloader A/B, probation et rollback | **Validé sur carte le 2026-09-16** : installation SWD, `BOOT_INFO`, mise à jour nominale promue, rollback sur image qui ne confirme jamais | Rien ; un défaut trouvé sur carte, corrigé, rejoué |
 | **M2** | Étage de puissance et capteurs (étapes 2 à 9) | **Étape 2 : validée le 2026-09-16, régression du 2026-09-21 réparée et revalidée le 2026-09-26** — écriture-relecture par `DRV.PROBE`, et une écriture de registre dont l'effet se lit sur la mesure analogique. Voir plus bas. Pour mémoire, la validation d'origine : le DRV8304 répond en SPI, sept registres relus cohérents avec la fiche technique, écriture-relecture par `DRV.PROBE`, fautes lisibles. **Étape 3 validée à l'oscilloscope le 2026-09-18** : trois bras complémentaires à 20 kHz, temps mort 500 ns aux deux fronts, rapports 20/50/80 % suivis, aucune conduction croisée — après avoir trouvé que les sorties basses n'avaient jamais été activées. **Étape 4 entamée le 2026-09-18**, puis reprise le 2026-09-20 après remplacement de U3 : un défaut d'acquisition corrigé, et **deux défauts matériels isolés** — voir plus bas | Étape 4 : **offsets et bruit mesurés et documentés le 2026-09-21** — zéro de chaîne à 1–11 counts de la mi-échelle, répétable à ±1 count sur quatre campagnes, écart-type de 1,4 à 2,0 counts avec `CAL` levé. Ni SPI ni sortie de puissance requis. Gain relu à 20 V/V le 2026-09-26. **Depuis le 2026-09-26 le zéro est mesuré à chaque démarrage**, sorties coupées, et refusé s'il n'est pas plausible. Pour mémoire, ce qui bloquait avant : D'abord `VREF` qui oscille de ±370 mV, ce qui fausse toute mesure de tension de la carte ; ensuite les trois entrées de courant flottantes, que le remplacement du DRV n'a pas corrigées — continuité et masse à vérifier à l'ohmmètre. Le chemin nFAULT → coupure de `MOE` est écrit mais **jamais déclenché** : **décision de l'utilisateur le 2026-09-26, on passe à l'étape 5 sans l'éprouver physiquement** — voir « Décisions ». **Étape 5 close le 2026-09-26** : limites de courant éprouvées, gains par voie corrigés, somme des courants à 4,5 %, échelle absolue ≈ 1,82 mA par count à ±15 % mesurée à l'étape 7. **Étape 7 close le 2026-09-26** : R ≈ 3,6 Ω et L ≈ 1,1 mH par phase, stockés en NVM avec p, φ, le sens et l'échelle de courant — la persistance du dictionnaire est implémentée et éprouvée. **Étapes 8 et 9 validées sur carte le 2026-09-26** : 7 paires de pôles sur quatre essais, décalage électrique 178,1° reproductible à 0,1°, redémarrage compris. **Étape 6 écrite hors séquence et éprouvée sur carte** (2026-09-21) puisqu'elle ne dépend ni de 4 ni de 5 : AS5600 en DMA à 1 MHz, transfert 57 µs, un échantillon toutes les 59 µs, ISR à 2,60 µs au pire. **Verte à titre provisoire** : le critère « angle monotone à la main » a été validé par l'utilisateur, aimant monté, et je n'ai pas assisté à la mesure — une réserve reste à lever, voir la section de l'étape 6 |
-| **M3** | Asservissements (étapes 10 à 13) | **Étape 10 validée sur carte le 2026-09-26** : la boucle ouverte tourne de 2 à 20 Hz électriques dans les deux sens, vitesse à 1 % près, courant maîtrisé ; l'armement existe, watchdog et `STOP` éprouvés en rotation | Étape 11, boucle de courant Id/Iq — **premier point validé** : Id et Iq mesurés, plats en boucle ouverte ; reste les deux PI et le premier essai en boucle fermée, Id seul, rotor immobile |
+| **M3** | Asservissements (étapes 10 à 13) | **Étape 10 validée sur carte le 2026-09-26** : la boucle ouverte tourne de 2 à 20 Hz électriques dans les deux sens, vitesse à 1 % près, courant maîtrisé ; l'armement existe, watchdog et `STOP` éprouvés en rotation | Étape 11 — **boucle de courant fermée le 2026-09-26** : Id et Iq tenus à leur consigne, erreur de régime nulle, montée ≈ 1 ms, rotor immobile sous Id, couple dans le bon sens sous Iq. Reste : compensation du temps mort, et une coupure en survitesse avant l'étape 12 |
 
-**Le moteur tourne depuis le 2026-09-26, en boucle ouverte** — étape 10. Aucune boucle fermée
-n'existe encore.
+**Le moteur tourne depuis le 2026-09-26** : en boucle ouverte — étape 10 —, puis sous la
+**boucle de courant**, première boucle fermée du projet — étape 11. Ni vitesse ni position ne
+sont encore régulées.
 
 La seconde passe du 2026-09-16 a rejoué sur la carte tout ce que la première n'avait fait que
 compiler : les huit étapes de la [règle de vérification](#règle-de-vérification-avant-dannoncer-un-jalon),
@@ -1349,6 +1350,51 @@ travail local n'existe pas. Un outil de constat qui ne distingue pas l'absence d
 constate rien. D'où les deux règles ci-dessous.
 
 ---
+
+## M3, étape 11 — la boucle de courant tient ses consignes (2026-09-26)
+
+**Deux PI, un par axe**, dans `foc.c`, à la suite de la mesure. Réglés **dans le firmware** par
+compensation du pôle électrique, à partir de `motor.r_ohm` et `motor.l_h` : Kp = L·ωc =
+3,455 V/A, Ki = R·ωc = 11 309 V/(A·s), bande passante 500 Hz — ≈ 76° de marge de phase avec le
+retard d'une période et demie. Tension bornée en module à 57 ‰ du rail, la limite de la boucle
+ouverte ; l'intégrateur se fige quand elle mord. Commande `CL <id_ma> <iq_ma> <ms>`, consignes
+≤ 300 mA, ≤ 10 s, mêmes barrières que `OL`, plus une faute nouvelle : **`angle_lost`**, latchée
+si l'angle cesse d'être valide pendant la régulation. Signaux `foc.vd_v` et `foc.vq_v`. Refus
+tous vérifiés sur carte : désarmée, consignes et durée hors limites, arguments illisibles.
+
+**Pourquoi ces limites suffisent au premier essai.** Rotor immobile, 57 ‰ d'un rail de 15 V
+plafonnent le courant vers 0,23 A même si la boucle s'était trompée de signe — loin de la
+coupure à 0,9 A. Elle ne s'est pas trompée.
+
+**Résultats, rotor libre :**
+
+| Échelon | Régime | Autre axe | Montée 10–90 % | Dépassement | Rotor |
+|---|---|---|---|---|---|
+| Id 100 mA, 1 s | 0,100 ± 0,015 A | Iq 0,000 | 1,1 ms | — | immobile, 0 mrad |
+| Id 150 mA, 1 s | 0,150 ± 0,010 A | Iq 0,000 | 0,9 ms | 2 % | immobile, 1 mrad |
+| Iq +50 mA, 300 ms | 0,048 A | Id 0,000 | 1,0 ms | — | −2,34 rad, jusqu'à −27 rad/s |
+| Iq −50 mA, 300 ms | −0,049 A | Id −0,001 | 1,2 ms | — | +2,03 rad, jusqu'à +24 rad/s |
+
+**Ce que ces chiffres établissent.** Id seul ne fait pas bouger le rotor : l'angle électrique
+est juste, un courant d'axe d ne produit pas de couple. Iq fait tourner, dans un sens qui
+s'inverse avec son signe — Iq positif donne une vitesse mécanique négative, le sens −1 de
+l'étape 9. La tension de régime se lit comme R·I plus ≈ 0,18 V, à 100 comme à 150 mA : la
+perte du temps mort. **200 mA ne sont pas atteignables à l'arrêt** — il faudrait ≈ 0,9 V, au-delà
+de la limite.
+
+**Ce qui reste imparfait.**
+- La montée, ≈ 1 ms, est plus lente que les ≈ 0,7 ms d'un premier ordre à 500 Hz. Les
+  300 premières µs, le courant ne décolle presque pas alors que la tension est déjà là : la
+  zone morte et le coude des amplis, qui lisent zéro ou moitié sous ≈ 50 mA, et le temps mort,
+  qui pèse le plus à faible courant. Une compensation du temps mort est la suite logique.
+- **Aucune limite de vitesse en boucle de courant.** Avec Iq, le rotor accélère jusqu'à ce que
+  la force contre-électromotrice prenne toute la tension : la limite a mordu sur 82 % des
+  passages à 50 mA, vers 30 Hz électriques — au-delà des 20 Hz permis en boucle ouverte. La
+  limite de tension borne la vitesse, mais une coupure en survitesse doit venir avec la boucle
+  de vitesse, étape 12.
+- Le protocole n'a pas de désarmement du scope : un scope armé qui ne se déclenche pas refuse
+  toute nouvelle configuration jusqu'à ce qu'il se déclenche. Vu pendant ces essais.
+- Coût de l'ISR en régulation : 6,5 µs, 8,7 µs au pire.
 
 ## M3, étape 11 — premier point : Id et Iq mesurés, vérifiés en boucle ouverte (2026-09-26)
 

@@ -72,6 +72,8 @@ typedef struct
   float    iq_a;         /**< courant d'axe q                                   */
   float    ol_theta_rad; /**< angle commande par la boucle ouverte              */
   uint8_t  foc_valid;    /**< 1 quand les trois premiers sont une mesure        */
+  float    vd_v;         /**< tension d'axe d demandee                          */
+  float    vq_v;         /**< tension d'axe q demandee                          */
 } Signal_Snapshot_t;
 
 /**

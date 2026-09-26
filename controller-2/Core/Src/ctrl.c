@@ -65,8 +65,10 @@ void Ctrl_Isr(void)
    * comparaison. */
   Safety_OnControlTick(cia, cib, cic);
 
-  /* M3, étape 11 : le courant dans le repère du rotor. Une mesure, rien de plus — elle ne
-   * commande rien tant que les régulateurs n'existent pas. */
+  /* M3, étape 11 : le courant dans le repère du rotor, et sa régulation quand la boucle de
+   * courant est lancée. Après la surveillance du courant, comme la boucle ouverte : une
+   * coupure prise ici n'est jamais suivie d'une écriture de rapports. Les deux boucles ne
+   * tournent jamais ensemble — chacune refuse de démarrer sorties actives. */
   Foc_Meas_t foc;
   Foc_OnControlTick(cia, cib, cic, enc_ok, turn, &foc);
 
@@ -97,6 +99,8 @@ void Ctrl_Isr(void)
   s_stats.iq_a         = foc.iq_a;
   s_stats.ol_theta_rad = ol_theta;
   s_stats.foc_valid    = foc.valid ? 1U : 0U;
+  s_stats.vd_v         = foc.vd_v;
+  s_stats.vq_v         = foc.vq_v;
 
   s_stats.raw_ia = ia;
   s_stats.raw_ib = ib;
@@ -124,6 +128,8 @@ void Ctrl_Isr(void)
     .iq_a = foc.iq_a,
     .ol_theta_rad = ol_theta,
     .foc_valid = foc.valid ? 1U : 0U,
+    .vd_v = foc.vd_v,
+    .vq_v = foc.vq_v,
   };
   Scope_OnControlTick(&snapshot);
 
