@@ -356,9 +356,22 @@ function liveRegions(
             <>
               <span className="font-mono text-[12px] text-fg-3">{sf?.trips ?? 0} trips</span>
               <Pill tone={sf === null ? 'idle' : sf.latched ? 'fault' : 'ok'}>
-                {sf === null ? '—' : sf.latched ? sf.reason : 'armed'}
+                {sf === null ? '—' : sf.latched ? sf.reason : 'watching'}
               </Pill>
             </>
+          }
+        />
+        {/* L'armement de la carte, pas celui du watchdog : `ARM` autorise l'étage de
+            puissance, une faute, `STOP` ou la perte de l'hôte le retirent. Armée se lit
+            en avertissement — c'est l'état où une commande peut faire tourner le moteur. */}
+        <Row
+          label="Arming"
+          right={
+            <Pill
+              tone={sf === null || sf.armed === null ? 'idle' : sf.armed ? 'warn' : 'ok'}
+            >
+              {sf === null ? '—' : sf.armed === null ? 'not reported' : sf.armed ? 'armed' : 'disarmed'}
+            </Pill>
           }
         />
         <Row

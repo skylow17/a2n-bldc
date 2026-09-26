@@ -507,6 +507,25 @@ describe('sécurité — battement et faute verrouillée', () => {
     await core.disconnect();
   });
 
+  it('suit l armement de la carte, et une faute le retire', async () => {
+    const { core } = await connected();
+    await beat();
+    expect(core.snapshot().safety!.armed).toBe(false);
+
+    expect(await core.sendConsole('ARM')).toBe('OK');
+    await beat();
+    expect(core.snapshot().safety!.armed).toBe(true);
+
+    // Une faute désarme, et `STOP` envoyé ensuite n'efface pas sa cause.
+    core.simulator!.tripSafety('cmd_timeout');
+    await core.sendConsole('STOP');
+    await beat();
+    const s = core.snapshot().safety!;
+    expect(s.armed).toBe(false);
+    expect(s.reason).toBe('cmd_timeout');
+    await core.disconnect();
+  });
+
   it('laisse un agent lire SAFETY? mais pas acquitter par la console', async () => {
     const { core } = await connected();
     await expect(core.sendSafeConsole('SAFETY?')).resolves.toContain('reason=');

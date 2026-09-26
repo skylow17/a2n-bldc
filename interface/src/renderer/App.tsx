@@ -179,9 +179,10 @@ function StatusBadge({ state }: { state: DeviceSnapshot }): ReactNode {
 /**
  * État de la barrière de sécurité du firmware.
  *
- * Trois états, et un seul demande une action. Au repos, rien n'est affiché : une pastille
+ * Quatre états, et un seul demande une action. Au repos, rien n'est affiché : une pastille
  * verte permanente n'apprend rien et finit par ne plus être lue. Sorties actives, un point
- * suffit — c'est une information de danger, elle doit se voir sans se lire. Faute
+ * suffit — c'est une information de danger, elle doit se voir sans se lire ; carte armée
+ * sans sorties actives, de même, puisqu'une seule commande sépare alors du mouvement. Faute
  * verrouillée, la cause est nommée et l'acquittement est là, parce qu'à ce moment précis
  * c'est la seule chose que l'opérateur veut faire.
  */
@@ -211,6 +212,17 @@ function SafetyBadge({ state }: { state: DeviceSnapshot }): ReactNode {
       <span className="flex items-center gap-2 rounded-[3px] border border-line bg-raise px-2.5 py-1 font-mono text-[11px] tracking-wider text-accent">
         <Dot tone="warn" />
         OUTPUTS LIVE
+      </span>
+    );
+  }
+
+  // Armée sans sorties actives : rien ne tourne, mais la commande suivante le peut. C'est
+  // le moment où l'on doit savoir, sans chercher, que la carte n'est plus au repos.
+  if (sf.armed === true) {
+    return (
+      <span className="flex items-center gap-2 rounded-[3px] border border-line bg-raise px-2.5 py-1 font-mono text-[11px] tracking-wider text-accent">
+        <Dot tone="warn" />
+        ARMED
       </span>
     );
   }

@@ -171,6 +171,12 @@ export interface SafetyState {
   outputsLive: boolean;
   /** Coupures par le watchdog depuis le reset de la carte. */
   trips: number;
+  /**
+   * Carte armée (`ARM`) : rien ne met l'étage de puissance sous tension sans elle. `null`
+   * quand le firmware ne publie pas le champ — antérieur à l'étape 10 : l'état est alors
+   * inconnu, et l'afficher comme « désarmé » serait affirmer ce qu'on ne sait pas.
+   */
+  armed: boolean | null;
 }
 
 /**
@@ -287,6 +293,7 @@ function parseSafety(reply: string): SafetyState | null {
     latched: f.get('latched') === '1',
     outputsLive: f.get('outputs') === '1',
     trips: Number(f.get('trips') ?? 0),
+    armed: f.has('armed') ? f.get('armed') === '1' : null,
   };
 }
 
@@ -580,7 +587,8 @@ export class DeviceCore {
       this.log('error', 'device', `torque cut by the firmware: ${next.reason}`);
     }
     if (prev === null || prev.latched !== next.latched ||
-        prev.reason !== next.reason || prev.outputsLive !== next.outputsLive) {
+        prev.reason !== next.reason || prev.outputsLive !== next.outputsLive ||
+        prev.armed !== next.armed) {
       this.emitChange();
     }
     return next;

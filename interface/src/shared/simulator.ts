@@ -146,6 +146,7 @@ export class SimulatedDevice implements Transport {
   private pwmEnabled = false;
   private safetyReason: string = 'ok';
   private safetyLatched = false;
+  private armed = false;
   private safetyTrips = 0;
   private sensRounds = 0;
   private encReads = 0;
@@ -829,6 +830,7 @@ export class SimulatedDevice implements Transport {
     this.pwmEnabled = false;
     this.safetyReason = reason;
     this.safetyLatched = true;
+    this.armed = false;
     this.safetyTrips += 1;
   }
 
@@ -871,13 +873,30 @@ export class SimulatedDevice implements Transport {
         // Le simulateur n'a pas d'etage de puissance ; il repond comme la carte pour
         // que le chemin complet du bouton STOP soit reellement exerce.
         this.pwmEnabled = false;
-        this.safetyReason = 'requested';
+        // Comme le firmware : tant qu'une faute est latchée, sa cause ne change plus.
+        if (!this.safetyLatched) this.safetyReason = 'requested';
+        this.armed = false;
+        this.replyLine('OK');
+        break;
+      case 'ARM':
+        if (this.safetyLatched) {
+          this.replyLine('ERR LATCHED');
+        } else {
+          this.armed = true;
+          this.replyLine('OK');
+        }
+        break;
+      case 'DISARM':
+        this.pwmEnabled = false;
+        if (!this.safetyLatched) this.safetyReason = 'requested';
+        this.armed = false;
         this.replyLine('OK');
         break;
       case 'SAFETY?':
         this.replyLine(
           `OK reason=${this.safetyReason} latched=${this.safetyLatched ? 1 : 0} ` +
-            `outputs=${this.pwmEnabled ? 1 : 0} since_cmd_ms=0 trips=${this.safetyTrips} host=1`,
+            `outputs=${this.pwmEnabled ? 1 : 0} since_cmd_ms=0 trips=${this.safetyTrips} host=1 ` +
+            `armed=${this.armed ? 1 : 0}`,
         );
         break;
       case 'FAULTCLR':
