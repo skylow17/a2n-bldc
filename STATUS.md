@@ -28,14 +28,15 @@ autorité sur la liaison) et `docs/hardware-revB.md` (ce que la carte rev A a ap
 - **Interface** : application Electron complète — Dashboard, Tuning, **Control** (armement,
   boucle ouverte, courant, vitesse, position, réglage de rigidité ; **détachable** dans sa
   propre fenêtre), **Recipes**, Scope, Firmware — plus une CLI et un serveur MCP.
-- **2026-09-27** : réglages des boucles `ctrl.*` dans le dictionnaire, **compilés mais pas
-  flashés** — voir « Control détachable, réglage des boucles, recettes ».
+- **2026-09-27** : réglages des boucles `ctrl.*` dans le dictionnaire, flashés en slot B —
+  voir « Control détachable, réglage des boucles, recettes ».
 
 ### État de la carte au moment d'écrire
 
-- Les deux slots A et B portent le même build, commité — **celui d'avant les réglages `ctrl.*`**
-  (dictionnaire `0x609366A0`, 17 entrées) : l'interface montre donc le Loop tuning comme absent tant que le
-  nouveau n'est pas flashé. Bootloader installé : **`boot-1.0.0`**.
+- **Slot B actif** (2026-09-27) : build `acb9542`, réglages `ctrl.*`, dictionnaire `0xC2D9F36A`
+  (21 entrées). Slot A garde le build précédent (dictionnaire `0x609366A0`) comme repli. Les deux
+  annoncent `2.0.0-m2a` : la chaîne de version compilée n'a pas été montée. Bootloader installé :
+  **`boot-1.0.0`**.
   `boot-1.1.0` (garde ECC des métadonnées) est compilé mais **pas installé** : il se flashe par
   SWD, en présence de l'utilisateur, avec la commande donnée dans « Persistance des
   paramètres » — **jamais** par `make install-bootloader`, dont le `-e all` effacerait aussi la
@@ -137,9 +138,8 @@ Toutes les boucles coupent les sorties au terme de leur durée : l'arbre n'est p
 6. Scripts d'essai des étapes 10 à 13, restés hors du dépôt : en faire des commandes du CLI.
 7. Chemin `nFAULT` → coupure jamais provoqué physiquement (décision utilisateur).
 8. Pic d'âge d'encodeur de ≈ 65 ms vu une fois après une mise à jour : cause inconnue.
-9. **Flasher le firmware aux réglages `ctrl.*`** (`firmware-update`, sans sonde), vérifier
-   `SELFTEST` (`dict_hash=C2D9F36A`) et `NVM?` (les calibrations doivent survivre), puis essayer
-   les profils Soft et Stiff en boucle de position. Outils MCP `recipe.*` à écrire.
+9. **Essayer les profils Soft et Stiff** en boucle de position, moteur en marche, puis sous
+   charge ; seul Balanced est mesuré. Outils MCP `recipe.*` à écrire.
 10. Tout ce qui est matériel : `docs/hardware-revB.md`.
 
 ### Pièges connus — ils ont tous coûté du temps
@@ -1512,9 +1512,13 @@ jamais cochées d'office ; dictionnaire différent bloqué derrière une confirm
 `param_dict_hash`, appliquées par nom. Une valeur hors des bornes du device est refusée plutôt
 que rognée — `writeParam` rogne, le diff l'en empêche.
 
-**Vérifié** : 357 tests, typecheck, build. **Pas vérifié** : le firmware n'est **pas flashé**
-(carte débranchée au moment du build) ; les vues n'ont été regardées ni sur simulateur ni sur
-carte ; aucun essai moteur avec d'autres réglages que les défauts. Le simulateur annonce les
+**Vérifié** : 357 tests, typecheck, build. Sur carte, flashé en slot B sans sonde : `SELFTEST`
+43/43 avec `dict_hash=C2D9F36A`, `NVM?` `loaded=6` — les six calibrations ont survécu, les
+quatre réglages sont à leur défaut —, `check` complet passé. La règle de séparation, carte
+désarmée : `ctrl.speed.bw_hz` à 10, `PL 0 1000 5` rend `ERR LIMIT`, `PL 0 1000 2` passe la
+barrière et s'arrête sur `ERR DISARMED`, puis 30 rétabli. **Pas vérifié** : les vues n'ont été
+regardées ni sur simulateur ni sur carte ; aucun essai moteur avec d'autres réglages que les
+défauts. Le simulateur annonce les
 quatre paramètres mais n'implémente pas `SL` / `PL`.
 
 **Reste** : les outils MCP `recipe.*` prévus par `interface/AGENTS.md` §5 ne sont pas écrits.
