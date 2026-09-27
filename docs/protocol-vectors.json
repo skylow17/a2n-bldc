@@ -97,8 +97,8 @@
   "param_dict": {
     "_comment": "Table du firmware a M1b, serialisee entree par entree, et le hash de forme attendu. Le firmware annonce le meme hash dans DEVICE_INFO et le rend lisible par la commande console PROTO?.",
     "entry_wire_len": 80,
-    "count": 17,
-    "hash": 1620272800,
+    "count": 21,
+    "hash": 3269063530,
     "entries": [
       {
         "id": 1,
@@ -243,6 +243,54 @@
         "max": 0.019999999552965164,
         "def": 0.0,
         "wire_hex": "20020616696d6f742e7363616c655f610000000000000000000000000000000000000000412f636f756e7400000000000ad7a33c000000004d6f746f7200000000000000000000000000000000000000"
+      },
+      {
+        "id": 768,
+        "type": 6,
+        "flags": 2,
+        "name": "ctrl.speed.bw_hz",
+        "unit": "Hz",
+        "group": "Speed loop",
+        "min": 1.0,
+        "max": 40.0,
+        "def": 30.0,
+        "wire_hex": "000306026374726c2e73706565642e62775f687a00000000000000000000000000000000487a0000000000000000803f000020420000f0415370656564206c6f6f700000000000000000000000000000"
+      },
+      {
+        "id": 769,
+        "type": 6,
+        "flags": 2,
+        "name": "ctrl.speed.zero_ratio",
+        "unit": "",
+        "group": "Speed loop",
+        "min": 2.0,
+        "max": 10.0,
+        "def": 4.0,
+        "wire_hex": "010306026374726c2e73706565642e7a65726f5f726174696f000000000000000000000000000000000000000000004000002041000080405370656564206c6f6f700000000000000000000000000000"
+      },
+      {
+        "id": 770,
+        "type": 6,
+        "flags": 18,
+        "name": "ctrl.speed.inertia_a_s2_rad",
+        "unit": "As2/rad",
+        "group": "Speed loop",
+        "min": 9.999999974752427e-07,
+        "max": 0.004999999888241291,
+        "def": 0.00011000000085914508,
+        "wire_hex": "020306126374726c2e73706565642e696e65727469615f615f73325f72616400000000004173322f72616400bd3786350ad7a33bcdafe6385370656564206c6f6f700000000000000000000000000000"
+      },
+      {
+        "id": 784,
+        "type": 6,
+        "flags": 2,
+        "name": "ctrl.pos.bw_hz",
+        "unit": "Hz",
+        "group": "Position loop",
+        "min": 0.5,
+        "max": 5.0,
+        "def": 3.0,
+        "wire_hex": "100306026374726c2e706f732e62775f687a000000000000000000000000000000000000487a0000000000000000003f0000a04000004040506f736974696f6e206c6f6f700000000000000000000000"
       },
       {
         "id": 256,

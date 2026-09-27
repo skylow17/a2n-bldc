@@ -21,6 +21,7 @@
 #include "comm/param.h"
 
 #include "board.h"
+#include "foc.h"
 #include "pwm.h"
 
 /* ---------------------------------------------------------------- stockage des reglages */
@@ -53,6 +54,16 @@ static float   s_imot_scale_a;
 
 #define MOTOR_FLAGS  (PARAM_FLAG_PERSISTENT | PARAM_FLAG_REQUIRES_DISARM | PARAM_FLAG_CALIBRATED)
 
+/* Reglages des boucles de vitesse et de position (2026-09-27). Lus au lancement de `SL` et
+ * de `PL`, jamais pendant une boucle : pas de `requires_disarm`. Ce ne sont pas des limites —
+ * les plafonds de consigne, d'Iq et de duree restent des constantes de `foc.h` — et leurs
+ * bornes sont celles que `Foc_SlStart` / `Foc_PlStart` acceptent. L'inertie est mesuree
+ * (etape 12) : `calibrated`, la remise a zero l'epargne. */
+static float s_speed_bw_hz      = FOC_SL_BW_HZ;
+static float s_speed_zero_ratio = FOC_SL_ZERO_RATIO;
+static float s_speed_inertia    = FOC_SL_B_A_S2_RAD;
+static float s_pos_bw_hz        = FOC_PL_BW_HZ;
+
 /* Parametres de diagnostic du codec. Sans effet sur le materiel. */
 static uint32_t s_dbg_u32;
 static int16_t  s_dbg_i16;
@@ -81,6 +92,11 @@ const ParamDesc_t g_param_table[] = {
   { 0x0211U, PARAM_TYPE_I8,    MOTOR_FLAGS,             "enc.direction",    "",     "Motor",    -1.0f,        1.0f,         0.0f, (void *)&s_enc_direction       },
   { 0x0220U, PARAM_TYPE_F32,   MOTOR_FLAGS,             "imot.scale_a",     "A/count", "Motor",  0.0f,        0.02f,        0.0f, (void *)&s_imot_scale_a        },
 
+  { 0x0300U, PARAM_TYPE_F32,   PARAM_FLAG_PERSISTENT,   "ctrl.speed.bw_hz", "Hz",   "Speed loop", (float)FOC_SL_BW_MIN_HZ, (float)FOC_SL_BW_MAX_HZ, FOC_SL_BW_HZ, (void *)&s_speed_bw_hz },
+  { 0x0301U, PARAM_TYPE_F32,   PARAM_FLAG_PERSISTENT,   "ctrl.speed.zero_ratio", "", "Speed loop", FOC_SL_ZERO_RATIO_MIN, FOC_SL_ZERO_RATIO_MAX, FOC_SL_ZERO_RATIO, (void *)&s_speed_zero_ratio },
+  { 0x0302U, PARAM_TYPE_F32,   PARAM_FLAG_PERSISTENT | PARAM_FLAG_CALIBRATED, "ctrl.speed.inertia_a_s2_rad", "As2/rad", "Speed loop", FOC_SL_B_MIN, FOC_SL_B_MAX, FOC_SL_B_A_S2_RAD, (void *)&s_speed_inertia },
+  { 0x0310U, PARAM_TYPE_F32,   PARAM_FLAG_PERSISTENT,   "ctrl.pos.bw_hz",   "Hz",   "Position loop", FOC_PL_BW_MIN_HZ, FOC_PL_BW_MAX_HZ, FOC_PL_BW_HZ, (void *)&s_pos_bw_hz },
+
   { 0x0100U, PARAM_TYPE_U32,   0U,                      "dbg.echo_u32",     "",     "Debug",     0.0f,        4294967040.0f, 0.0f, (void *)&s_dbg_u32       },
   { 0x0101U, PARAM_TYPE_I16,   0U,                      "dbg.echo_i16",     "",     "Debug",    -32768.0f,    32767.0f,     0.0f, (void *)&s_dbg_i16       },
   { 0x0102U, PARAM_TYPE_F32,   0U,                      "dbg.echo_f32",     "A",    "Debug",    -1000.0f,     1000.0f,      0.0f, (void *)&s_dbg_f32       },
@@ -98,4 +114,12 @@ void Param_GetMotor(Param_Motor_t *out)
   out->elec_offset_rad = s_enc_elec_offset_rad;
   out->direction       = s_enc_direction;
   out->imot_scale_a    = s_imot_scale_a;
+}
+
+void Param_GetLoops(Param_Loops_t *out)
+{
+  out->speed_bw_hz      = s_speed_bw_hz;
+  out->speed_zero_ratio = s_speed_zero_ratio;
+  out->speed_inertia    = s_speed_inertia;
+  out->pos_bw_hz        = s_pos_bw_hz;
 }

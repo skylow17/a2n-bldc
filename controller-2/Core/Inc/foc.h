@@ -52,7 +52,13 @@ extern "C" {
 #define FOC_SL_BW_HZ        30.0f      /**< par défaut ; `SL` en accepte une autre       */
 #define FOC_SL_BW_MIN_HZ    1L
 #define FOC_SL_BW_MAX_HZ    40L        /**< ≈ 50° de marge avec le filtre de vitesse     */
-#define FOC_SL_B_A_S2_RAD   1.1e-4f
+#define FOC_SL_B_A_S2_RAD   1.1e-4f    /**< défaut de `ctrl.speed.inertia_a_s2_rad`     */
+#define FOC_SL_B_MIN        1e-6f
+#define FOC_SL_B_MAX        5e-3f
+#define FOC_SL_ZERO_RATIO   4.0f       /**< zéro de l'intégrateur à ωs / rapport          */
+#define FOC_SL_ZERO_RATIO_MIN 2.0f
+#define FOC_SL_ZERO_RATIO_MAX 10.0f
+#define FOC_PL_MIN_SEPARATION 4.0f     /**< boucle de vitesse ≥ 4× celle de position      */
 #define FOC_SL_MAX_MRAD_S   20000L     /**< sous la coupure en survitesse, 25 rad/s      */
 #define FOC_SL_IQ_MAX_A     0.15f      /**< plafond de la consigne d'Iq                  */
 

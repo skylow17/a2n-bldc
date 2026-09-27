@@ -116,6 +116,12 @@ PARAM_TABLE_M1B = [
     (0x0210,  6, 0x16, "enc.elec_offset_rad", "rad", "Motor", 0.0,   6.2832,      0.0),
     (0x0211,  1, 0x16, "enc.direction",    "",    "Motor", -1.0,     1.0,         0.0),
     (0x0220,  6, 0x16, "imot.scale_a",     "A/count", "Motor", 0.0,  0.02,        0.0),
+    # Reglages des boucles de vitesse et de position, persistants (0x02) ; l'inertie est
+    # aussi calibrated (0x10) — 2026-09-27.
+    (0x0300,  6, 0x02, "ctrl.speed.bw_hz", "Hz",  "Speed loop", 1.0,  40.0,        30.0),
+    (0x0301,  6, 0x02, "ctrl.speed.zero_ratio", "", "Speed loop", 2.0, 10.0,       4.0),
+    (0x0302,  6, 0x12, "ctrl.speed.inertia_a_s2_rad", "As2/rad", "Speed loop", 1e-6, 5e-3, 1.1e-4),
+    (0x0310,  6, 0x02, "ctrl.pos.bw_hz",   "Hz",  "Position loop", 0.5, 5.0,       3.0),
     (0x0100,  4, 0x00, "dbg.echo_u32",     "",   "Debug", 0.0,      4294967040.0, 0.0),
     (0x0101,  3, 0x00, "dbg.echo_i16",     "",   "Debug", -32768.0, 32767.0,     0.0),
     (0x0102,  6, 0x00, "dbg.echo_f32",     "A",  "Debug", -1000.0,  1000.0,      0.0),

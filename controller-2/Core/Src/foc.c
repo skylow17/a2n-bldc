@@ -428,8 +428,15 @@ Foc_ClResult_t Foc_ClStart(int32_t id_ma, int32_t iq_ma, uint32_t ms, SafetyEnab
 
 Foc_ClResult_t Foc_SlStart(int32_t mrad_s, uint32_t ms, float bw_hz, SafetyEnable_t *enable)
 {
+  /* Le rapport et l'inertie viennent du dictionnaire, lus ici, au lancement : une écriture
+   * pendant une boucle en cours ne change rien avant la suivante. Le dictionnaire les a déjà
+   * bornés ; on les revérifie quand même, parce que c'est d'eux que sortent les gains. */
+  Param_Loops_t lp;
+  Param_GetLoops(&lp);
   if ((mrad_s > FOC_SL_MAX_MRAD_S) || (mrad_s < -FOC_SL_MAX_MRAD_S)
-      || !(bw_hz >= (float)FOC_SL_BW_MIN_HZ) || !(bw_hz <= (float)FOC_SL_BW_MAX_HZ)) {
+      || !(bw_hz >= (float)FOC_SL_BW_MIN_HZ) || !(bw_hz <= (float)FOC_SL_BW_MAX_HZ)
+      || !(lp.speed_zero_ratio >= FOC_SL_ZERO_RATIO_MIN) || !(lp.speed_zero_ratio <= FOC_SL_ZERO_RATIO_MAX)
+      || !(lp.speed_inertia >= FOC_SL_B_MIN) || !(lp.speed_inertia <= FOC_SL_B_MAX)) {
     return FOC_CL_ERR_LIMIT;
   }
   if (Pwm_IsEnabled()) {
@@ -441,10 +448,10 @@ Foc_ClResult_t Foc_SlStart(int32_t mrad_s, uint32_t ms, float bw_hz, SafetyEnabl
   s_w_sum        = 0.0f;
   s_sl_ticks     = 0U;
   s_iq_sat_ticks = 0U;
-  /* Kp = ωs · B ; zéro de l'intégrateur à ωs/4. */
+  /* Kp = ωs · B ; zéro de l'intégrateur à ωs / rapport (4 par défaut). */
   const float ws = 2.0f * 3.14159265f * bw_hz;
-  s_sl_kp    = ws * FOC_SL_B_A_S2_RAD;
-  s_sl_ki_ts = s_sl_kp * ws * 0.25f * FOC_TS_S;
+  s_sl_kp    = ws * lp.speed_inertia;
+  s_sl_ki_ts = s_sl_kp * ws / lp.speed_zero_ratio * FOC_TS_S;
   /* Levé avant la boucle de courant : son premier passage régulé calcule déjà Iq. Sorties
    * coupées, l'ISR ne lit pas ce drapeau. */
   s_sl_active = true;
@@ -457,7 +464,12 @@ Foc_ClResult_t Foc_SlStart(int32_t mrad_s, uint32_t ms, float bw_hz, SafetyEnabl
 
 Foc_ClResult_t Foc_PlStart(int32_t target_mrad, uint32_t ms, float bw_hz, SafetyEnable_t *enable)
 {
-  if (!(bw_hz >= FOC_PL_BW_MIN_HZ) || !(bw_hz <= FOC_PL_BW_MAX_HZ)) {
+  Param_Loops_t lp;
+  Param_GetLoops(&lp);
+  /* Une cascade ne tient que si la boucle intérieure est nettement plus rapide : en deçà
+   * d'un facteur 4, la position oscille. Refusé plutôt que lancé. */
+  if (!(bw_hz >= FOC_PL_BW_MIN_HZ) || !(bw_hz <= FOC_PL_BW_MAX_HZ)
+      || !(lp.speed_bw_hz >= FOC_PL_MIN_SEPARATION * bw_hz)) {
     return FOC_CL_ERR_LIMIT;
   }
   if (Pwm_IsEnabled()) {
@@ -480,7 +492,7 @@ Foc_ClResult_t Foc_PlStart(int32_t target_mrad, uint32_t ms, float bw_hz, Safety
   s_pl_ticks    = 0U;
   s_w_sat_ticks = 0U;
   s_pl_active = true;
-  const Foc_ClResult_t r = Foc_SlStart(0, ms, FOC_SL_BW_HZ, enable);
+  const Foc_ClResult_t r = Foc_SlStart(0, ms, lp.speed_bw_hz, enable);
   if (r != FOC_CL_OK) {
     s_pl_active = false;
   }

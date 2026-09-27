@@ -322,7 +322,9 @@ static void CmdSpeedLoop(const char *arg)
   const unsigned long ms = strtoul(p, &end, 10);
   if (end == p) { Reply("ERR ARG"); return; }
   /* Bande passante optionnelle, en hertz : c'est le réglage qu'on cherche à l'étape 12. */
-  float bw = FOC_SL_BW_HZ;
+  Param_Loops_t lp;
+  Param_GetLoops(&lp);
+  float bw = lp.speed_bw_hz;
   while (*end == ' ') { end++; }
   if (*end != '\0') {
     p = end;
@@ -360,7 +362,9 @@ static void CmdPositionLoop(const char *arg)
   const char *p = end;
   const unsigned long ms = strtoul(p, &end, 10);
   if (end == p) { Reply("ERR ARG"); return; }
-  float bw = FOC_PL_BW_HZ;
+  Param_Loops_t lp;
+  Param_GetLoops(&lp);
+  float bw = lp.pos_bw_hz;
   while (*end == ' ') { end++; }
   if (*end != '\0') {
     p = end;

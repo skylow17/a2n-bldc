@@ -266,10 +266,30 @@ par défaut — zéro voulant dire « pas encore mesuré » :
 | `0x0211` | `enc.direction` | i8 | | −1 … 1 | −1 : l'angle mécanique décroît quand l'angle électrique croît (étape 9) |
 | `0x0220` | `imot.scale_a` | f32 | `A/count` | 0 … 0,02 | 0,00182 (étape 7) |
 
-Aucun n'est encore consommé par le firmware : ils le seront par M3. **Les gains des trois voies
+Ils sont consommés par la mesure Id/Iq et les boucles de M3. **Les gains des trois voies
 de courant n'y figurent pas, délibérément** : ils fixent ce que vaut la limite de surintensité
 en ampères, et une valeur écrite depuis l'hôte pourrait l'élargir. Ils restent des constantes du
 firmware (`imot.h`), jusqu'à une routine de calibration qui les mesure elle-même.
+**Réglages des boucles de vitesse et de position — présents depuis le 2026-09-27**, persistants,
+sans `requires_disarm` : ils sont lus **au lancement** de `SL` et de `PL`, jamais pendant une
+boucle en cours, donc les écrire moteur alimenté ne change rien avant le lancement suivant. Ce
+ne sont pas des limites : les plafonds de consigne, d'Iq, de vitesse et de durée restent des
+constantes du firmware, et aucun de ces réglages ne les élargit. Les bornes du dictionnaire sont
+celles que le firmware accepte.
+
+| id | Nom | Type | Unité | Bornes | Défaut | Rôle |
+|---:|---|---|---|---|---|---|
+| `0x0300` | `ctrl.speed.bw_hz` | f32 | `Hz` | 1 … 40 | 30 | Bande passante de la boucle de vitesse. Kp = 2π·f·B |
+| `0x0301` | `ctrl.speed.zero_ratio` | f32 | | 2 … 10 | 4 | Rapport entre la bande passante et le zéro de l'intégrateur : Ki = Kp·2π·f / rapport. Plus petit, l'arbre reprend plus vite un couple de charge, au prix d'un dépassement plus grand |
+| `0x0302` | `ctrl.speed.inertia_a_s2_rad` | f32 | `As2/rad` | 1e-6 … 5e-3 | 1,1e-4 | Courant d'axe q par rad/s² d'accélération, J/Kt : l'inertie **vue par la boucle**, rotor et charge ensemble. Mesurée sur le rotor libre à l'étape 12 ; à remesurer ou à augmenter quand une charge est montée. Drapeau `calibrated` : épargnée par la remise à zéro |
+| `0x0310` | `ctrl.pos.bw_hz` | f32 | `Hz` | 0,5 … 5 | 3 | Bande passante de la boucle de position. Kp = 2π·f |
+
+Une boucle de position exige une boucle de vitesse **au moins quatre fois plus rapide** qu'elle :
+`PL` rend `ERR LIMIT` si `ctrl.speed.bw_hz` < 4 × la bande passante de position retenue.
+
+La « rigidité » de l'arbre tenu en position se règle par ces quatre valeurs ; l'interface en
+propose des jeux tout faits (profils), qui ne sont que des recettes.
+
 | `pid.iq` / `pid.id` | `kp`, `ki`, `out_max_v` |
 | `pid.vel` | `kp`, `ki`, `out_max_a`, `filt_hz` |
 | `pid.pos` | `kp`, `kd`, `out_max_rad_s` |
@@ -750,7 +770,7 @@ barrières que `CL`, plus :
 
 | Commande | Réponse | Rôle |
 |---|---|---|
-| `SL <mrad_s> <ms> [bw_hz]` | réponses de `CL` | Lance la boucle de vitesse : consigne mécanique en milliradians par seconde, signée, durée en millisecondes, et **bande passante optionnelle** en hertz, 30 par défaut, de 1 à 40 — les gains en découlent par la même règle. Intégrateurs à zéro au départ. `ERR LIMIT` au-delà des limites ci-dessus |
+| `SL <mrad_s> <ms> [bw_hz]` | réponses de `CL` | Lance la boucle de vitesse : consigne mécanique en milliradians par seconde, signée, durée en millisecondes, et **bande passante optionnelle** en hertz, de 1 à 40 ; sans elle, `ctrl.speed.bw_hz` (30 par défaut). Les gains en découlent avec `ctrl.speed.zero_ratio` et `ctrl.speed.inertia_a_s2_rad`, lus au lancement. Intégrateurs à zéro au départ. `ERR LIMIT` au-delà des limites ci-dessus |
 | `SL?` | `OK active=<0\|1> ref_mrad_s=<n> vel_mrad_s=<n> vel_avg_mrad_s=<n> iq_ref_ma=<n> iq_sat_ticks=<n> ticks=<n> left_ms=<n> kp_ua_rad_s=<n> ki_ua_rad=<n>` | État : consigne, vitesse instantanée et **moyenne depuis le départ**, dernière consigne d'Iq, passages où le plafond d'Iq a mordu sur le total, temps restant, gains — Kp en µA par rad/s, Ki en µA par rad |
 | `SL STOP` | `OK` | Arrête la boucle et coupe les sorties, **sans désarmer** |
 
@@ -760,8 +780,8 @@ barrières que `CL`, plus :
 consigne de la boucle de vitesse, bornée : cascade position → vitesse → courant. La position
 est l'angle mécanique de l'encodeur, non replié (`enc.pos_rad`) — congru à `RAW_ANGLE`, donc
 absolu dans le tour et compté en tours depuis le démarrage. Gain Kp = 2π · f, f la bande
-passante de position, **3 Hz par défaut** : dix fois sous celle de la boucle de vitesse, qui
-tourne à son défaut. Pas d'intégrateur de position : celui de la boucle de vitesse tient déjà
+passante de position, **3 Hz par défaut** (`ctrl.pos.bw_hz`) : dix fois sous celle de la
+boucle de vitesse à son défaut, qui prend les réglages `ctrl.speed.*`. Pas d'intégrateur de position : celui de la boucle de vitesse tient déjà
 le couple contre le frottement. Mêmes barrières que `SL`, plus :
 
 - **déplacement ≤ 2 tours** (12,566 rad) entre la position au départ et la cible ;
@@ -770,7 +790,7 @@ le couple contre le frottement. Mêmes barrières que `SL`, plus :
 
 | Commande | Réponse | Rôle |
 |---|---|---|
-| `PL <mrad> <ms> [bw_hz]` | réponses de `CL` | Lance la boucle de position vers la cible **absolue** en milliradians mécaniques, signée, durée en millisecondes, bande passante optionnelle en hertz de 0,5 à 5. `ERR LIMIT` si la cible est à plus de 2 tours |
+| `PL <mrad> <ms> [bw_hz]` | réponses de `CL` | Lance la boucle de position vers la cible **absolue** en milliradians mécaniques, signée, durée en millisecondes, bande passante optionnelle en hertz de 0,5 à 5 ; sans elle, `ctrl.pos.bw_hz`. La boucle de vitesse sous-jacente prend les réglages `ctrl.speed.*`. `ERR LIMIT` si la cible est à plus de 2 tours, ou si la boucle de vitesse n'est pas au moins quatre fois plus rapide que celle de position |
 | `PL?` | `OK active=<0\|1> target_mrad=<n> pos_mrad=<n> err_mrad=<n> w_ref_mrad_s=<n> w_sat_ticks=<n> ticks=<n> left_ms=<n> kp_mrad_s_rad=<n>` | État : cible, position et erreur au dernier passage, consigne de vitesse, passages où le plafond de vitesse a mordu sur le total, temps restant, gain en mrad/s par rad |
 | `PL STOP` | `OK` | Arrête la boucle et coupe les sorties, **sans désarmer** |
 

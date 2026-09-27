@@ -112,6 +112,18 @@ typedef struct
  *  la copie que `Foc_Process` lui prépare. */
 void Param_GetMotor(Param_Motor_t *out);
 
+/** Réglages des boucles de vitesse et de position, lus au lancement de `SL` / `PL`. */
+typedef struct
+{
+  float speed_bw_hz;
+  float speed_zero_ratio;
+  float speed_inertia;     /**< A par rad/s², J/Kt */
+  float pos_bw_hz;
+} Param_Loops_t;
+
+/** Copie des réglages de boucle, pour la superloop — jamais appelée depuis l'ISR. */
+void Param_GetLoops(Param_Loops_t *out);
+
 /** CRC-32/ISO-HDLC d'un bloc — celui du hash, partage avec la NVM plutot que recopie. */
 uint32_t Param_Crc32(const void *data, size_t len);
 
