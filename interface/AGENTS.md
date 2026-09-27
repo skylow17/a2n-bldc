@@ -117,6 +117,12 @@ Format `.a2nrcp` : **JSON lisible et versionné**, diffable sous git.
 }
 ```
 
+`param_dict_hash` peut manquer : c'est alors une **recette partielle**, qui ne nomme que
+quelques réglages et s'applique par nom — les profils de rigidité intégrés (Soft, Balanced,
+Stiff) en sont. Le champ `motor` de l'exemple n'est pas utilisé : les grandeurs moteur sont des
+paramètres du dictionnaire (`motor.*`) et vont dans `params`. Implémentation :
+`src/shared/recipe.ts`, vue `Recipes`.
+
 Une recette ne s'applique jamais en aveugle : l'utilisateur voit d'abord un **diff trois colonnes**
 `File | Device | Δ`. Si `param_dict_hash` ne correspond pas au device connecté, l'application est
 bloquée derrière une confirmation explicite, et les paramètres inconnus sont listés plutôt

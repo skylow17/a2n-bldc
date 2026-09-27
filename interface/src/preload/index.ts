@@ -53,6 +53,20 @@ const api = {
   /** Acquitte la faute verrouillee. Faux si le firmware refuse : la cause tient encore. */
   clearFault: () => call<boolean>('device:clearFault'),
 
+  /** Recette choisie dans une boîte de dialogue native, texte brut ; `null` si annulé. */
+  openRecipe: () => call<{ path: string; text: string } | null>('device:openRecipe'),
+
+  /** Vue Control dans sa propre fenêtre : l'ouvre, ou lui rend le focus. */
+  detachControl: () => call<void>('window:detachControl'),
+  /** Ferme la fenêtre détachée ; la vue revient dans la fenêtre principale. */
+  dockControl: () => call<void>('window:dockControl'),
+  isControlDetached: () => call<boolean>('window:isControlDetached'),
+  onControlDetached: (listener: (detached: boolean) => void): (() => void) => {
+    const h = (_e: unknown, d: boolean): void => listener(d);
+    ipcRenderer.on('window:controlDetached', h);
+    return () => ipcRenderer.removeListener('window:controlDetached', h);
+  },
+
   /** Boîte de dialogue native. `null` si l'utilisateur annule. */
   pickFirmware: () => call<{ path: string; size: number } | null>('device:pickFirmware'),
   updateFirmware: (path: string, version: string) =>

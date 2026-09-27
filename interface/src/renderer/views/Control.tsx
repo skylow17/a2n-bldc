@@ -30,6 +30,7 @@ import {
 import { Pill } from '../components/Metric.js';
 import { Button, Empty, Field, Panel, fmt } from '../components/ui.js';
 import { api, useAction } from '../useDevice.js';
+import { LoopTuning } from './LoopTuning.js';
 
 /** Cadence de relecture des états. Assez vive pour suivre une rampe, assez lente pour ne
  *  pas noyer la console commune : cinq lignes toutes les 250 ms. */
@@ -79,7 +80,11 @@ function Reply({ text }: { text: string | null }): ReactNode {
 const ma = (v: number | null): string => (v === null ? '—' : `${v} mA`);
 const volts = (mv: number | null): string => (mv === null ? '—' : `${(mv / 1000).toFixed(3)} V`);
 
-export function Control({ state }: { state: DeviceSnapshot }): ReactNode {
+/**
+ * `onDetach` : présent dans la fenêtre principale seulement — la vue peut alors partir dans
+ * sa propre fenêtre, pour piloter pendant que le Scope ou le Dashboard enregistrent.
+ */
+export function Control({ state, onDetach }: { state: DeviceSnapshot; onDetach?: () => void }): ReactNode {
   const connected = state.connection === 'connected';
   const sf = state.safety;
   const act = useAction();
@@ -137,8 +142,23 @@ export function Control({ state }: { state: DeviceSnapshot }): ReactNode {
       setReply(`${line} → ${await api().console(line)}`);
     });
 
+  const detachBar =
+    onDetach === undefined ? null : (
+      <div className="flex items-center justify-end gap-2 xl:col-span-2">
+        <span className="text-[11px] text-fg-3">Drive from a separate window while the Scope records</span>
+        <Button onClick={onDetach} title="Open Control in its own window">
+          Detach window
+        </Button>
+      </div>
+    );
+
   if (!connected) {
-    return <Empty title="No device connected" hint="Connect a board to arm it and drive the motor." />;
+    return (
+      <div className="flex h-full flex-col p-3">
+        {detachBar}
+        <Empty title="No device connected" hint="Connect a board to arm it and drive the motor." />
+      </div>
+    );
   }
 
   const armed = sf?.armed === true;
@@ -147,7 +167,8 @@ export function Control({ state }: { state: DeviceSnapshot }): ReactNode {
   const noLoop = cl === null && foc === null;
 
   return (
-    <div className="grid h-full min-h-0 grid-cols-1 gap-3 overflow-auto p-3 xl:grid-cols-2">
+    <div className="grid h-full min-h-0 grid-cols-1 content-start gap-3 overflow-auto p-3 xl:grid-cols-2">
+      {detachBar}
       <Panel
         title="Arming"
         right={
@@ -372,6 +393,7 @@ export function Control({ state }: { state: DeviceSnapshot }): ReactNode {
           </>
         )}
       </Panel>
+      <LoopTuning state={state} />
     </div>
   );
 }

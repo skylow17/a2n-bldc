@@ -42,6 +42,16 @@ export function useTheme(): { theme: Theme; toggle: () => void } {
     }
   }, [theme]);
 
+  // La vue Control détachée partage le stockage de la fenêtre principale : une bascule
+  // dans l'une passe à l'autre, sans quoi l'une resterait claire et l'autre sombre.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent): void => {
+      if (e.key === STORAGE_KEY) setTheme(e.newValue === 'light' ? 'light' : 'dark');
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
   return {
     theme,
     toggle: useCallback(() => setTheme((t) => (t === 'dark' ? 'light' : 'dark')), []),

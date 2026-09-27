@@ -167,9 +167,10 @@ npm run build      # empaquetage dans out/
 
 Elle se connecte au choix à une carte ou au device simulé, par le même sélecteur. Ce qui
 est visible correspond à ce que le firmware sait faire : **Dashboard**, **Tuning**, **Control**
-(armement, boucle ouverte, boucles de courant, de vitesse et de position), **Scope** et
-**Firmware** sont raccordés ; seule **Recipes** reste grisée. Proposer des boutons qui
-échoueraient serait pire que de ne rien proposer.
+(armement, boucle ouverte, boucles de courant, de vitesse et de position, rigidité ; détachable
+dans sa propre fenêtre), **Recipes**, **Scope** et **Firmware**. Une vue dont le firmware
+n'annonce pas la capacité reste grisée : proposer des boutons qui échoueraient serait pire que
+de ne rien proposer.
 
 **L'application tourne depuis `out/`** quand on la lance par `electron .` : après une
 modification, `npm run build` puis relancer — sinon on regarde l'ancienne version.

@@ -82,6 +82,10 @@ export const IPC_SCHEMA = {
   'device:updateFirmware': z.tuple([z.string().min(1).max(260), z.string().min(1).max(32)]),
   'device:setAiControl': z.tuple([z.boolean()]),
   'device:clearFault': z.tuple([]),
+  'device:openRecipe': z.tuple([]),
+  'window:detachControl': z.tuple([]),
+  'window:dockControl': z.tuple([]),
+  'window:isControlDetached': z.tuple([]),
 } as const;
 
 export type IpcChannel = keyof typeof IPC_SCHEMA;

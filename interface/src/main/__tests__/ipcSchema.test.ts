@@ -86,7 +86,9 @@ describe('validation des arguments IPC', () => {
     // test le dit au moment du commit plutôt qu'au premier lancement.
     const declared = Object.keys(IPC_SCHEMA);
     expect(declared).toContain('device:updateFirmware');
-    expect(declared.every((c) => c.startsWith('device:'))).toBe(true);
+    // Deux familles : ce qui touche au device, et la gestion des fenêtres (vue détachée).
+    expect(declared.every((c) => c.startsWith('device:') || c.startsWith('window:'))).toBe(true);
+    expect(declared).toContain('window:detachControl');
     expect(new Set(declared).size).toBe(declared.length);
   });
 });

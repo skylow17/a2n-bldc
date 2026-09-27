@@ -58,6 +58,29 @@ export function useDeviceState(): DeviceSnapshot {
   return state;
 }
 
+/**
+ * Vrai tant que la vue Control vit dans sa propre fenêtre. Le processus principal en est la
+ * seule source : il l'annonce à l'ouverture et à la fermeture, et on le lui redemande au
+ * montage — une fenêtre ouverte après l'autre n'a pas vu passer l'annonce.
+ */
+export function useControlDetached(): boolean {
+  const [detached, setDetached] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    void api()
+      .isControlDetached()
+      .then((d) => {
+        if (alive) setDetached(d);
+      });
+    const off = api().onControlDetached(setDetached);
+    return () => {
+      alive = false;
+      off();
+    };
+  }, []);
+  return detached;
+}
+
 /** Nombre maximal de lignes conservées dans la console. */
 const LOG_CAP = 2000;
 

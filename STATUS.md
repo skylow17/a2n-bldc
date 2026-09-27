@@ -26,12 +26,16 @@ autorité sur la liaison) et `docs/hardware-revB.md` (ce que la carte rev A a ap
   de vitesse (12), boucle de position (13) — la cascade complète. **Pas d'essai sous charge**, ni
   de perturbation appliquée à la main : la raideur du maintien n'est pas mesurée.
 - **Interface** : application Electron complète — Dashboard, Tuning, **Control** (armement,
-  boucle ouverte, courant, vitesse, position), Scope, Firmware — plus une CLI et un serveur MCP.
-  Seule la vue *Recipes* reste à faire.
+  boucle ouverte, courant, vitesse, position, réglage de rigidité ; **détachable** dans sa
+  propre fenêtre), **Recipes**, Scope, Firmware — plus une CLI et un serveur MCP.
+- **2026-09-27** : réglages des boucles `ctrl.*` dans le dictionnaire, **compilés mais pas
+  flashés** — voir « Control détachable, réglage des boucles, recettes ».
 
 ### État de la carte au moment d'écrire
 
-- Les deux slots A et B portent le même build, commité. Bootloader installé : **`boot-1.0.0`**.
+- Les deux slots A et B portent le même build, commité — **celui d'avant les réglages `ctrl.*`**
+  (dictionnaire `0x609366A0`, 17 entrées) : l'interface montre donc le Loop tuning comme absent tant que le
+  nouveau n'est pas flashé. Bootloader installé : **`boot-1.0.0`**.
   `boot-1.1.0` (garde ECC des métadonnées) est compilé mais **pas installé** : il se flashe par
   SWD, en présence de l'utilisateur, avec la commande donnée dans « Persistance des
   paramètres » — **jamais** par `make install-bootloader`, dont le `-e all` effacerait aussi la
@@ -133,7 +137,9 @@ Toutes les boucles coupent les sorties au terme de leur durée : l'arbre n'est p
 6. Scripts d'essai des étapes 10 à 13, restés hors du dépôt : en faire des commandes du CLI.
 7. Chemin `nFAULT` → coupure jamais provoqué physiquement (décision utilisateur).
 8. Pic d'âge d'encodeur de ≈ 65 ms vu une fois après une mise à jour : cause inconnue.
-9. Vue *Recipes* de l'interface.
+9. **Flasher le firmware aux réglages `ctrl.*`** (`firmware-update`, sans sonde), vérifier
+   `SELFTEST` (`dict_hash=C2D9F36A`) et `NVM?` (les calibrations doivent survivre), puis essayer
+   les profils Soft et Stiff en boucle de position. Outils MCP `recipe.*` à écrire.
 10. Tout ce qui est matériel : `docs/hardware-revB.md`.
 
 ### Pièges connus — ils ont tous coûté du temps
@@ -1065,9 +1071,9 @@ Relevées en écrivant M1c, à trancher dans `docs/protocol.md` avant d'y touche
 | `main/` — DeviceCore, IPC | Écrit, testé |
 | `renderer/` — Dashboard, Tuning, Console | Écrit ; le Dashboard trace la télémétrie souscrite |
 | `renderer/` — Scope | Écrit : configuration, déclenchement, pré-trigger, tracé. Validé sur simulateur |
-| `renderer/` — Control, Recipes | Vues présentes mais grisées, avec le jalon qui les débloquera |
+| `renderer/` — Control, Recipes | Écrites : Control détachable, réglage des boucles ; Recipes avec diff (2026-09-27) |
 | `renderer/views/Firmware.tsx` | Mise à jour A/B depuis l'interface, gardée par la capacité annoncée |
-| `main/recipes/` — `.a2nrcp` | Pas commencé (attend la persistance NVM, M2) |
+| `shared/recipe.ts` — `.a2nrcp` | Écrit, testé : lecture validée par zod, capture, diff, profils intégrés |
 | `main/mcp/` — serveur MCP | Écrit, testé sur simulateur **et sur carte** (`mcp:check --port`, 2026-09-16) ; **piloté en live par un agent** le soir même, en HTTP local |
 
 ### Serveur MCP
@@ -1461,6 +1467,57 @@ travail local n'existe pas. Un outil de constat qui ne distingue pas l'absence d
 constate rien. D'où les deux règles ci-dessous.
 
 ---
+
+## Control détachable, réglage des boucles, recettes (2026-09-27)
+
+Trois demandes de l'utilisateur, livrées ensemble parce qu'elles partagent un mécanisme.
+
+**La vue Control se détache dans sa propre fenêtre** (« Detach window » en tête de la vue),
+pour piloter pendant que le Scope ou le Dashboard enregistrent dans la fenêtre principale.
+Même renderer (`#control`), même `DeviceCore` : un seul état, une seule file de console,
+rien à synchroniser. La fenêtre détachée porte **son propre STOP et son propre AI CONTROL**
+— la règle « visibles en permanence » vaut par fenêtre. Fermer la fenêtre principale ferme
+l'autre ; « Dock » la referme et la vue revient. Canaux IPC `window:*`, validés comme les
+autres.
+
+**La rigidité de l'arbre se règle** : quatre paramètres persistants dans le dictionnaire
+(`docs/protocol.md` §5), lus au **lancement** de `SL` / `PL` —
+
+| id | Nom | Défaut | Bornes |
+|---:|---|---|---|
+| `0x0300` | `ctrl.speed.bw_hz` | 30 | 1 … 40 |
+| `0x0301` | `ctrl.speed.zero_ratio` | 4 | 2 … 10 |
+| `0x0302` | `ctrl.speed.inertia_a_s2_rad` | 1,1e-4 | 1e-6 … 5e-3, `calibrated` |
+| `0x0310` | `ctrl.pos.bw_hz` | 3 | 0,5 … 5 |
+
+Ce ne sont **pas** des limites : plafonds de consigne, d'Iq, de vitesse et de durée restent des
+constantes de `foc.h`. Deux changements de comportement : `PL` prend désormais pour sa boucle de
+vitesse `ctrl.speed.bw_hz` au lieu de la constante, et refuse (`ERR LIMIT`) une boucle de
+vitesse moins de quatre fois plus rapide que celle de position. Avec les défauts, le
+comportement est identique à celui mesuré aux étapes 12 et 13. Hash du dictionnaire :
+**`0xC2D9F36A`** (21 entrées).
+
+Dans la vue Control, un panneau **Loop tuning** : trois profils — Soft (20 Hz, rapport 6,
+1,5 Hz), Balanced (les défauts), Stiff (40 Hz, rapport 3, 5 Hz) — avec aperçu de ce qui change
+avant d'écrire, les réglages un par un, et « Save to flash » à part. **Seul Balanced est
+validé sur carte** ; Soft et Stiff sont des valeurs raisonnées, pas mesurées, et rien n'a été
+essayé sous charge.
+
+**La vue Recipes existe** (`renderer/views/Recipes.tsx`, logique pure dans
+`shared/recipe.ts`, testée) : ouvrir un `.a2nrcp`, capturer le device, ou prendre un profil
+intégré ; diff `File | Device | Δ` où chaque entrée est classée — inchangée, à écrire,
+inconnue, lecture seule, hors bornes — et aucune n'est ignorée en silence ; valeurs calibrées
+jamais cochées d'office ; dictionnaire différent bloqué derrière une confirmation ; « Write »
+(RAM) et « Save to flash » séparés. Les profils sont des **recettes partielles** : sans
+`param_dict_hash`, appliquées par nom. Une valeur hors des bornes du device est refusée plutôt
+que rognée — `writeParam` rogne, le diff l'en empêche.
+
+**Vérifié** : 357 tests, typecheck, build. **Pas vérifié** : le firmware n'est **pas flashé**
+(carte débranchée au moment du build) ; les vues n'ont été regardées ni sur simulateur ni sur
+carte ; aucun essai moteur avec d'autres réglages que les défauts. Le simulateur annonce les
+quatre paramètres mais n'implémente pas `SL` / `PL`.
+
+**Reste** : les outils MCP `recipe.*` prévus par `interface/AGENTS.md` §5 ne sont pas écrits.
 
 ## M3, étape 13 — la boucle de position tient sa cible à ±2 counts (2026-09-26)
 

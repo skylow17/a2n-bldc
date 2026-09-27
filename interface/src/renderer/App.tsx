@@ -10,8 +10,9 @@ import { useEffect, useState, type ReactNode } from 'react';
 
 import type { DeviceSnapshot } from '../main/device/DeviceCore.js';
 import type { SerialPortInfo } from '../node/serial.js';
-import { Button, Dot, Empty, Toggle } from './components/ui.js';
-import { api, useAction, useDeviceLog, useDeviceState } from './useDevice.js';
+import { Button, Empty } from './components/ui.js';
+import { CriticalControls, SafetyBadge, StatusBadge } from './components/SafetyControls.js';
+import { api, useAction, useControlDetached, useDeviceLog, useDeviceState } from './useDevice.js';
 import { useTheme } from './useTheme.js';
 import { PROTO_CAP } from '../shared/protocol.js';
 import { Console } from './views/Console.js';
@@ -20,6 +21,7 @@ import { Scope } from './views/Scope.js';
 import { Firmware } from './views/Firmware.js';
 import { Tuning } from './views/Tuning.js';
 import { Control } from './views/Control.js';
+import { Recipes } from './views/Recipes.js';
 
 type ViewId = 'dashboard' | 'control' | 'tuning' | 'recipes' | 'scope' | 'firmware';
 
@@ -74,12 +76,7 @@ const VIEWS: ViewDef[] = [
     requires: PROTO_CAP.SCOPE,
     why: 'This firmware does not announce the scope capability.',
   },
-  {
-    id: 'recipes',
-    label: 'Recipes',
-    pending: 'M2',
-    why: 'Recipes are not built yet. Parameters themselves persist: Tuning, Save to flash.',
-  },
+  { id: 'recipes', label: 'Recipes', pending: null },
   {
     id: 'firmware',
     label: 'Firmware',
@@ -154,78 +151,6 @@ function ConnectionBar({ state }: { state: DeviceSnapshot }): ReactNode {
   );
 }
 
-function StatusBadge({ state }: { state: DeviceSnapshot }): ReactNode {
-  const map = {
-    disconnected: { tone: 'idle', text: 'DISCONNECTED' },
-    connecting: { tone: 'warn', text: 'CONNECTING' },
-    connected: { tone: 'ok', text: 'CONNECTED' },
-    error: { tone: 'fault', text: 'ERROR' },
-  } as const;
-  const s = map[state.connection];
-
-  return (
-    <span className="flex items-center gap-2 rounded-[3px] border border-line bg-raise px-2.5 py-1 font-mono text-[11px] tracking-wider">
-      <Dot tone={s.tone} />
-      {s.text}
-      {state.info !== null && <span className="text-fg-3">{state.info.fwVersion}</span>}
-    </span>
-  );
-}
-
-/**
- * État de la barrière de sécurité du firmware.
- *
- * Quatre états, et un seul demande une action. Au repos, rien n'est affiché : une pastille
- * verte permanente n'apprend rien et finit par ne plus être lue. Sorties actives, un point
- * suffit — c'est une information de danger, elle doit se voir sans se lire ; carte armée
- * sans sorties actives, de même, puisqu'une seule commande sépare alors du mouvement. Faute
- * verrouillée, la cause est nommée et l'acquittement est là, parce qu'à ce moment précis
- * c'est la seule chose que l'opérateur veut faire.
- */
-function SafetyBadge({ state }: { state: DeviceSnapshot }): ReactNode {
-  const clear = useAction();
-  const sf = state.safety;
-  if (sf === null || state.connection !== 'connected') return null;
-
-  if (sf.latched) {
-    return (
-      <span className="flex items-center gap-2 rounded-[3px] border border-fault bg-raise px-2.5 py-1 font-mono text-[11px] tracking-wider text-fault">
-        <Dot tone="fault" />
-        TORQUE CUT — {sf.reason.toUpperCase().replace(/_/g, ' ')}
-        <Button
-          disabled={clear.busy}
-          title="Acknowledges the latched fault. The firmware refuses while the cause is still present."
-          onClick={() => void clear.run(async () => { await api().clearFault(); })}
-        >
-          CLEAR
-        </Button>
-      </span>
-    );
-  }
-
-  if (sf.outputsLive) {
-    return (
-      <span className="flex items-center gap-2 rounded-[3px] border border-line bg-raise px-2.5 py-1 font-mono text-[11px] tracking-wider text-accent">
-        <Dot tone="warn" />
-        OUTPUTS LIVE
-      </span>
-    );
-  }
-
-  // Armée sans sorties actives : rien ne tourne, mais la commande suivante le peut. C'est
-  // le moment où l'on doit savoir, sans chercher, que la carte n'est plus au repos.
-  if (sf.armed === true) {
-    return (
-      <span className="flex items-center gap-2 rounded-[3px] border border-line bg-raise px-2.5 py-1 font-mono text-[11px] tracking-wider text-accent">
-        <Dot tone="warn" />
-        ARMED
-      </span>
-    );
-  }
-
-  return null;
-}
-
 /* ------------------------------------------------------------------ application */
 
 export function App(): ReactNode {
@@ -263,8 +188,9 @@ export function App(): ReactNode {
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', up);
   };
-  const stop = useAction();
   const { theme, toggle: toggleTheme } = useTheme();
+  const controlDetached = useControlDetached();
+  const dock = useAction();
 
   /**
    * Une vue est indisponible soit parce que le jalon n'y est pas, soit parce que le device
@@ -302,28 +228,7 @@ export function App(): ReactNode {
           {theme === 'dark' ? 'Light' : 'Dark'}
         </Button>
 
-        <Toggle
-          label="AI CONTROL"
-          checked={state.aiControl}
-          onChange={(v) => void api().setAiControl(v)}
-          title="Allows an agent to drive the bench. Firmware limits remain the only safety guarantee."
-        />
-
-        {/* STOP : toujours présent, jamais désactivé tant qu'un device est connecté. */}
-        <Button
-          tone="danger"
-          className="px-4 py-1.5 font-bold tracking-wider"
-          disabled={state.connection !== 'connected' || stop.busy}
-          title="Cuts torque immediately"
-          onClick={() =>
-            void stop.run(async () => {
-              await api().console('STOP');
-              await api().setAiControl(false);
-            })
-          }
-        >
-          STOP
-        </Button>
+        <CriticalControls state={state} />
       </header>
 
       <div className="flex min-h-0 flex-1">
@@ -348,6 +253,11 @@ export function App(): ReactNode {
                 }`}
               >
                 {v.label}
+                {v.id === 'control' && controlDetached && blocked === null && (
+                  <span className="rounded-[2px] bg-panel-2 px-1 font-mono text-[10px] text-fg-3" title="Open in its own window">
+                    window
+                  </span>
+                )}
                 {blocked !== null && (
                   <span className="rounded-[2px] bg-panel-2 px-1 font-mono text-[10px] text-fg-3">
                     {blocked}
@@ -369,7 +279,25 @@ export function App(): ReactNode {
           <div className="min-h-0 flex-1 overflow-hidden">
             {view === 'dashboard' && <Dashboard state={state} />}
             {view === 'tuning' && <Tuning state={state} />}
-            {view === 'control' && <Control state={state} />}
+            {view === 'control' && !controlDetached && (
+              <Control state={state} onDetach={() => void dock.run(() => api().detachControl())} />
+            )}
+            {view === 'control' && controlDetached && (
+              <div className="flex h-full flex-col items-center justify-center gap-3">
+                <p className="text-[13px] text-fg-2">Control is open in its own window</p>
+                <p className="max-w-md text-center text-[12px] text-fg-3">
+                  Keep it beside the Scope or the Dashboard to record while you drive. STOP and
+                  AI CONTROL stay in both windows.
+                </p>
+                <div className="flex gap-2">
+                  <Button tone="accent" onClick={() => void dock.run(() => api().detachControl())}>
+                    Show window
+                  </Button>
+                  <Button onClick={() => void dock.run(() => api().dockControl())}>Dock back here</Button>
+                </div>
+              </div>
+            )}
+            {view === 'recipes' && <Recipes state={state} />}
             {view === 'scope' && currentBlocked === null && <Scope state={state} />}
             {view === 'firmware' && currentBlocked === null && <Firmware state={state} />}
             {currentBlocked !== null && (

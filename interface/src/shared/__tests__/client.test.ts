@@ -149,7 +149,7 @@ describe('dictionnaire', () => {
   it('expose les groupes dans l’ordre du firmware', async () => {
     const { client } = connect();
     const dict = await client.readDictionary();
-    expect(dict.groups()).toEqual(['Board', 'PWM', 'Motor', 'Debug']);
+    expect(dict.groups()).toEqual(['Board', 'PWM', 'Motor', 'Speed loop', 'Position loop', 'Debug']);
   });
 });
 
@@ -283,9 +283,10 @@ describe('erreurs et robustesse', () => {
     const { client } = connect();
     const dict = await client.readDictionary();
     const persistent = dict.entries.filter((p) => (p.flags & 0x02) !== 0);
-    // Les six grandeurs du moteur, et elles seules : ni la configuration de la carte, ni
-    // les paramètres de diagnostic ne survivent à un redémarrage.
+    // Les six grandeurs du moteur et les quatre réglages de boucle, et eux seuls : ni la
+    // configuration de la carte, ni les paramètres de diagnostic ne survivent à un redémarrage.
     expect(persistent.map((p) => p.name).sort()).toEqual([
+      'ctrl.pos.bw_hz', 'ctrl.speed.bw_hz', 'ctrl.speed.inertia_a_s2_rad', 'ctrl.speed.zero_ratio',
       'enc.direction', 'enc.elec_offset_rad', 'imot.scale_a',
       'motor.l_h', 'motor.pole_pairs', 'motor.r_ohm',
     ]);

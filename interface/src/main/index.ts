@@ -1,9 +1,14 @@
 /**
  * Processus principal Electron.
  *
- * Il ne fait que deux choses : ouvrir la fenêtre, et exposer le `DeviceCore` au renderer par
+ * Il ne fait que deux choses : ouvrir les fenêtres, et exposer le `DeviceCore` au renderer par
  * IPC. Toute la logique est dans le DeviceCore, pour que la CLI et le serveur MCP puissent
  * s'en servir sans Electron.
+ *
+ * Deux fenêtres au plus : la principale, et la vue Control **détachée**, pour piloter d'une
+ * main pendant que le Scope ou le Dashboard enregistrent dans l'autre. Elles chargent le même
+ * renderer et reflètent le même `DeviceCore` : il n'y a qu'un état, qu'une connexion et
+ * qu'une file de console, donc rien à synchroniser entre elles.
  */
 
 import { join } from 'node:path';
@@ -25,12 +30,16 @@ import { isIpcChannel, validateIpc } from './ipcSchema.js';
 
 const core = new DeviceCore();
 let mainWindow: BrowserWindow | null = null;
+let controlWindow: BrowserWindow | null = null;
 
+/** Tout événement du device va à **toutes** les fenêtres ouvertes. */
 function broadcast(channel: string, payload: unknown): void {
-  if (mainWindow !== null && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send(channel, payload);
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send(channel, payload);
   }
 }
+
+const controlDetached = (): boolean => controlWindow !== null && !controlWindow.isDestroyed();
 
 core.onChange.on((s) => broadcast('device:state', s));
 core.onLog.on((e) => broadcast('device:log', e));
@@ -60,12 +69,10 @@ core.onTelemetry.on((frame) => {
   }, TELEM_BATCH_MS);
 });
 
-function createWindow(): void {
-  mainWindow = new BrowserWindow({
-    width: 1440,
-    height: 900,
-    minWidth: 960,
-    minHeight: 600,
+function newWindow(size: { width: number; height: number; minWidth: number; minHeight: number }, title?: string): BrowserWindow {
+  return new BrowserWindow({
+    ...size,
+    ...(title !== undefined ? { title } : {}),
     show: false,
     backgroundColor: '#0b0f14',
     autoHideMenuBar: true,
@@ -79,20 +86,59 @@ function createWindow(): void {
       sandbox: false,
     },
   });
+}
 
-  mainWindow.on('ready-to-show', () => mainWindow?.show());
+/** Charge le renderer ; `hash` choisit ce qu'il affiche (`control` : la vue détachée). */
+function loadRenderer(win: BrowserWindow, hash?: string): void {
+  win.on('ready-to-show', () => win.show());
 
-  // Un lien externe s'ouvre dans le navigateur, jamais dans la fenêtre de l'application.
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+  // Un lien externe s'ouvre dans le navigateur, jamais dans une fenêtre de l'application.
+  win.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url);
     return { action: 'deny' };
   });
 
-  if (process.env['ELECTRON_RENDERER_URL'] !== undefined) {
-    void mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL']);
+  const dev = process.env['ELECTRON_RENDERER_URL'];
+  if (dev !== undefined) {
+    void win.loadURL(hash === undefined ? dev : `${dev}#${hash}`);
   } else {
-    void mainWindow.loadFile(join(import.meta.dirname, '../renderer/index.html'));
+    void win.loadFile(join(import.meta.dirname, '../renderer/index.html'), hash === undefined ? {} : { hash });
   }
+}
+
+function createWindow(): void {
+  mainWindow = newWindow({ width: 1440, height: 900, minWidth: 960, minHeight: 600 });
+  loadRenderer(mainWindow);
+
+  // La fenêtre principale porte l'application : la fermer ferme aussi la vue détachée,
+  // plutôt que de laisser une fenêtre de pilotage orpheline — et le serveur MCP avec elle.
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+    if (controlDetached()) controlWindow!.close();
+  });
+}
+
+/**
+ * Ouvre la vue Control dans sa propre fenêtre, ou lui rend le focus si elle l'est déjà.
+ *
+ * Elle porte son propre STOP et son propre interrupteur de pilotage par agent : la règle
+ * « visibles en permanence » (`AGENTS.md` §4.6) vaut pour chaque fenêtre, pas pour
+ * l'application prise en bloc.
+ */
+function openControlWindow(): void {
+  if (controlDetached()) {
+    if (controlWindow!.isMinimized()) controlWindow!.restore();
+    controlWindow!.focus();
+    return;
+  }
+  const win = newWindow({ width: 760, height: 940, minWidth: 520, minHeight: 480 }, 'A2N BLDC — Control');
+  controlWindow = win;
+  win.on('closed', () => {
+    controlWindow = null;
+    broadcast('window:controlDetached', false);
+  });
+  loadRenderer(win, 'control');
+  broadcast('window:controlDetached', true);
 }
 
 /* ------------------------------------------------------------------ IPC */
@@ -156,7 +202,9 @@ handle('device:stopTelemetry', () => core.stopTelemetry());
  * dialogue, donc rien ne s'ecrit sans qu'il l'ait vu.
  */
 handle('device:saveText', async (suggestedName: string, contents: string) => {
-  const win = mainWindow;
+  // La fenêtre qui a le focus : un enregistrement demandé depuis la vue détachée s'ouvre
+  // devant elle, pas derrière.
+  const win = BrowserWindow.getFocusedWindow() ?? mainWindow;
   const result =
     win === null
       ? await dialog.showSaveDialog({ defaultPath: suggestedName })
@@ -216,6 +264,38 @@ handle('device:setAiControl', (enabled: boolean) => {
 });
 
 handle('device:clearFault', () => core.clearFault('gui'));
+
+handle('window:detachControl', () => openControlWindow());
+handle('window:dockControl', () => {
+  if (controlDetached()) controlWindow!.close();
+});
+handle('window:isControlDetached', () => controlDetached());
+
+/**
+ * Ouvre une recette. Comme pour une image de firmware, le fichier est désigné par
+ * l'utilisateur dans une boîte de dialogue native, et lu ici : le renderer n'a pas accès au
+ * disque. Rend le texte brut, que le renderer valide (`shared/recipe.ts`) — un fichier n'est
+ * jamais cru sur sa forme. `null` si l'utilisateur annule.
+ */
+const RECIPE_MAX_BYTES = 1024 * 1024;
+handle('device:openRecipe', async () => {
+  const win = BrowserWindow.getFocusedWindow() ?? mainWindow;
+  const options = {
+    title: 'Open a recipe',
+    filters: [
+      { name: 'A2N recipe', extensions: ['a2nrcp'] },
+      { name: 'JSON', extensions: ['json'] },
+    ],
+    properties: ['openFile' as const],
+  };
+  const result = win === null ? await dialog.showOpenDialog(options) : await dialog.showOpenDialog(win, options);
+  const chosen = result.filePaths[0];
+  if (result.canceled || chosen === undefined) return null;
+  const bytes = await readFile(chosen);
+  if (bytes.byteLength > RECIPE_MAX_BYTES) throw new Error(`${chosen}: too large for a recipe`);
+  core.log('info', 'gui', `opened recipe ${chosen}`);
+  return { path: chosen, text: bytes.toString('utf8') };
+});
 
 /* ------------------------------------------------------------------ cycle de vie */
 
