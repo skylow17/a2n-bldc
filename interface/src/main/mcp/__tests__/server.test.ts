@@ -89,6 +89,9 @@ describe('surface publiée', () => {
       'device_list_ports',
       'device_status',
       'log_read',
+      'motion_arm',
+      'motion_disarm',
+      'motion_position_move',
       'param_get',
       'param_list',
       'param_reset_defaults',
@@ -115,11 +118,12 @@ describe('surface publiée', () => {
     }
   });
 
-  it("n'expose ni armement, ni consigne, ni mouvement", async () => {
+  it("n'expose de mouvement que par les outils motion_*, et la console reste en lecture", async () => {
     const h = await harness(false);
     const names = (await h.client.listTools()).tools.map((t) => t.name);
-    for (const forbidden of ['arm', 'disarm', 'motion', 'setpoint', 'jog', 'move']) {
-      expect(names.some((n) => n.includes(forbidden))).toBe(false);
+    // Le mouvement a ses outils, gardés ; aucun autre outil ne doit en porter un.
+    for (const forbidden of ['arm', 'setpoint', 'jog', 'move']) {
+      expect(names.filter((n) => n.includes(forbidden)).every((n) => n.startsWith('motion_'))).toBe(true);
     }
   });
 });
@@ -214,6 +218,31 @@ describe('paramètres', () => {
     const res = await call(h, 'safety_clear_fault');
     expect(res.isError).toBe(true);
     expect(res.text).toContain('AI control is off');
+  });
+
+  it("refuse d'armer et de bouger tant que « AI control » est coupé", async () => {
+    const h = await harness();
+    const arm = await call(h, 'motion_arm');
+    expect(arm.isError).toBe(true);
+    expect(arm.text).toContain('AI control is off');
+    const move = await call(h, 'motion_position_move', { delta_rad: 3.14, duration_ms: 6000 });
+    expect(move.isError).toBe(true);
+    expect(move.text).toContain('AI control is off');
+    // Le refus vient de la barrière : rien n'est parti vers la carte.
+    expect(h.logs.some((e) => e.text.startsWith('> ARM') || e.text.startsWith('> PL'))).toBe(false);
+  });
+
+  it('laisse toujours désarmer, même « AI control » coupé', async () => {
+    const h = await harness();
+    const res = await call(h, 'motion_disarm');
+    expect(res.isError).toBeFalsy();
+  });
+
+  it('refuse un mouvement sans cible, ou avec deux', async () => {
+    const h = await harness();
+    h.core.setAiControl(true);
+    expect((await call(h, 'motion_position_move', { duration_ms: 100 })).isError).toBe(true);
+    expect((await call(h, 'motion_position_move', { delta_rad: 1, target_rad: 1, duration_ms: 100 })).isError).toBe(true);
   });
 
   it("laisse lire l'état de la barrière sans « AI control »", async () => {

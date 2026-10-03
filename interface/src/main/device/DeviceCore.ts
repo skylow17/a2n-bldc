@@ -829,6 +829,64 @@ export class DeviceCore {
     return this.sendConsole(line, source);
   }
 
+  /* ------------------------------------------------------------------ mouvement
+   *
+   * Les commandes qui mettent l'axe en mouvement, pour un agent. Toutes passent par
+   * `requireAiControl` : refusées tant que l'humain n'a pas activé « Enable AI control »,
+   * qu'aucun outil ne peut activer. Les limites restent au firmware — durée, vitesse, Iq,
+   * tension, distance — et **un refus du firmware est une erreur**, jamais un succès
+   * silencieux. Couper (DISARM, STOP) n'est jamais gardé : réduire l'énergie est toujours
+   * permis.
+   */
+
+  private async motionCommand(line: string, source: LogSource): Promise<string> {
+    this.require();
+    this.requireAiControl(source);
+    this.log('info', source, `> ${line}`);
+    const reply = await this.askConsole(line);
+    this.log(reply.startsWith('OK') ? 'info' : 'warn', source, `${line} → ${reply}`);
+    if (!reply.startsWith('OK')) throw new Error(`${line}: ${reply}`);
+    await this.beat();
+    return reply;
+  }
+
+  /** Arme la carte. N'active aucune sortie : il faut ensuite lancer une boucle. */
+  async arm(source: LogSource = 'gui'): Promise<string> {
+    return this.motionCommand('ARM', source);
+  }
+
+  /** Coupe les sorties et désarme. Jamais refusé à un agent. */
+  async disarm(source: LogSource = 'gui'): Promise<string> {
+    this.require();
+    this.log('info', source, '> DISARM');
+    const reply = await this.askConsole('DISARM');
+    await this.beat();
+    return reply;
+  }
+
+  /**
+   * Boucle de position : va de `deltaRad` depuis la position actuelle (ou vers `targetRad`,
+   * absolue), puis tient jusqu'à la fin de `durationMs`. La position de départ est relue
+   * sur la carte (`PL?`) juste avant, pas prise d'un état mis en cache.
+   */
+  async positionMove(
+    move: { deltaRad?: number; targetRad?: number },
+    durationMs: number,
+    bwHz: number | undefined,
+    source: LogSource = 'gui',
+  ): Promise<{ fromRad: number; targetRad: number; reply: string }> {
+    this.require();
+    this.requireAiControl(source);
+    const st = await this.askConsole('PL?');
+    const m = /pos_mrad=(-?\d+)/.exec(st);
+    if (m === null) throw new Error(`cannot read the position: ${st}`);
+    const fromRad = Number(m[1]) / 1000;
+    const targetRad = move.targetRad ?? fromRad + (move.deltaRad ?? 0);
+    const line = `PL ${Math.round(targetRad * 1000)} ${Math.round(durationMs)}${bwHz === undefined ? '' : ` ${bwHz}`}`;
+    const reply = await this.motionCommand(line, source);
+    return { fromRad, targetRad, reply };
+  }
+
   async readSignals(): Promise<SignalDesc[]> {
     const { client } = this.require();
     return client.readSignals();

@@ -60,7 +60,10 @@ extern "C" {
 #define FOC_SL_ZERO_RATIO_MAX 10.0f
 #define FOC_PL_MIN_SEPARATION 4.0f     /**< boucle de vitesse ≥ 4× celle de position      */
 #define FOC_SL_MAX_MRAD_S   20000L     /**< sous la coupure en survitesse, 25 rad/s      */
-#define FOC_SL_IQ_MAX_A     0.15f      /**< plafond de la consigne d'Iq                  */
+/* 0,15 A jusqu'au 2026-10-03, relevé à 0,22 A à la demande de l'utilisateur pour un maintien
+ * de position plus ferme. Au-delà, rien ne serait gagné à l'arrêt : la tension de commande
+ * (57 ‰ du rail, ≈ 0,85 V) sur 3,6 Ω borne le courant vers 0,24 A. */
+#define FOC_SL_IQ_MAX_A     0.22f      /**< plafond de la consigne d'Iq                  */
 
 /* Boucle de position, étape 13. Proportionnelle : l'intégrateur de la boucle de vitesse tient
  * déjà le couple contre le frottement, un second intégrateur en cascade n'ajouterait qu'un

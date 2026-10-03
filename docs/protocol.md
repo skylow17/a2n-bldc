@@ -765,7 +765,10 @@ de la bande passante f — **30 Hz par défaut**, réglable par la commande. La 
 barrières que `CL`, plus :
 
 - **consigne ≤ 20 rad/s** en valeur absolue, sous la coupure en survitesse à 25 rad/s ;
-- **Iq ≤ 150 mA** en valeur absolue ; quand ce plafond mord, l'intégrateur de vitesse se fige ;
+- **Iq ≤ 220 mA** en valeur absolue ; quand ce plafond mord, l'intégrateur de vitesse se fige.
+  150 mA jusqu'au 2026-10-03, relevé à la demande de l'utilisateur pour un maintien plus
+  ferme : à l'arrêt, la tension de commande (57 ‰, ≈ 0,85 V sur 3,6 Ω) borne de toute façon
+  le courant vers 0,24 A ;
 - **durée ≤ 10 s**, watchdog de flux comme ailleurs.
 
 | Commande | Réponse | Rôle |

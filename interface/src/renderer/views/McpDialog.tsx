@@ -72,10 +72,12 @@ ${list}
 ## 3. Bench rules — non-negotiable
 
 - A real motor with a rotating mass is attached. Read-only tools are always available.
-- Writing anything requires the human to switch on "Enable AI control" in the interface.
-  No tool can switch it on: if a tool refuses because of it, stop and ask the user.
-- Nothing turns without an explicit ARM by the human. A reset, a fault or a lost link always
-  return the board to the disarmed state. Faults are latched and need an explicit clear.
+- Writing anything, arming and moving (motion_arm, motion_position_move) require the human
+  to switch on "Enable AI control" in the interface. No tool can switch it on: if a tool
+  refuses because of it, stop and ask the user. Move only when the user asked for it.
+- Nothing turns without ARM. A reset, a fault or a lost link always return the board to the
+  disarmed state. Faults are latched and need an explicit clear. Disarm (motion_disarm) as
+  soon as a test is over; motion_disarm and STOP are always allowed.
 - Safety limits (current, speed, voltage, temperature, link watchdog) live in the firmware
   and apply whatever the command source. Never widen a limit to make a test pass: if a limit
   blocks a legitimate test, say so and let the human decide.

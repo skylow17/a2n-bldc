@@ -16,10 +16,11 @@
  *    la réimplémente pas : il laisse remonter le refus. Une barrière recopiée est une
  *    barrière qui finit par diverger. Et il n'existe **aucun outil pour l'activer** —
  *    c'est une action humaine dans l'UI, point.
- * 3. **Rien qui mette le moteur en mouvement n'est exposé.** Ni `ARM`, ni consigne, ni
- *    mouvement. Ces fonctions existent dans le firmware depuis M3 — `ARM`, `OL`, `CL`, `SL`,
- *    `PL` — et restent hors de portée : la console MCP n'en laisse passer que les lectures
- *    d'état (`OL?`, `CL?`, `SL?`, `PL?`). Si un jour elles sont exposées, elles le seront gated.
+ * 3. **Le mouvement passe par des outils dédiés, gardés.** `motion_arm` et
+ *    `motion_position_move` (2026-10-03, à la demande de l'utilisateur) refusent tant
+ *    qu'« Enable AI control » est coupé — la barrière est celle du `DeviceCore`, comme pour
+ *    les paramètres. `motion_disarm` et `STOP` ne le sont pas : couper est toujours permis.
+ *    La console MCP, elle, reste en lecture : `OL`, `CL`, `SL` et le reste n'y passent pas.
  *
  * Nommage des outils : `famille_action`, avec des underscores. `interface/AGENTS.md` §5
  * prévoit `device.*`, `param.*`, etc. ; les clients MCP courants n'acceptent que
@@ -130,7 +131,8 @@ export function createA2nMcpServer(core: DeviceCore): { server: McpServer; dispo
       instructions:
         'Bench control for the A2N BLDC motor controller. Read-only tools are always ' +
         'available. Writing a parameter requires the human to enable "AI control" in the ' +
-        'interface; no tool can enable it. Motion, arming and setpoints are not exposed. ' +
+        'interface; no tool can enable it. Arming and position moves (motion_*) need it ' +
+        'too; disarming and STOP never do. ' +
         'Safety limits live in the firmware and apply regardless of the command source.',
     },
   );
@@ -537,6 +539,71 @@ export function createA2nMcpServer(core: DeviceCore): { server: McpServer; dispo
   );
 
   /* ------------------------------------------------------------------ console, journal */
+
+  /* ------------------------------------------------------------------ mouvement */
+
+  server.registerTool(
+    'motion_arm',
+    {
+      title: 'Arm the board',
+      description:
+        'Arm the power stage so that a loop can then be started. Energises nothing by ' +
+        'itself. Refused while AI control is off, with a latched fault, or without a host. ' +
+        'Disarm with motion_disarm as soon as the test is over.',
+      inputSchema: {},
+    },
+    async () => invoke(core, 'motion_arm', undefined, async () => ({ reply: await core.arm('mcp') })),
+  );
+
+  server.registerTool(
+    'motion_disarm',
+    {
+      title: 'Disarm the board',
+      description: 'Cut the outputs and disarm. Always allowed, AI control or not.',
+      inputSchema: {},
+    },
+    async () => invoke(core, 'motion_disarm', undefined, async () => ({ reply: await core.disarm('mcp') })),
+  );
+
+  server.registerTool(
+    'motion_position_move',
+    {
+      title: 'Move and hold a position',
+      description:
+        'Run the position loop: turn the shaft by delta_rad from where it stands (or to ' +
+        'the absolute target_rad), then hold it there until duration_ms ends; the shaft is ' +
+        'free again after that. Needs AI control and an armed board. The firmware enforces ' +
+        'its own caps (distance, speed, Iq, voltage, duration) and refuses beyond them: a ' +
+        'refusal comes back as an error. Read progress with console_send "PL?".',
+      inputSchema: {
+        delta_rad: z.number().finite().optional().describe('Relative move, mechanical radians (signed).'),
+        target_rad: z.number().finite().optional().describe('Absolute target, mechanical radians. Exclusive with delta_rad.'),
+        duration_ms: z.number().int().min(1).max(10000).describe('Move plus hold time, ms.'),
+        bw_hz: z
+          .number()
+          .min(0.5)
+          .max(5)
+          .optional()
+          .describe('Position loop bandwidth; omit for ctrl.pos.bw_hz.'),
+      },
+    },
+    async (args) =>
+      invoke(core, 'motion_position_move', args, async () => {
+        if ((args.delta_rad === undefined) === (args.target_rad === undefined)) {
+          throw new Error('give exactly one of delta_rad and target_rad');
+        }
+        const r = await core.positionMove(
+          {
+            ...(args.delta_rad !== undefined ? { deltaRad: args.delta_rad } : {}),
+            ...(args.target_rad !== undefined ? { targetRad: args.target_rad } : {}),
+          },
+          args.duration_ms,
+          args.bw_hz,
+          'mcp',
+        );
+        return { fromRad: round6(r.fromRad), targetRad: round6(r.targetRad), reply: r.reply };
+      }),
+  );
 
   server.registerTool(
     'console_send',
