@@ -29,6 +29,8 @@ export interface McpHttpServer {
   /** URL complète à donner au client, port réel compris. */
   url: string;
   port: number;
+  /** Sessions d'agent ouvertes en ce moment. */
+  sessionCount: () => number;
   close: () => Promise<void>;
 }
 
@@ -39,7 +41,7 @@ interface Session {
 
 export async function startA2nMcpHttpServer(
   core: DeviceCore,
-  options: { port?: number; host?: string } = {},
+  options: { port?: number; host?: string; onSessions?: (count: number) => void } = {},
 ): Promise<McpHttpServer> {
   const host = options.host ?? '127.0.0.1';
   const sessions = new Map<string, Session>();
@@ -70,11 +72,13 @@ export async function startA2nMcpHttpServer(
       sessionIdGenerator: () => randomUUID(),
       onsessioninitialized: (id) => {
         sessions.set(id, { transport, dispose });
+        options.onSessions?.(sessions.size);
         core.log('info', 'mcp', `agent session opened (${id.slice(0, 8)})`);
       },
       onsessionclosed: (id) => {
         sessions.get(id)?.dispose();
         sessions.delete(id);
+        options.onSessions?.(sessions.size);
         core.log('info', 'mcp', `agent session closed (${id.slice(0, 8)})`);
       },
     });
@@ -82,6 +86,7 @@ export async function startA2nMcpHttpServer(
       const id = transport.sessionId;
       if (id !== undefined && sessions.delete(id)) {
         dispose();
+        options.onSessions?.(sessions.size);
         core.log('info', 'mcp', `agent session closed (${id.slice(0, 8)})`);
       }
     };
@@ -113,6 +118,7 @@ export async function startA2nMcpHttpServer(
   return {
     url,
     port,
+    sessionCount: () => sessions.size,
     close: async () => {
       for (const [id, s] of sessions) {
         sessions.delete(id);

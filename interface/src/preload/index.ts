@@ -8,6 +8,7 @@
 import { contextBridge, ipcRenderer, webFrame } from 'electron';
 
 import type { AppConfig, ConfigPatch } from '../shared/config.js';
+import type { McpStatus, McpToolInfo } from '../main/mcp/controller.js';
 
 import type { ScopeCapture } from '../shared/client.js';
 import type { TelemFrame } from '../shared/messages.js';
@@ -88,6 +89,16 @@ const api = {
     const h = (_e: unknown, c: AppConfig): void => listener(c);
     ipcRenderer.on('config:changed', h);
     return () => ipcRenderer.removeListener('config:changed', h);
+  },
+
+  /* --- serveur MCP ------------------------------------------------------- */
+  mcpStatus: () => call<McpStatus>('mcp:status'),
+  mcpTools: () => call<McpToolInfo[]>('mcp:tools'),
+  mcpApply: (enabled: boolean, port: number) => call<McpStatus>('mcp:apply', enabled, port),
+  onMcpStatus: (listener: (s: McpStatus) => void): (() => void) => {
+    const h = (_e: unknown, s: McpStatus): void => listener(s);
+    ipcRenderer.on('mcp:status', h);
+    return () => ipcRenderer.removeListener('mcp:status', h);
   },
 
   /* --- application ------------------------------------------------------ */

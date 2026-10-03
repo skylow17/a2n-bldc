@@ -28,7 +28,7 @@ import {
   type LogSource,
   type ScopeRequest,
 } from './device/DeviceCore.js';
-import { A2N_MCP_DEFAULT_PORT, startA2nMcpHttpServer } from './mcp/http.js';
+import { McpController } from './mcp/controller.js';
 import { isIpcChannel, validateIpc } from './ipcSchema.js';
 
 const core = new DeviceCore();
@@ -53,6 +53,23 @@ const controlDetached = (): boolean => controlWindow !== null && !controlWindow.
 
 core.onChange.on((s) => broadcast('device:state', s));
 config.onChange((c) => broadcast('config:changed', c));
+
+/**
+ * Serveur MCP. Il vit ici, dans le processus de la fenêtre, et sert le même `DeviceCore` :
+ * c'est la fenêtre qui porte le seul chemin vers « Enable AI control », donc un agent ne
+ * peut être autorisé à écrire que si un humain a l'interface sous les yeux. Local
+ * seulement. Marche, arrêt et port viennent de la config (`mcp`) ; `A2N_MCP_PORT`, s'il est
+ * posé, impose le port.
+ */
+const envPort = process.env['A2N_MCP_PORT'] === undefined ? null : Number(process.env['A2N_MCP_PORT']);
+const mcp = new McpController(core, envPort !== null && Number.isFinite(envPort) ? envPort : null);
+mcp.onChange((s) => broadcast('mcp:status', s));
+config.onChange((c) => {
+  const s = mcp.current;
+  if (s.enabled !== c.mcp.enabled || (!s.portFromEnv && s.port !== c.mcp.port)) {
+    void mcp.apply(c.mcp.enabled, c.mcp.port);
+  }
+});
 core.onLog.on((e) => broadcast('device:log', e));
 core.onFirmware.on((p: FirmwareProgress) => broadcast('device:firmware', p));
 
@@ -391,6 +408,17 @@ const HELP_LINKS = {
 handle('app:openLink', (key: keyof typeof HELP_LINKS) => shell.openExternal(HELP_LINKS[key]));
 handle('app:quit', () => app.quit());
 
+/* ------------------------------------------------------------------ MCP */
+
+handle('mcp:status', () => mcp.current);
+handle('mcp:tools', () => mcp.tools());
+/** Passe par la config : le choix survit au redémarrage, et la diffusion fait le reste. */
+handle('mcp:apply', async (enabled: boolean, port: number) => {
+  await config.set({ mcp: { enabled, port } });
+  // La config n'a peut-être pas changé (relance après un échec) : on applique quand même.
+  return mcp.apply(enabled, port);
+});
+
 /* ------------------------------------------------------------------ cycle de vie */
 
 void app.whenReady().then(async () => {
@@ -401,16 +429,7 @@ void app.whenReady().then(async () => {
   }
   createWindow();
 
-  // Le serveur MCP vit ici, dans le processus de la fenêtre, et sert le même `DeviceCore` :
-  // c'est la fenêtre qui porte le seul chemin vers « Enable AI control », donc un agent ne
-  // peut être autorisé à écrire que si un humain a l'interface sous les yeux. Local
-  // seulement ; le port se lit dans la console commune, source `mcp`.
-  const port = Number(process.env['A2N_MCP_PORT'] ?? A2N_MCP_DEFAULT_PORT);
-  try {
-    await startA2nMcpHttpServer(core, { port });
-  } catch (error: unknown) {
-    core.log('error', 'mcp', `MCP server not started: ${error instanceof Error ? error.message : String(error)}`);
-  }
+  await mcp.apply(config.current.mcp.enabled, config.current.mcp.port);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -425,4 +444,5 @@ app.on('before-quit', () => {
   // Fermer le port proprement : un port laissé ouvert reste verrouillé sous Windows et
   // empêche la prochaine connexion.
   void core.disconnect(true);
+  void mcp.stop();
 });

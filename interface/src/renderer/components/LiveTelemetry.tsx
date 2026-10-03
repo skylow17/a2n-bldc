@@ -66,10 +66,11 @@ const MAX_SIGNALS = MAX_SUBSCRIBED;
 export function LiveTelemetry({ state }: { state: DeviceSnapshot }): ReactNode {
   const [signals, setSignals] = useState<SignalDesc[]>([]);
   const [picked, setPicked] = useState<string[]>([]);
-  const [rateHz, setRateHz] = useState<number>(200);
+  const defaults = useConfig().config.telemetry;
+  const [rateHz, setRateHz] = useState<number>(defaults.rateHz);
   /* Presentation. Ces trois reglages ne changent que ce qu'on regarde, jamais ce qui est
    * mesure — ils ne touchent ni a la souscription ni au tampon. */
-  const [windowS, setWindowS] = useState<number>(5);
+  const [windowS, setWindowS] = useState<number>(defaults.windowS);
   const [yMode, setYMode] = useState<YMode>('auto');
   const [split, setSplit] = useState(false);
   const [fit, setFit] = useState(0);

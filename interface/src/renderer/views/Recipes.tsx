@@ -35,6 +35,7 @@ import { Hint } from '../components/Hint.js';
 import { Pill } from '../components/Metric.js';
 import { Button, Field, Panel, fmt } from '../components/ui.js';
 import { applyRows, deviceParams, type ApplyResult } from '../recipeApply.js';
+import { useCommand } from '../commands.js';
 import { api, useAction } from '../useDevice.js';
 
 interface Loaded {
@@ -96,6 +97,8 @@ export function Recipes({ state }: { state: DeviceSnapshot }): ReactNode {
       if (!parsed.ok) throw new Error(`${f.path}: ${parsed.error}`);
       load(parsed.recipe, f.path);
     });
+  // File › Open recipe… : le menu affiche cette vue, puis lui demande d'ouvrir.
+  useCommand('recipe:open', openFile);
 
   const capture = (): void => {
     if (state.info === null) return;

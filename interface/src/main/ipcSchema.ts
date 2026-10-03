@@ -101,6 +101,10 @@ export const IPC_SCHEMA = {
   'app:info': z.tuple([]),
   'app:openLink': z.tuple([z.enum(['repo', 'protocol', 'status', 'interface'])]),
   'app:quit': z.tuple([]),
+
+  'mcp:status': z.tuple([]),
+  'mcp:tools': z.tuple([]),
+  'mcp:apply': z.tuple([z.boolean(), z.number().int().min(1024).max(65535)]),
 } as const;
 
 export type IpcChannel = keyof typeof IPC_SCHEMA;

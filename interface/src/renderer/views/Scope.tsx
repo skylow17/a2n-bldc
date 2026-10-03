@@ -68,12 +68,13 @@ export function Scope({ state }: { state: DeviceSnapshot }): ReactNode {
      Partage par toute la pile, pour que les graphes synchronises reviennent ensemble. */
   const [fit, setFit] = useState(0);
   const [picked, setPicked] = useState<string[]>([]);
-  const [depth, setDepth] = useState<number>(2048);
-  const [decimation, setDecimation] = useState<number>(1);
+  const scopeDefaults = useConfig().config.scope;
+  const [depth, setDepth] = useState<number>(scopeDefaults.depth);
+  const [decimation, setDecimation] = useState<number>(scopeDefaults.decimation);
   const [mode, setMode] = useState<ScopeTriggerValue>(ScopeTrigger.IMMEDIATE);
   const [triggerSignal, setTriggerSignal] = useState<string>('');
   const [threshold, setThreshold] = useState<string>('0');
-  const [pretriggerPct, setPretriggerPct] = useState<number>(0);
+  const [pretriggerPct, setPretriggerPct] = useState<number>(scopeDefaults.pretriggerPct);
   const [result, setResult] = useState<{ signals: SignalDesc[]; capture: ScopeCapture } | null>(null);
   const { busy, error, run } = useAction();
 

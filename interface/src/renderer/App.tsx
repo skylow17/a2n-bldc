@@ -6,7 +6,7 @@
  * préférence esthétique — on doit pouvoir couper sans chercher où cliquer.
  */
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import type { DeviceSnapshot } from '../main/device/DeviceCore.js';
 import type { SerialPortInfo } from '../node/serial.js';
@@ -14,8 +14,21 @@ import { Button, Empty } from './components/ui.js';
 import { Hint } from './components/Hint.js';
 import { CriticalControls, SafetyBadge, StatusBadge } from './components/SafetyControls.js';
 import { api, useAction, useControlDetached, useDeviceLog, useDeviceState } from './useDevice.js';
-import { useTheme } from './useTheme.js';
 import { useConfig } from './config.js';
+import { emitCommand, useCommandsVersion, type CommandId } from './commands.js';
+import { MenuBar, useShortcuts, type Menu, type MenuItem } from './components/MenuBar.js';
+import {
+  deviceMenu,
+  helpMenu,
+  measurementExportItems,
+  toolsMenu,
+  viewMenuTail,
+  type DialogId,
+  type MenuContext,
+} from './menus.js';
+import { SettingsDialog } from './views/SettingsDialog.js';
+import { McpDialog } from './views/McpDialog.js';
+import { AboutDialog, ShortcutsDialog } from './views/HelpDialogs.js';
 import { PROTO_CAP } from '../shared/protocol.js';
 import { Console } from './views/Console.js';
 import { Dashboard } from './views/Dashboard.js';
@@ -79,19 +92,36 @@ const VIEWS: ViewDef[] = [
 
 /* ------------------------------------------------------------------ barre haute */
 
-function ConnectionBar({ state }: { state: DeviceSnapshot }): ReactNode {
+/** Ports série et cible choisie : partagés par la barre de connexion et le menu Device. */
+function usePorts(): {
+  ports: SerialPortInfo[];
+  target: string;
+  setTarget: (t: string) => void;
+  refreshPorts: () => void;
+} {
   const [ports, setPorts] = useState<SerialPortInfo[]>([]);
   const [target, setTarget] = useState('simulator');
-  const { busy, error, run } = useAction();
-
   const refreshPorts = (): void => {
     void api()
       .listPorts()
       .then(setPorts)
       .catch(() => setPorts([]));
   };
-
   useEffect(refreshPorts, []);
+  return { ports, target, setTarget, refreshPorts };
+}
+
+const targetOf = (t: string): Parameters<ReturnType<typeof api>['connect']>[0] =>
+  t === 'simulator' ? { kind: 'simulator' } : { kind: 'serial', path: t };
+
+function ConnectionBar({
+  state,
+  ports,
+  target,
+  setTarget,
+  refreshPorts,
+}: { state: DeviceSnapshot } & ReturnType<typeof usePorts>): ReactNode {
+  const { busy, error, run } = useAction();
 
   const connected = state.connection === 'connected';
 
@@ -122,11 +152,7 @@ function ConnectionBar({ state }: { state: DeviceSnapshot }): ReactNode {
           tone="accent"
           disabled={busy}
           onClick={() =>
-            void run(() =>
-              api().connect(
-                target === 'simulator' ? { kind: 'simulator' } : { kind: 'serial', path: target },
-              ),
-            )
+            void run(() => api().connect(targetOf(target)))
           }
         >
           {busy ? 'Connecting…' : 'Connect'}
@@ -185,9 +211,23 @@ export function App(): ReactNode {
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', up);
   };
-  const { theme, toggle: toggleTheme } = useTheme();
   const controlDetached = useControlDetached();
   const dock = useAction();
+  const portsState = usePorts();
+  const [dialog, setDialog] = useState<DialogId | null>(null);
+  /* Commande à émettre une fois la vue demandée montée — « Open recipe… » depuis une autre
+   * vue doit d'abord afficher Recipes, qui seule sait ouvrir une recette. */
+  const [pendingCmd, setPendingCmd] = useState<CommandId | null>(null);
+  useEffect(() => {
+    if (pendingCmd === null) return undefined;
+    const id = setTimeout(() => {
+      emitCommand(pendingCmd);
+      setPendingCmd(null);
+    }, 0);
+    return () => clearTimeout(id);
+  }, [pendingCmd, view]);
+  const menuAct = useAction();
+  const commandsVersion = useCommandsVersion();
 
   /**
    * Une vue est indisponible soit parce que le jalon n'y est pas, soit parce que le device
@@ -201,6 +241,125 @@ export function App(): ReactNode {
     return (state.info.capabilities & v.requires) !== 0 ? null : 'n/a';
   };
 
+  const menus = useMemo((): Menu[] => {
+    const ctx: MenuContext = {
+      state,
+      config,
+      update,
+      openDialog: setDialog,
+      run: (fn) => void menuAct.run(fn),
+    };
+    const connected = state.connection === 'connected';
+    const connectItems: MenuItem[] = connected
+      ? [
+          {
+            label: `Disconnect from ${state.portDescription ?? 'device'}`,
+            onSelect: () => ctx.run(() => api().disconnect()),
+          },
+        ]
+      : [
+          {
+            label: 'Connect',
+            shortcut: 'Ctrl+K',
+            onSelect: () => ctx.run(() => api().connect(targetOf(portsState.target))),
+          },
+          {
+            label: 'Connect to',
+            submenu: [
+              {
+                label: 'Simulator',
+                onSelect: () => {
+                  portsState.setTarget('simulator');
+                  ctx.run(() => api().connect({ kind: 'simulator' }));
+                },
+              },
+              ...portsState.ports.map(
+                (p): MenuItem => ({
+                  label: p.path + (p.vendorId === '0483' && p.productId === '5740' ? ' — A2N BLDC' : ''),
+                  onSelect: () => {
+                    portsState.setTarget(p.path);
+                    ctx.run(() => api().connect({ kind: 'serial', path: p.path }));
+                  },
+                }),
+              ),
+            ],
+          },
+          { label: 'Rescan serial ports', onSelect: portsState.refreshPorts },
+        ];
+    return [
+      {
+        label: 'File',
+        items: [
+          {
+            label: 'Open recipe…',
+            shortcut: 'Ctrl+O',
+            onSelect: () => {
+              setView('recipes');
+              setPendingCmd('recipe:open');
+            },
+          },
+          'separator',
+          {
+            label: 'Import measurement…',
+            onSelect: () => {
+              setView('scope');
+              setPendingCmd('measurement:import');
+            },
+          },
+          ...measurementExportItems(),
+          'separator',
+          { label: 'Import settings…', onSelect: () => ctx.run(() => api().importConfig()) },
+          { label: 'Export settings…', onSelect: () => ctx.run(() => api().exportConfig()) },
+          { label: 'Open data folder', onSelect: () => ctx.run(() => api().openDataDir()) },
+          'separator',
+          { label: 'Quit', shortcut: 'Ctrl+Q', onSelect: () => ctx.run(() => api().quit()) },
+        ],
+      },
+      {
+        label: 'View',
+        items: [
+          ...VIEWS.map(
+            (v, i): MenuItem => ({
+              label: v.label,
+              shortcut: `Ctrl+${i + 1}`,
+              checked: view === v.id,
+              disabled: unavailable(v) !== null,
+              onSelect: () => setView(v.id),
+            }),
+          ),
+          'separator',
+          {
+            label: controlDetached ? 'Dock Control back' : 'Detach Control window',
+            shortcut: 'Ctrl+D',
+            onSelect: () => ctx.run(() => (controlDetached ? api().dockControl() : api().detachControl())),
+          },
+          {
+            label: 'Console',
+            shortcut: 'Ctrl+`',
+            checked: consoleOpen,
+            onSelect: () => setConsoleOpen(!consoleOpen),
+          },
+          'separator',
+          ...viewMenuTail(ctx),
+        ],
+      },
+      deviceMenu(ctx, connectItems),
+      toolsMenu(ctx, [
+        {
+          label: 'Firmware update',
+          disabled: unavailable(VIEWS.find((v) => v.id === 'firmware')!) !== null,
+          onSelect: () => setView('firmware'),
+        },
+        { label: 'Measurements folder', onSelect: () => ctx.run(() => api().openDataDir()) },
+      ]),
+      helpMenu(ctx),
+    ];
+    // `unavailable` et les setters sont relus à chaque rendu ; la liste ci-dessous est ce qui
+    // change réellement le contenu des menus.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state, config, view, controlDetached, consoleOpen, portsState.ports, portsState.target, commandsVersion]);
+  useShortcuts(menus);
+
   const current = VIEWS.find((v) => v.id === view) ?? VIEWS[0]!;
   const currentBlocked = unavailable(current);
 
@@ -211,24 +370,30 @@ export function App(): ReactNode {
         <span className="font-mono text-[13px] font-semibold tracking-wide text-accent">
           A2N BLDC
         </span>
-        <ConnectionBar state={state} />
+        <MenuBar menus={menus} />
+        <span className="h-5 border-l border-line" aria-hidden="true" />
+        <ConnectionBar state={state} {...portsState} />
+        {menuAct.error !== null && (
+          <span className="max-w-xs truncate text-[11px] text-fault" title={menuAct.error}>
+            {menuAct.error}
+          </span>
+        )}
         <div className="flex-1" />
         <StatusBadge state={state} />
         <SafetyBadge state={state} />
 
-        {/* La bascule de theme ne touche qu'a un attribut de la racine. Placee avant les
-            deux commandes critiques pour ne pas s'intercaler entre elles et la main. */}
-        <Button
-          onClick={toggleTheme}
-          title={theme === 'dark' ? 'Switch to the light theme' : 'Switch to the dark theme'}
-        >
-          {theme === 'dark' ? 'Light' : 'Dark'}
-        </Button>
-
         <CriticalControls state={state} />
       </header>
 
-      <div className="flex min-h-0 flex-1">
+      <div className="relative flex min-h-0 flex-1">
+        {/* Fenêtres modales : sous la barre haute, pour que STOP et AI CONTROL restent
+            visibles et cliquables pendant un réglage. */}
+        {dialog === 'settings' && (
+          <SettingsDialog onClose={() => setDialog(null)} onOpenMcp={() => setDialog('mcp')} />
+        )}
+        {dialog === 'mcp' && <McpDialog state={state} onClose={() => setDialog(null)} />}
+        {dialog === 'about' && <AboutDialog state={state} onClose={() => setDialog(null)} />}
+        {dialog === 'shortcuts' && <ShortcutsDialog menus={menus} onClose={() => setDialog(null)} />}
         {/* Rail de navigation */}
         <nav className="flex w-40 shrink-0 flex-col gap-0.5 border-r border-line bg-panel p-2">
           {VIEWS.map((v) => {
