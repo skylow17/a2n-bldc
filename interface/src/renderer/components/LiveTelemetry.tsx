@@ -267,7 +267,14 @@ export function LiveTelemetry({ state }: { state: DeviceSnapshot }): ReactNode {
   }
 
   return (
-    <Panel title="Live telemetry" right={header} className="h-full">
+    <Panel title="Live telemetry" right={header} className="h-full" hint={<>
+            {split
+              ? 'One chart per signal: each has its own vertical scale, so shapes are comparable but levels are not.'
+              : 'One vertical scale per unit: signals sharing a unit are comparable, the others are only juxtaposed.'}{' '}
+            {streaming
+              ? `Showing the last ${windowS} s; the buffer holds ${buf.current.t.length} points.`
+              : `Frozen: all ${buf.current.t.length} captured points. Drag to zoom, scroll to zoom around the pointer, shift-drag to pan, double-click or Fit to see it all; Export CSV saves it. Press Start for a new run.`}
+          </>}>
       {/* Prereglages. Ils ne decrivent aucun signal — ils en nomment quelques-uns pour dire
           lesquels vont bien ensemble, et se confrontent au dictionnaire publie par la
           carte. Un prereglage dont un signal manque en rend moins, il n'echoue pas. */}
@@ -391,14 +398,6 @@ export function LiveTelemetry({ state }: { state: DeviceSnapshot }): ReactNode {
               height={chartH}
             />
           ))}
-          <p className="px-1 pb-1 text-[11px] leading-relaxed text-fg-3">
-            {split
-              ? 'One chart per signal: each has its own vertical scale, so shapes are comparable but levels are not.'
-              : 'One vertical scale per unit: signals sharing a unit are comparable, the others are only juxtaposed.'}{' '}
-            {streaming
-              ? `Showing the last ${windowS} s; the buffer holds ${buf.current.t.length} points.`
-              : `Frozen: all ${buf.current.t.length} captured points. Drag to zoom, scroll to zoom around the pointer, shift-drag to pan, double-click or Fit to see it all; Export CSV saves it. Press Start for a new run.`}
-          </p>
             </>
           )}
         </ChartStack>

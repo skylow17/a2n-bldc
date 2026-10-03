@@ -5,7 +5,9 @@
  * accès ni à Node, ni au port série, ni au système de fichiers.
  */
 
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webFrame } from 'electron';
+
+import type { AppConfig, ConfigPatch } from '../shared/config.js';
 
 import type { ScopeCapture } from '../shared/client.js';
 import type { TelemFrame } from '../shared/messages.js';
@@ -71,6 +73,32 @@ const api = {
   pickFirmware: () => call<{ path: string; size: number } | null>('device:pickFirmware'),
   updateFirmware: (path: string, version: string) =>
     call<{ slot: number; committed: boolean }>('device:updateFirmware', path, version),
+
+  /* --- configuration --------------------------------------------------- */
+  getConfig: () => call<AppConfig>('config:get'),
+  setConfig: (patch: ConfigPatch) => call<{ config: AppConfig; warnings: string[] }>('config:set', patch),
+  resetConfig: () => call<AppConfig>('config:reset'),
+  /** Rend le chemin écrit, ou `null` si annulé. */
+  exportConfig: () => call<string | null>('config:export'),
+  importConfig: () => call<{ path: string; warnings: string[] } | null>('config:import'),
+  dataDir: () => call<string>('config:dataDir'),
+  chooseDataDir: () => call<string | null>('config:chooseDataDir'),
+  openDataDir: () => call<void>('config:openDataDir'),
+  onConfig: (listener: (c: AppConfig) => void): (() => void) => {
+    const h = (_e: unknown, c: AppConfig): void => listener(c);
+    ipcRenderer.on('config:changed', h);
+    return () => ipcRenderer.removeListener('config:changed', h);
+  },
+
+  /* --- application ------------------------------------------------------ */
+  appInfo: () =>
+    call<{ appVersion: string; electron: string; chrome: string; node: string; platform: string; dataDir: string }>(
+      'app:info',
+    ),
+  openLink: (key: 'repo' | 'protocol' | 'status' | 'interface') => call<void>('app:openLink', key),
+  quit: () => call<void>('app:quit'),
+  /** Zoom de la fenêtre courante. Local à la fenêtre : rien ne traverse l'IPC. */
+  setZoom: (factor: number) => webFrame.setZoomFactor(factor),
 
   onState: (listener: (s: DeviceSnapshot) => void): (() => void) => {
     const h = (_e: unknown, s: DeviceSnapshot): void => listener(s);

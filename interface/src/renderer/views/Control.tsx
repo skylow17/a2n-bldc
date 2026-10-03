@@ -145,8 +145,7 @@ export function Control({ state, onDetach }: { state: DeviceSnapshot; onDetach?:
   const detachBar =
     onDetach === undefined ? null : (
       <div className="flex items-center justify-end gap-2 xl:col-span-2">
-        <span className="text-[11px] text-fg-3">Drive from a separate window while the Scope records</span>
-        <Button onClick={onDetach} title="Open Control in its own window">
+        <Button onClick={onDetach} title="Open Control in its own window, to drive while the Scope or the Dashboard records">
           Detach window
         </Button>
       </div>
@@ -171,17 +170,13 @@ export function Control({ state, onDetach }: { state: DeviceSnapshot; onDetach?:
       {detachBar}
       <Panel
         title="Arming"
+        hint={<>Nothing energises the motor without ARM. A reset, any fault, a lost host, STOP and DISARM take it back. A latched fault is acknowledged with CLEAR in the header, and the board stays disarmed after it.</>}
         right={
           <Pill tone={latched ? 'fault' : live ? 'warn' : armed ? 'warn' : 'ok'}>
             {latched ? `fault: ${sf!.reason}` : live ? 'outputs live' : armed ? 'armed' : 'disarmed'}
           </Pill>
         }
       >
-        <p className="px-3 py-2 text-[12px] leading-relaxed text-fg-2">
-          Nothing energises the motor without ARM. A reset, any fault, a lost host, STOP and
-          DISARM take it back. A latched fault is acknowledged with CLEAR in the header, and
-          the board stays disarmed after it.
-        </p>
         <div className="flex gap-2 px-3 pb-3">
           <Button tone="accent" disabled={act.busy || armed || latched} onClick={() => send('ARM')}>
             ARM
@@ -196,6 +191,7 @@ export function Control({ state, onDetach }: { state: DeviceSnapshot; onDetach?:
 
       <Panel
         title="Rotor frame"
+        hint={<>Instantaneous, amperes at ±15 %. The Scope and the “Current loop” preset of the Dashboard show them over time.</>}
         right={
           <Pill tone={foc === null ? 'idle' : foc.valid ? 'ok' : 'fault'}>
             {foc === null ? 'n/a' : foc.valid ? 'measuring' : foc.cfg ? 'no angle' : 'not configured'}
@@ -209,26 +205,19 @@ export function Control({ state, onDetach }: { state: DeviceSnapshot; onDetach?:
             <Field label="Electrical angle">{foc.thetaDeg === null ? '—' : `${fmt(foc.thetaDeg, 4)}°`}</Field>
             <Field label="Id">{ma(foc.idMa)}</Field>
             <Field label="Iq">{ma(foc.iqMa)}</Field>
-            <p className="px-3 py-2 text-[11px] leading-relaxed text-fg-3">
-              Instantaneous, amperes at ±15 %. The Scope and the “Current loop” preset of the
-              Dashboard show them over time.
-            </p>
           </>
         )}
       </Panel>
 
       <Panel
         title="Open loop"
+        hint={<>A voltage vector turns at a fixed amplitude and the shaft follows. No measurement is used: this is the test before any closed loop.</>}
         right={
           <Pill tone={ol?.active === true ? 'warn' : 'idle'}>
             {ol?.active === true ? `turning ${fmt(ol.hz, 3)} Hz` : 'idle'}
           </Pill>
         }
       >
-        <p className="px-3 py-2 text-[12px] leading-relaxed text-fg-2">
-          A voltage vector turns at a fixed amplitude and the shaft follows. No measurement
-          is used: this is the test before any closed loop.
-        </p>
         <NumberInput label="Amplitude" unit="‰" value={olAmp} onChange={setOlAmp} disabled={act.busy} />
         <NumberInput label="Electrical frequency" unit="Hz" value={olHz} onChange={setOlHz} disabled={act.busy} />
         <NumberInput label="Duration" unit="ms" value={olMs} onChange={setOlMs} disabled={act.busy} />
@@ -252,6 +241,7 @@ export function Control({ state, onDetach }: { state: DeviceSnapshot; onDetach?:
 
       <Panel
         title="Current loop"
+        hint={<>Two PI regulators hold Id and Iq, tuned in the firmware from R and L. Id alone leaves the rotor still. <strong className="text-fg">Iq makes torque: the rotor turns</strong>, and until the speed loop exists only the voltage cap bounds its speed.</>}
         right={
           <Pill tone={noLoop ? 'idle' : cl?.active === true ? 'warn' : 'idle'}>
             {cl === null ? 'n/a' : cl.active ? 'regulating' : 'idle'}
@@ -262,12 +252,7 @@ export function Control({ state, onDetach }: { state: DeviceSnapshot; onDetach?:
           <p className="px-3 py-2 text-[12px] text-fg-3">This firmware has no current loop.</p>
         ) : (
           <>
-            <p className="px-3 py-2 text-[12px] leading-relaxed text-fg-2">
-              Two PI regulators hold Id and Iq, tuned in the firmware from R and L. Id alone
-              leaves the rotor still. <strong className="text-fg">Iq makes torque: the rotor
-              turns</strong>, and until the speed loop exists only the voltage cap bounds its
-              speed.
-            </p>
+            <p className="px-3 pt-2 text-[11px] text-accent">Iq makes torque: the rotor turns.</p>
             <NumberInput label="Id" unit="mA" value={clId} onChange={setClId} disabled={act.busy} />
             <NumberInput label="Iq" unit="mA" value={clIq} onChange={setClIq} disabled={act.busy} />
             <NumberInput label="Duration" unit="ms" value={clMs} onChange={setClMs} disabled={act.busy} />
@@ -299,6 +284,7 @@ export function Control({ state, onDetach }: { state: DeviceSnapshot; onDetach?:
       </Panel>
       <Panel
         title="Speed loop"
+        hint={<>A PI regulator sets Iq so that the shaft holds a mechanical speed, with Id at zero. Tuned in the firmware from the measured rotor inertia; the overspeed cut stays armed above the speed limit.</>}
         right={
           <Pill tone={sl?.active === true ? 'warn' : 'idle'}>
             {sl === null ? 'n/a' : sl.active ? `turning ${fmt(sl.velRadS, 3)} rad/s` : 'idle'}
@@ -309,11 +295,6 @@ export function Control({ state, onDetach }: { state: DeviceSnapshot; onDetach?:
           <p className="px-3 py-2 text-[12px] text-fg-3">This firmware has no speed loop.</p>
         ) : (
           <>
-            <p className="px-3 py-2 text-[12px] leading-relaxed text-fg-2">
-              A PI regulator sets Iq so that the shaft holds a mechanical speed, with Id at
-              zero. Tuned in the firmware from the measured rotor inertia; the overspeed cut
-              stays armed above the speed limit.
-            </p>
             <NumberInput label="Speed" unit="rad/s" value={slW} onChange={setSlW} disabled={act.busy} />
             <NumberInput label="Duration" unit="ms" value={slMs} onChange={setSlMs} disabled={act.busy} />
             <div className="flex gap-2 px-3 py-2">
@@ -349,6 +330,7 @@ export function Control({ state, onDetach }: { state: DeviceSnapshot; onDetach?:
       </Panel>
       <Panel
         title="Position loop"
+        hint={<>Moves the shaft by the given angle from where it stands, then holds it there until the duration ends; the shaft is free again after that. Position sets the speed, speed sets Iq: every cap and cut of the loops below still applies.</>}
         right={
           <Pill tone={pl?.active === true ? 'warn' : 'idle'}>
             {pl === null ? 'n/a' : pl.active ? 'holding' : 'idle'}
@@ -359,11 +341,6 @@ export function Control({ state, onDetach }: { state: DeviceSnapshot; onDetach?:
           <p className="px-3 py-2 text-[12px] text-fg-3">This firmware has no position loop.</p>
         ) : (
           <>
-            <p className="px-3 py-2 text-[12px] leading-relaxed text-fg-2">
-              Moves the shaft by the given angle from where it stands, then holds it there
-              until the duration ends; the shaft is free again after that. Position sets the
-              speed, speed sets Iq: every cap and cut of the loops below still applies.
-            </p>
             <NumberInput label="Move" unit="rad" value={plMove} onChange={setPlMove} disabled={act.busy} />
             <NumberInput label="Duration" unit="ms" value={plMs} onChange={setPlMs} disabled={act.busy} />
             <div className="flex gap-2 px-3 py-2">

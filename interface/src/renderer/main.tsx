@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 
 import { App } from './App.js';
 import { ControlWindow } from './ControlWindow.js';
+import { ConfigProvider } from './config.js';
 import './styles.css';
 
 const root = document.getElementById('root');
@@ -12,4 +13,8 @@ if (root === null) throw new Error('#root introuvable');
 const detached = window.location.hash === '#control';
 if (detached) document.title = 'A2N BLDC — Control';
 
-createRoot(root).render(<StrictMode>{detached ? <ControlWindow /> : <App />}</StrictMode>);
+createRoot(root).render(
+  <StrictMode>
+    <ConfigProvider>{detached ? <ControlWindow /> : <App />}</ConfigProvider>
+  </StrictMode>,
+);

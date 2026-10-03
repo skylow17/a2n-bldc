@@ -169,15 +169,8 @@ export function Firmware({ state }: { state: DeviceSnapshot }): ReactNode {
 
   return (
     <div className="flex h-full flex-col gap-3 overflow-auto p-3">
-      <Panel title="A/B update">
+      <Panel title="A/B update" hint={<>The image is written to the <strong>inactive</strong> slot; the firmware running now is never touched. On the next restart the board tries the new image — if it does not prove itself healthy within two seconds, it rolls back on its own. A failed update costs a restart, not a board.</>}>
         <div className="flex flex-col gap-3">
-          <p className="max-w-[70ch] text-[11px] leading-relaxed text-fg-2">
-            The image is written to the <strong>inactive</strong> slot; the firmware running
-            now is never touched. On the next restart the board tries the new image — if it
-            does not prove itself healthy within two seconds, it rolls back on its own. A
-            failed update costs a restart, not a board.
-          </p>
-
           <SlotTable progress={progress} />
         </div>
       </Panel>

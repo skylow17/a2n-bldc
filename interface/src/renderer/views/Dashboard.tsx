@@ -19,6 +19,7 @@ import { PROTO_CAP } from '../../shared/protocol.js';
 import { LiveTelemetry } from '../components/LiveTelemetry.js';
 import { Metric, Pill, type Health } from '../components/Metric.js';
 import { ResizableX, ResizableY } from '../components/Resizable.js';
+import { Hint } from '../components/Hint.js';
 import { Dot, Empty, Field, Panel } from '../components/ui.js';
 
 const CAPABILITIES: Array<{ bit: number; label: string; since: string }> = [
@@ -143,13 +144,13 @@ function MagnetWarning({ enc }: { enc: EncoderState }): ReactNode {
           STATUS 0x{enc.statusRaw.toString(16).toUpperCase().padStart(2, '0')}
           {tooWeak ? ' — too weak or absent' : tooStrong ? ' — too strong' : ''}
         </span>
-      </div>
-      <p className="mt-1 text-[11px] leading-relaxed text-fg-3">
+        <Hint label="About this warning">
         The sensor answers and the I&sup2;C chain is healthy, but the angle it returns is noise.
         A diametrically magnetised magnet has to sit on the shaft, on axis, before any position
         or velocity loop means anything. The link itself is fine &mdash; this reading is the
         sensor telling the truth about what it can see.
-      </p>
+        </Hint>
+      </div>
     </section>
   );
 }
@@ -158,7 +159,7 @@ function PositionSensor({ enc }: { enc: EncoderState }): ReactNode {
   const live = enc.present && enc.magnetOk;
   const deg = ((enc.posRad * 180) / Math.PI) % 360;
   return (
-    <Panel title="Position sensor">
+    <Panel title="Position sensor" hint={<>The angle is extrapolated to the instant the control loop asks for it, from the last sample and its timestamp. What it cannot undo is the sensor&rsquo;s own 286 µs settling time &mdash; that one is the floor, and it is what caps usable speed.</>}>
       <div className="flex items-center gap-3 px-3 py-2">
         <AngleDial rad={enc.posRad} live={live} />
         <div className="min-w-0">
@@ -202,11 +203,6 @@ function PositionSensor({ enc }: { enc: EncoderState }): ReactNode {
           </>
         }
       />
-      <p className="border-t border-line-soft px-3 py-2 text-[11px] leading-relaxed text-fg-3">
-        The angle is extrapolated to the instant the control loop asks for it, from the last
-        sample and its timestamp. What it cannot undo is the sensor&rsquo;s own 286 µs settling
-        time &mdash; that one is the floor, and it is what caps usable speed.
-      </p>
     </Panel>
   );
 }
@@ -222,14 +218,14 @@ function ReferenceWarning({ spread }: { spread: number }): ReactNode {
         <span className="font-mono text-[11px] text-fg-3">
           VREF+ spans {(spread / 10).toFixed(1)} % of its own mean
         </span>
-      </div>
-      <p className="mt-1 text-[11px] leading-relaxed text-fg-3">
+        <Hint label="About this warning">
         Every voltage below is measured against VREF+, so every one of them carries that swing.
         The rails themselves may well be steady — this is the reference moving, not the supply.
         <span className="font-mono text-fg-2"> VREF.RATIO </span> in the console converts VREFINT
         and a rail back to back; their ratio cancels VREF+, so it tells you whether the rail is
         sound and the reference alone is at fault.
-      </p>
+        </Hint>
+      </div>
     </section>
   );
 }
@@ -384,7 +380,7 @@ function liveRegions(
         />
       </Panel>
 
-      <Panel title="Current sense inputs">
+      <Panel title="Current sense inputs" hint={<>Slow read-back of the three amplifier outputs, biased at half the reference when the hardware works. These are volts at the pin, not amperes: the shunt scaling only means something once the inputs are actually driven.</>}>
         {(['A', 'B', 'C'] as const).map((phase, i) => (
           <Field key={phase} label={`Phase ${phase}`}>
             {((mon.csaMv[i] ?? 0) / 1000).toFixed(3)} V
@@ -393,11 +389,6 @@ function liveRegions(
         <Field label="Control loop">
           {stalled ? 'measurement stalled' : `${mon.ticks.toLocaleString('en-US')} ticks`}
         </Field>
-        <p className="border-t border-line-soft px-3 py-2 text-[11px] leading-relaxed text-fg-3">
-          Slow read-back of the three amplifier outputs, biased at half the reference when the
-          hardware works. These are volts at the pin, not amperes: the shunt scaling only means
-          something once the inputs are actually driven.
-        </p>
       </Panel>
 
       {/* Absent d'un firmware anterieur a l'etape 6 : on ne montre pas un panneau vide, la
@@ -456,7 +447,7 @@ export function Dashboard({ state }: { state: DeviceSnapshot }): ReactNode {
       ))}
     </Panel>
 
-    <Panel title="Announced capabilities">
+    <Panel title="Announced capabilities" hint={<>The firmware only raises a bit once the feature actually exists. A missing capability is not a failure — it is a milestone not yet reached.</>}>
       <div className="p-1">
         {CAPABILITIES.map((c) => {
           const on = (info.capabilities & c.bit) !== 0;
@@ -473,10 +464,6 @@ export function Dashboard({ state }: { state: DeviceSnapshot }): ReactNode {
           );
         })}
       </div>
-      <p className="border-t border-line-soft px-3 py-2 text-[11px] leading-relaxed text-fg-3">
-        The firmware only raises a bit once the feature actually exists. A missing capability is
-        not a failure — it is a milestone not yet reached.
-      </p>
     </Panel>
     </>
   );

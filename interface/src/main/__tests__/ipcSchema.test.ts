@@ -64,6 +64,17 @@ describe('validation des arguments IPC', () => {
     expect(validateIpc('device:captureScope', [{ signalNames: ['a', 'b', 'c', 'd', 'e'] }]).ok).toBe(false);
   });
 
+  it('ne laisse ouvrir que les liens d aide prévus', () => {
+    expect(validateIpc('app:openLink', ['protocol']).ok).toBe(true);
+    expect(validateIpc('app:openLink', ['https://example.com']).ok).toBe(false);
+  });
+
+  it('refuse un patch de configuration qui n est pas rangé par section', () => {
+    expect(validateIpc('config:set', [{ ui: { theme: 'light' } }]).ok).toBe(true);
+    expect(validateIpc('config:set', [{ ui: 'light' }]).ok).toBe(false);
+    expect(validateIpc('config:set', ['light']).ok).toBe(false);
+  });
+
   it('refuse un canal appelé avec trop ou trop peu d arguments', () => {
     expect(validateIpc('device:snapshot', ['extra']).ok).toBe(false);
     expect(validateIpc('device:console', []).ok).toBe(false);
@@ -86,8 +97,10 @@ describe('validation des arguments IPC', () => {
     // test le dit au moment du commit plutôt qu'au premier lancement.
     const declared = Object.keys(IPC_SCHEMA);
     expect(declared).toContain('device:updateFirmware');
-    // Deux familles : ce qui touche au device, et la gestion des fenêtres (vue détachée).
-    expect(declared.every((c) => c.startsWith('device:') || c.startsWith('window:'))).toBe(true);
+    // Familles : le device, les fenêtres (vue détachée), la configuration, l'application,
+    // l'historique de mesures et le serveur MCP.
+    const families = ['device:', 'window:', 'config:', 'app:', 'meas:', 'mcp:'];
+    expect(declared.every((c) => families.some((f) => c.startsWith(f)))).toBe(true);
     expect(declared).toContain('window:detachControl');
     expect(new Set(declared).size).toBe(declared.length);
   });

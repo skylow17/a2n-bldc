@@ -12,6 +12,7 @@ import type { DeviceSnapshot } from '../../main/device/DeviceCore.js';
 import { PARAM_STATUS_NAME } from '../../shared/messages.js';
 import { PARAM_FLAG, PARAM_TYPE_NAME } from '../../shared/params.js';
 import { PROTO_CAP, hasCapability } from '../../shared/protocol.js';
+import { Hint } from '../components/Hint.js';
 import { Button, Empty, Panel, fmt } from '../components/ui.js';
 import { api, useAction } from '../useDevice.js';
 
@@ -159,6 +160,11 @@ export function Tuning({ state }: { state: DeviceSnapshot }): ReactNode {
             Save to flash
           </Button>
         )}
+        <Hint label="About parameter writes">
+          Every write is read back immediately: the firmware rounds to the parameter's actual
+          type, so the value shown is the one it kept — not the one that was typed. Writes go to
+          RAM; Save to flash makes them survive a reset.
+        </Hint>
       </div>
 
       <div className="min-h-0 flex-1 space-y-3 overflow-auto">
@@ -179,10 +185,6 @@ export function Tuning({ state }: { state: DeviceSnapshot }): ReactNode {
         {groups.size === 0 && <Empty title={`No parameter matches “${filter}”`} />}
       </div>
 
-      <p className="shrink-0 text-[11px] text-fg-3">
-        Every write is read back immediately: the firmware rounds to the parameter's actual
-        type, so the value shown is the one it kept — not the one that was typed.
-      </p>
     </div>
   );
 }

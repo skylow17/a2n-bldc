@@ -349,6 +349,14 @@ export function Scope({ state }: { state: DeviceSnapshot }): ReactNode {
              les graphes n'ont rien à se partager. `shrink-0` parce que la vue défile. */
           className="h-[min(62vh,760px)] min-h-0 shrink-0 xl:h-auto xl:flex-1"
           title="Capture result"
+          hint={
+            <>
+              Time is relative to the trigger, marked by the dashed line: negative before,
+              positive after. One vertical scale per unit. Drag to zoom into a time span,
+              scroll to zoom around the pointer, shift-drag or middle-drag to pan,
+              double-click to fit; the stacked charts follow each other.
+            </>
+          }
           right={
             <div className="flex items-center gap-3">
               <span className="font-mono text-[11px] text-fg-3">
@@ -395,12 +403,6 @@ export function Scope({ state }: { state: DeviceSnapshot }): ReactNode {
                 resetZoom={fit}
               />
             ))}
-            <p className="px-1 pb-1 text-[11px] leading-relaxed text-fg-3">
-              Time is relative to the trigger, marked by the dashed line: negative before,
-              positive after. One vertical scale per unit. Drag to zoom into a time span,
-              scroll to zoom around the pointer, shift-drag or middle-drag to pan,
-              double-click to fit; the stacked charts follow each other.
-            </p>
               </>
             )}
           </ChartStack>

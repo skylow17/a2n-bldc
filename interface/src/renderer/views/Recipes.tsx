@@ -31,6 +31,7 @@ import {
   type DiffRow,
   type Recipe,
 } from '../../shared/recipe.js';
+import { Hint } from '../components/Hint.js';
 import { Pill } from '../components/Metric.js';
 import { Button, Field, Panel, fmt } from '../components/ui.js';
 import { applyRows, deviceParams, type ApplyResult } from '../recipeApply.js';
@@ -128,19 +129,15 @@ export function Recipes({ state }: { state: DeviceSnapshot }): ReactNode {
     <div className="flex h-full min-h-0 gap-3 p-3">
       {/* Sources */}
       <div className="flex w-72 shrink-0 flex-col gap-3 overflow-auto">
-        <Panel title="Open">
+        <Panel title="Open" hint={<>A <span className="font-mono">.a2nrcp</span> file: readable JSON, diffable under git. Nothing is written until you have seen the diff.</>}>
           <div className="flex flex-col gap-2 p-3">
             <Button onClick={openFile} disabled={act.busy}>
               Open a recipe file…
             </Button>
-            <p className="text-[11px] leading-relaxed text-fg-3">
-              A <span className="font-mono">.a2nrcp</span> file: readable JSON, diffable under
-              git. Nothing is written until you have seen the diff.
-            </p>
           </div>
         </Panel>
 
-        <Panel title="Capture">
+        <Panel title="Capture" hint={<>Every writable value the board holds right now, with its dictionary hash. Then “Save recipe as…” to keep it.</>}>
           <div className="flex flex-col gap-2 p-3">
             <input
               className={inputClass()}
@@ -159,14 +156,10 @@ export function Recipes({ state }: { state: DeviceSnapshot }): ReactNode {
             <Button disabled={!connected || state.info === null || act.busy} onClick={capture}>
               Capture from the device
             </Button>
-            <p className="text-[11px] leading-relaxed text-fg-3">
-              Every writable value the board holds right now, with its dictionary hash. Then
-              “Save recipe as…” to keep it.
-            </p>
           </div>
         </Panel>
 
-        <Panel title="Built-in profiles">
+        <Panel title="Built-in profiles" hint={<>Partial recipes: they name only the loop settings and apply by name on any firmware that has them.</>}>
           <div className="flex flex-col gap-1 p-2">
             {BUILTIN_PROFILES.map((p) => (
               <button
@@ -181,10 +174,6 @@ export function Recipes({ state }: { state: DeviceSnapshot }): ReactNode {
                 <span className="block text-[11px] leading-snug text-fg-3">{p.description}</span>
               </button>
             ))}
-            <p className="px-2 pt-1 text-[11px] leading-relaxed text-fg-3">
-              Partial recipes: they name only the loop settings and apply by name on any
-              firmware that has them.
-            </p>
           </div>
         </Panel>
       </div>
@@ -344,9 +333,9 @@ export function Recipes({ state }: { state: DeviceSnapshot }): ReactNode {
                 >
                   Save to flash
                 </Button>
-                <span className="text-[11px] text-fg-3">
+                <Hint label="About Write and Save">
                   Writing changes RAM only. Save to flash is a separate decision.
-                </span>
+                </Hint>
               </div>
 
               {results !== null && (

@@ -17,6 +17,9 @@ import { readFile, writeFile } from 'node:fs/promises';
 
 import { BrowserWindow, app, dialog, ipcMain, shell } from 'electron';
 
+import type { ConfigPatch } from '../shared/config.js';
+import { ConfigStore } from './config/store.js';
+
 import type { TelemFrame } from '../shared/messages.js';
 import {
   DeviceCore,
@@ -29,6 +32,13 @@ import { A2N_MCP_DEFAULT_PORT, startA2nMcpHttpServer } from './mcp/http.js';
 import { isIpcChannel, validateIpc } from './ipcSchema.js';
 
 const core = new DeviceCore();
+
+/** Dossier de données et `config.json` — voir `config/store.ts`. Chargé avant la fenêtre. */
+const config = new ConfigStore(
+  join(app.getPath('userData'), 'location.json'),
+  join(app.getPath('documents'), 'A2N BLDC'),
+  (level, text) => core.log(level, 'gui', text),
+);
 let mainWindow: BrowserWindow | null = null;
 let controlWindow: BrowserWindow | null = null;
 
@@ -42,6 +52,7 @@ function broadcast(channel: string, payload: unknown): void {
 const controlDetached = (): boolean => controlWindow !== null && !controlWindow.isDestroyed();
 
 core.onChange.on((s) => broadcast('device:state', s));
+config.onChange((c) => broadcast('config:changed', c));
 core.onLog.on((e) => broadcast('device:log', e));
 core.onFirmware.on((p: FirmwareProgress) => broadcast('device:firmware', p));
 
@@ -297,9 +308,97 @@ handle('device:openRecipe', async () => {
   return { path: chosen, text: bytes.toString('utf8') };
 });
 
+/* ------------------------------------------------------------------ configuration */
+
+/** Fenêtre devant laquelle ouvrir une boîte de dialogue : celle qui a le focus. */
+const dialogParent = (): BrowserWindow | null => BrowserWindow.getFocusedWindow() ?? mainWindow;
+
+handle('config:get', () => config.current);
+handle('config:dataDir', () => config.dataDir);
+handle('config:set', (patch: ConfigPatch) => config.set(patch));
+handle('config:reset', () => config.reset());
+
+handle('config:export', async () => {
+  const win = dialogParent();
+  const options = {
+    title: 'Export settings',
+    defaultPath: 'a2n-bldc-settings.json',
+    filters: [{ name: 'JSON', extensions: ['json'] }],
+  };
+  const r = win === null ? await dialog.showSaveDialog(options) : await dialog.showSaveDialog(win, options);
+  if (r.canceled || r.filePath === undefined) return null;
+  await writeFile(r.filePath, config.exportText(), 'utf8');
+  core.log('info', 'gui', `settings exported to ${r.filePath}`);
+  return r.filePath;
+});
+
+handle('config:import', async () => {
+  const win = dialogParent();
+  const options = {
+    title: 'Import settings',
+    filters: [{ name: 'JSON', extensions: ['json'] }],
+    properties: ['openFile' as const],
+  };
+  const r = win === null ? await dialog.showOpenDialog(options) : await dialog.showOpenDialog(win, options);
+  const chosen = r.filePaths[0];
+  if (r.canceled || chosen === undefined) return null;
+  const text = await readFile(chosen, 'utf8');
+  const { warnings } = await config.importText(text);
+  core.log(warnings.length === 0 ? 'info' : 'warn', 'gui',
+    `settings imported from ${chosen}${warnings.length === 0 ? '' : ` (${warnings.length} warning(s))`}`);
+  for (const w of warnings) core.log('warn', 'gui', `settings: ${w}`);
+  return { path: chosen, warnings };
+});
+
+handle('config:chooseDataDir', async () => {
+  const win = dialogParent();
+  const options = {
+    title: 'Choose the data folder',
+    defaultPath: config.dataDir,
+    properties: ['openDirectory' as const, 'createDirectory' as const],
+  };
+  const r = win === null ? await dialog.showOpenDialog(options) : await dialog.showOpenDialog(win, options);
+  const chosen = r.filePaths[0];
+  if (r.canceled || chosen === undefined) return null;
+  await config.moveTo(chosen);
+  core.log('info', 'gui', `data folder is now ${chosen}`);
+  return chosen;
+});
+
+handle('config:openDataDir', async () => {
+  const err = await shell.openPath(config.dataDir);
+  if (err !== '') throw new Error(err);
+});
+
+/* ------------------------------------------------------------------ application */
+
+handle('app:info', () => ({
+  appVersion: app.getVersion(),
+  electron: process.versions.electron,
+  chrome: process.versions.chrome,
+  node: process.versions.node,
+  platform: `${process.platform} ${process.arch}`,
+  dataDir: config.dataDir,
+}));
+
+/** Liens d'aide : une table fermée, pour que le renderer ne puisse pas ouvrir n'importe quoi. */
+const HELP_LINKS = {
+  repo: 'https://github.com/skylow17/a2n-bldc',
+  protocol: 'https://github.com/skylow17/a2n-bldc/blob/main/docs/protocol.md',
+  status: 'https://github.com/skylow17/a2n-bldc/blob/main/STATUS.md',
+  interface: 'https://github.com/skylow17/a2n-bldc/blob/main/interface/AGENTS.md',
+} as const;
+handle('app:openLink', (key: keyof typeof HELP_LINKS) => shell.openExternal(HELP_LINKS[key]));
+handle('app:quit', () => app.quit());
+
 /* ------------------------------------------------------------------ cycle de vie */
 
 void app.whenReady().then(async () => {
+  try {
+    await config.load();
+  } catch (e) {
+    core.log('error', 'gui', `data folder unusable, defaults in memory: ${e instanceof Error ? e.message : String(e)}`);
+  }
   createWindow();
 
   // Le serveur MCP vit ici, dans le processus de la fenêtre, et sert le même `DeviceCore` :

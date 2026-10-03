@@ -11,9 +11,11 @@ import { useEffect, useState, type ReactNode } from 'react';
 import type { DeviceSnapshot } from '../main/device/DeviceCore.js';
 import type { SerialPortInfo } from '../node/serial.js';
 import { Button, Empty } from './components/ui.js';
+import { Hint } from './components/Hint.js';
 import { CriticalControls, SafetyBadge, StatusBadge } from './components/SafetyControls.js';
 import { api, useAction, useControlDetached, useDeviceLog, useDeviceState } from './useDevice.js';
 import { useTheme } from './useTheme.js';
+import { useConfig } from './config.js';
 import { PROTO_CAP } from '../shared/protocol.js';
 import { Console } from './views/Console.js';
 import { Dashboard } from './views/Dashboard.js';
@@ -48,21 +50,10 @@ interface ViewDef {
 const CONSOLE_DEFAULT_H = 288;   /* les 18 rem d'avant */
 const CONSOLE_HEADER_H = 32;
 const CONSOLE_MIN_H = 96;
-const CONSOLE_H_KEY = 'a2n.console.height';
 
 function clampConsoleH(px: number): number {
   const max = Math.max(CONSOLE_MIN_H, Math.round(window.innerHeight * 0.66));
   return Math.round(Math.max(CONSOLE_MIN_H, Math.min(max, px)));
-}
-
-function loadConsoleH(): number {
-  try {
-    const raw = localStorage.getItem(CONSOLE_H_KEY);
-    const n = raw === null ? Number.NaN : Number(raw);
-    return Number.isFinite(n) ? clampConsoleH(n) : CONSOLE_DEFAULT_H;
-  } catch {
-    return CONSOLE_DEFAULT_H;
-  }
 }
 
 const VIEWS: ViewDef[] = [
@@ -157,18 +148,18 @@ export function App(): ReactNode {
   const state = useDeviceState();
   const { entries, clear } = useDeviceLog();
   const [view, setView] = useState<ViewId>('dashboard');
-  const [consoleOpen, setConsoleOpen] = useState(true);
-  const [consoleH, setConsoleH] = useState(loadConsoleH);
-
-  // Retenue d'une session a l'autre : une hauteur de console est un reglage de poste, pas
-  // une decision qu'on reprend a chaque lancement. Ecriture defensive, comme le filtre.
-  useEffect(() => {
-    try {
-      localStorage.setItem(CONSOLE_H_KEY, String(consoleH));
-    } catch {
-      /* stockage indisponible : le reglage vaut pour cette session, et c'est tout */
-    }
-  }, [consoleH]);
+  const { config, update } = useConfig();
+  const consoleOpen = config.layout.consoleOpen;
+  const setConsoleOpen = (open: boolean): void => update({ layout: { consoleOpen: open } });
+  /* Hauteur de la console : retenue dans `config.json` (`layout.consoleH`). Pendant un
+   * glissement elle vit dans l'etat local, et n'est ecrite qu'au lacher — sinon chaque
+   * pixel de mouvement reecrirait le fichier. */
+  const [dragH, setDragH] = useState<number | null>(null);
+  const consoleH = dragH ?? clampConsoleH(config.layout.consoleH);
+  const setConsoleH = (h: number | ((h: number) => number)): void => {
+    const v = typeof h === 'function' ? h(consoleH) : h;
+    update({ layout: { consoleH: clampConsoleH(v) } });
+  };
 
   /* Glissement. On ecoute sur la fenetre et non sur la poignee : un mouvement rapide sort
    * d'une bande de six pixels bien avant que le navigateur ait le temps d'emettre
@@ -177,11 +168,17 @@ export function App(): ReactNode {
     down.preventDefault();
     const y0 = down.clientY;
     const h0 = consoleH;
-    const move = (m: MouseEvent): void => setConsoleH(clampConsoleH(h0 - (m.clientY - y0)));
+    let last = h0;
+    const move = (m: MouseEvent): void => {
+      last = clampConsoleH(h0 - (m.clientY - y0));
+      setDragH(last);
+    };
     const up = (): void => {
       window.removeEventListener('mousemove', move);
       window.removeEventListener('mouseup', up);
       document.body.style.userSelect = '';
+      update({ layout: { consoleH: last } });
+      setDragH(null);
     };
     // Sans ca, le glissement selectionne le texte de toute la fenetre au passage.
     document.body.style.userSelect = 'none';
@@ -268,10 +265,12 @@ export function App(): ReactNode {
           })}
 
           <div className="flex-1" />
-          <p className="px-2 py-1 text-[10px] leading-relaxed text-fg-3">
-            A greyed view is waiting for the milestone shown. Nothing is hidden: what is
-            missing is what the firmware cannot do yet.
-          </p>
+          <div className="px-2 py-1">
+            <Hint label="About greyed views">
+              A greyed view is waiting for the milestone shown. Nothing is hidden: what is
+              missing is what the firmware cannot do yet.
+            </Hint>
+          </div>
         </nav>
 
         {/* Vue courante */}
@@ -349,7 +348,7 @@ export function App(): ReactNode {
               <button
                 type="button"
                 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-fg-2 hover:text-fg"
-                onClick={() => setConsoleOpen((o) => !o)}
+                onClick={() => setConsoleOpen(!consoleOpen)}
               >
                 {consoleOpen ? '▾' : '▸'} Console
               </button>

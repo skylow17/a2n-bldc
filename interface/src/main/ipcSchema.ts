@@ -86,6 +86,21 @@ export const IPC_SCHEMA = {
   'window:detachControl': z.tuple([]),
   'window:dockControl': z.tuple([]),
   'window:isControlDetached': z.tuple([]),
+
+  // Configuration. Le patch est un objet par section ; chaque champ est ensuite revalidé
+  // par `mergeConfig` (`shared/config.ts`), le même juge qu'un fichier importé.
+  'config:get': z.tuple([]),
+  'config:dataDir': z.tuple([]),
+  'config:set': z.tuple([z.record(z.string().max(32), z.record(z.string().max(64), z.unknown()))]),
+  'config:reset': z.tuple([]),
+  'config:export': z.tuple([]),
+  'config:import': z.tuple([]),
+  'config:chooseDataDir': z.tuple([]),
+  'config:openDataDir': z.tuple([]),
+
+  'app:info': z.tuple([]),
+  'app:openLink': z.tuple([z.enum(['repo', 'protocol', 'status', 'interface'])]),
+  'app:quit': z.tuple([]),
 } as const;
 
 export type IpcChannel = keyof typeof IPC_SCHEMA;

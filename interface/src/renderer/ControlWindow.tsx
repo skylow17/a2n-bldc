@@ -13,13 +13,10 @@ import type { ReactNode } from 'react';
 import { Button } from './components/ui.js';
 import { CriticalControls, SafetyBadge, StatusBadge } from './components/SafetyControls.js';
 import { api, useDeviceState } from './useDevice.js';
-import { useTheme } from './useTheme.js';
 import { Control } from './views/Control.js';
 
 export function ControlWindow(): ReactNode {
   const state = useDeviceState();
-  // Applique le thème retenu : le réglage est partagé avec la fenêtre principale.
-  useTheme();
 
   return (
     <div className="flex h-full flex-col bg-bg text-fg">

@@ -109,16 +109,18 @@ export function LoopTuning({ state }: { state: DeviceSnapshot }): ReactNode {
     <Panel
       title="Loop tuning"
       className="xl:col-span-2"
+      hint={
+        <>
+          How stiff the shaft is held. A stiffer setting rejects a load torque faster and holds
+          position tighter; a softer one is gentler on the mechanics and quieter. Settings are
+          read when a speed or position loop starts. They never widen a limit: speed, current
+          and duration caps stay in the firmware. The inertia is a measurement of what is
+          mounted: raise it when a load is added, or the loops will be slower than set.
+        </>
+      }
       {...(live ? { right: <Pill tone="warn">applies at next start</Pill> } : {})}
     >
-      <p className="px-3 py-2 text-[12px] leading-relaxed text-fg-2">
-        How stiff the shaft is held. A stiffer setting rejects a load torque faster and holds
-        position tighter; a softer one is gentler on the mechanics and quieter. Settings are
-        read when a speed or position loop starts. They never widen a limit: speed, current
-        and duration caps stay in the firmware.
-      </p>
-
-      <div className="grid grid-cols-1 gap-2 px-3 pb-2 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-2 px-3 py-2 md:grid-cols-3">
         {profiles.map(({ profile, diff }) => {
           const active = isActive(diff);
           const usable = diff.rows.some((r) => r.status !== 'unknown');
@@ -203,10 +205,6 @@ export function LoopTuning({ state }: { state: DeviceSnapshot }): ReactNode {
         >
           Save to flash
         </Button>
-        <span className="text-[11px] text-fg-3">
-          The inertia is a measurement of what is mounted: raise it when a load is added, or
-          the loops will be slower than set.
-        </span>
       </div>
 
       {results !== null &&

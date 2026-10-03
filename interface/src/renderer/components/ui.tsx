@@ -5,30 +5,42 @@
 
 import type { ReactNode } from 'react';
 
+import { useConfig } from '../config.js';
+import { Hint } from './Hint.js';
+
 export function Panel({
   title,
+  hint,
   right,
   children,
   className = '',
 }: {
   title?: string;
+  /** Explication du panneau, repliée derrière une icône à côté du titre — voir `Hint`. */
+  hint?: ReactNode;
   right?: ReactNode;
   children: ReactNode;
   className?: string;
 }): ReactNode {
+  const { config } = useConfig();
+  const inline = config.ui.helpMode === 'inline';
   return (
     <section
       className={`flex min-h-0 flex-col rounded-[4px] border border-line-soft bg-panel ${className}`}
     >
       {title !== undefined && (
         <header className="flex shrink-0 items-center justify-between gap-3 border-b border-line-soft px-3 py-2">
-          <h2 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-fg-2">
+          <h2 className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-fg-2">
             {title}
+            {hint !== undefined && !inline && <Hint label={`About ${title}`}>{hint}</Hint>}
           </h2>
           {right}
         </header>
       )}
-      <div className="min-h-0 flex-1 overflow-auto">{children}</div>
+      <div className="min-h-0 flex-1 overflow-auto">
+        {hint !== undefined && (inline || title === undefined) && <Hint>{hint}</Hint>}
+        {children}
+      </div>
     </section>
   );
 }
