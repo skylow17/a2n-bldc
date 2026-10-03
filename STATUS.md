@@ -144,6 +144,8 @@ Toutes les boucles coupent les sorties au terme de leur durée : l'arbre n'est p
 9. **Essayer les profils Soft et Stiff** en boucle de position, moteur en marche, puis sous
    charge ; seul Balanced est mesuré. Outils MCP `recipe.*` à écrire.
 10. Tout ce qui est matériel : `docs/hardware-revB.md`.
+12. Couple de maintien : une main fait céder l'arbre à Iq = 0,22 A, et c'est la tension de
+    commande (57 ‰) qui plafonne le courant réel. La relever est une décision à prendre.
 11. Interface : regarder à l'écran ce qui n'a été que piloté par script — glisser-déposer des
     mesures, export PNG, Record du Dashboard, barre de menus de la fenêtre Control détachée.
 
@@ -1474,6 +1476,31 @@ travail local n'existe pas. Un outil de constat qui ne distingue pas l'absence d
 constate rien. D'où les deux règles ci-dessous.
 
 ---
+
+## Premier essai piloté par un agent : +180°, maintien, Iq à 0,22 A (2026-10-03)
+
+À la demande de l'utilisateur, AI control activé par lui, par le serveur MCP de l'interface :
+profil Stiff en RAM (40 Hz / 3 / 5 Hz), `motion_arm`, `motion_position_move` de +π rad sur
+6 s, deux captures scope enchaînées (position, vitesse, consigne de vitesse, Iq ; 2 × 2,87 s,
+trou de ~135 ms), `PL?`/`SL?` relevés toutes les 200 ms, puis `motion_disarm` et retour aux
+réglages Balanced. Firmware : plafond d'Iq 0,22 A, slot A, CRC `94B63E01`.
+
+- **Déplacement** : π rad en ≈ 0,36 s au plafond de consigne de vitesse (10 rad/s, la
+  vitesse suit à 10,2), arrivée à ≈ 0,7 s, dépassement 12 mrad.
+- **Maintien, 0,7 à 4,9 s** : **±2 mrad** (±0,1°), Iq entre −26 et +15 mA — le rotor libre
+  ne demande presque rien.
+- **À ≈ 4,9 s, un couple extérieur** a poussé l'arbre (main de l'utilisateur, à confirmer) :
+  Iq demandé au plafond de 220 mA dès 5,0 s, **mesuré 0,19 à 0,21 A** — la tension de
+  commande (57 ‰) mord, comme prévu —, consigne de vitesse saturée à −10 rad/s, et l'arbre
+  a cédé jusqu'à **−467 mrad (27°)** à la fin des 6 s. Le couple de maintien disponible est
+  donc dépassé par une main ; le plafond suivant est celui de la tension, pas d'Iq.
+- Mesure importable : `Documents/A2N BLDC/a2n-hold-test-180deg.json` (File › Import
+  measurement).
+
+Trouvé en route : le client attendait **3 s** au plus une capture scope, quelle que soit sa
+durée — toute fenêtre plus longue (2048 points à décimation ≥ 30) échouait, Scope de
+l'interface compris. Le délai couvre maintenant la fenêtre plus 3 s ; il faut relancer
+l'interface pour en profiter.
 
 ## Interface : menus, configuration, historique de mesures (2026-10-03)
 

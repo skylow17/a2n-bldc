@@ -494,7 +494,11 @@ export class DeviceClient {
       applied = await this.configureScope(config);
     }
     let status = await this.armScope();
-    const deadline = Date.now() + timeoutMs;
+    // `timeoutMs` est l'attente **en plus** de la fenêtre elle-même : 2048 points à une
+    // décimation de 64 durent 6,5 s à 20 kHz. Un délai fixe de 3 s faisait échouer toute
+    // capture plus longue que lui, sans rien dire de la raison (2026-10-03).
+    const windowMs = (applied.depth * applied.decimation) / 20;
+    const deadline = Date.now() + timeoutMs + windowMs;
     while (status.state !== ScopeState.COMPLETE) {
       if (Date.now() >= deadline) {
         // Ne pas laisser derrière soi un scope armé que plus personne n'attend. Un firmware
