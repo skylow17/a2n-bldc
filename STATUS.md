@@ -30,6 +30,9 @@ autorité sur la liaison) et `docs/hardware-revB.md` (ce que la carte rev A a ap
   propre fenêtre), **Recipes**, Scope, Firmware — plus une CLI et un serveur MCP.
 - **2026-09-27** : réglages des boucles `ctrl.*` dans le dictionnaire, flashés en slot B —
   voir « Control détachable, réglage des boucles, recettes ».
+- **2026-10-03** : menus, configuration en fichier, fenêtre MCP, historique de mesures, couleurs
+  de traces par grandeur physique — voir « Interface : menus, configuration, historique ».
+  Données de l'interface dans `Documents/A2N BLDC`.
 
 ### État de la carte au moment d'écrire
 
@@ -141,6 +144,8 @@ Toutes les boucles coupent les sorties au terme de leur durée : l'arbre n'est p
 9. **Essayer les profils Soft et Stiff** en boucle de position, moteur en marche, puis sous
    charge ; seul Balanced est mesuré. Outils MCP `recipe.*` à écrire.
 10. Tout ce qui est matériel : `docs/hardware-revB.md`.
+11. Interface : regarder à l'écran ce qui n'a été que piloté par script — glisser-déposer des
+    mesures, export PNG, Record du Dashboard, barre de menus de la fenêtre Control détachée.
 
 ### Pièges connus — ils ont tous coûté du temps
 
@@ -1074,6 +1079,8 @@ Relevées en écrivant M1c, à trancher dans `docs/protocol.md` avant d'y touche
 | `renderer/` — Control, Recipes | Écrites : Control détachable, réglage des boucles ; Recipes avec diff (2026-09-27) |
 | `renderer/views/Firmware.tsx` | Mise à jour A/B depuis l'interface, gardée par la capacité annoncée |
 | `shared/recipe.ts` — `.a2nrcp` | Écrit, testé : lecture validée par zod, capture, diff, profils intégrés |
+| `shared/config.ts`, `main/config/` — `config.json` | Écrit, testé : lecture tolérante champ par champ (2026-10-03) |
+| `shared/measurement.ts`, `main/measurements/` — historique | Écrit, testé : mesures, arbre, CSV ; tile du Scope (2026-10-03) |
 | `main/mcp/` — serveur MCP | Écrit, testé sur simulateur **et sur carte** (`mcp:check --port`, 2026-09-16) ; **piloté en live par un agent** le soir même, en HTTP local |
 
 ### Serveur MCP
@@ -1467,6 +1474,64 @@ travail local n'existe pas. Un outil de constat qui ne distingue pas l'absence d
 constate rien. D'où les deux règles ci-dessous.
 
 ---
+
+## Interface : menus, configuration, historique de mesures (2026-10-03)
+
+Demande de l'utilisateur après la reprise : moins de texte à l'écran, un Scope lisible, des
+menus, une configuration en fichier, une fenêtre MCP, et un historique des mesures. Six
+commits, de `1bb699b` à `da9cad8`.
+
+**Configuration en fichier.** `config.json` dans un **dossier de données visible**, par
+défaut `Documents/A2N BLDC`, déplaçable (Settings › General), exportable et réimportable.
+L'amorce `userData/location.json` ne contient que le chemin de ce dossier ; `A2N_DATA_DIR`
+l'impose (essais, poste portable). La lecture est **tolérante champ par champ**
+(`shared/config.ts`) : une valeur fausse reprend son défaut avec un avertissement, les autres
+sont gardées. Aucune limite du banc n'y vit. Le thème et la hauteur de console y sont repris
+de l'ancien `localStorage` au premier lancement.
+
+**Aide repliée.** Les paragraphes d'explication passent derrière une icône « i » (survol :
+bulle, clic : bulle épinglée). `ui.helpMode = inline` les remet en clair. Restent toujours
+affichés : erreurs, refus du firmware, avertissements de sécurité, et « Iq makes torque: the
+rotor turns » dans la boucle de courant.
+
+**Couleurs de traces.** Cause du Scope illisible, trouvée en le regardant : Tailwind v4
+n'émet une variable de `@theme` que si une classe l'utilise. Les `--color-series-*`, lues
+seulement par le code, **n'existaient pas** à l'exécution, et toutes les courbes prenaient la
+même couleur de repli. `@theme static` corrige. Par-dessus, la couleur ne dépend plus du rang
+au dictionnaire mais du **sens physique** (`renderer/traceColors.ts`, douze créneaux) :
+phases A/B/C fixes, Iq, Id, Vq, Vd, vitesse, position… ; une consigne prend la teinte de sa
+mesure, en pointillé ; jamais deux grandeurs de même couleur dans un graphe. Clic sur une
+pastille : créneau de palette ou couleur libre, rangée par nom de signal dans la config. La
+sélection de zoom a un fond et des bords ambre.
+
+**Menus.** File, View, Device, Tools, Help, dessinés dans le thème (le menu natif reste blanc
+sous Windows), au clavier (`Alt`, flèches, `Échap`), raccourcis actifs (Help › Keyboard
+shortcuts). Aussi dans la fenêtre Control détachée. STOP et AI CONTROL **restent des boutons
+permanents** ; Device › STOP s'y ajoute, ne les remplace pas. Les fenêtres modales s'ouvrent
+sous la barre haute, qui reste cliquable.
+
+**Fenêtre AI / MCP** (Tools). Le serveur se démarre, s'arrête, change de port, et montre ses
+sessions d'agent (`main/mcp/controller.ts`). Extraits prêts à copier (Claude Code, JSON HTTP,
+`mcp-remote` pour les clients stdio) et un **prompt d'installation** pour un LLM, généré avec
+l'URL réelle et les règles du banc (§4), modifiable. L'interrupteur AI control n'y est pas
+dupliqué. Au passage : `telemetry_sample` sans liste demandait les 22 signaux et se faisait
+refuser (16 au plus) ; il prend maintenant les seize premiers.
+
+**Historique de mesures.** Chaque capture Scope est enregistrée, horodatée, avec son contexte
+(firmware, dictionnaire, port, **valeur de chaque paramètre**, réglages de capture) :
+`measurements/<id>.json`, plus `tree.json` (dossiers) et `index.json` (cache reconstructible).
+Tile en bas du Scope : arborescence (glisser-déposer, menus contextuels) et liste triable,
+filtrable, à sélection multiple. Supprimer un dossier ne supprime aucune mesure. Une mesure
+se rouvre dans la zone de résultat, avec titre et commentaire modifiables, et s'exporte en
+CSV, JSON (réimportable) ou PNG. Le Dashboard gagne **Record** pour la télémétrie. Sans carte,
+l'historique reste consultable.
+
+**Vérifié** : 387 tests, typecheck, build ; `mcp:check` complet **sur la carte** (COM3, lectures
+seules, écritures refusées AI control coupé). Sur simulateur, piloté par le port de débogage :
+menus, captures enregistrées puis rouvertes, trois phases en trois couleurs, sélection de zoom
+visible, fenêtres Settings et MCP, thème clair. **Pas vérifié** : glisser-déposer dans
+l'arborescence, export PNG réel, Record du Dashboard, fenêtre Control détachée avec sa barre de
+menus — aucun regardé à l'écran.
 
 ## Control détachable, réglage des boucles, recettes (2026-09-27)
 

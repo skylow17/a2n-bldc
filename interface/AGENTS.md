@@ -131,6 +131,31 @@ persister sont deux décisions différentes.
 
 ---
 
+## 4 bis. Configuration et historique de mesures
+
+**`config.json`**, dans le dossier de données (défaut `Documents/A2N BLDC`, déplaçable,
+`A2N_DATA_DIR` pour l'imposer) : réglages de l'interface seulement — thème, aide, zoom,
+couleurs de traces, défauts du Scope et de la télémétrie, serveur MCP, tailles. **Aucune
+limite du banc** : elles vivent dans le firmware. Schéma et lecture tolérante dans
+`src/shared/config.ts`, fichier dans `src/main/config/store.ts`, accès renderer par
+`useConfig()` (`src/renderer/config.tsx`). Un réglage nouveau s'ajoute au schéma avec son
+défaut ; le renderer n'écrit jamais `localStorage` pour un réglage qu'on voudrait exporter.
+
+**Mesures** : `measurements/<id>.json` (format `src/shared/measurement.ts`, validé par zod),
+`tree.json` pour le rangement, `index.json` comme cache. Une mesure emporte son contexte —
+firmware, dictionnaire, valeur de chaque paramètre — sinon elle ne prouve rien. Supprimer un
+dossier ne supprime pas de mesure ; supprimer une mesure est une action explicite, confirmée.
+
+**Couleurs de courbe** : `src/renderer/traceColors.ts`, une couleur par grandeur physique,
+consigne en pointillé. Un signal nouveau sans règle prend une teinte libre de son graphe ;
+s'il mérite la sienne, ajouter une règle et un test.
+
+**Menus et commandes** : `src/renderer/menus.ts` et `components/MenuBar.tsx`. Une action de
+menu qui appartient à une vue passe par `commands.ts` (la vue l'écoute, le menu se grise
+sinon). STOP et AI CONTROL restent des boutons permanents de chaque fenêtre.
+
+---
+
 ## 5. Serveur MCP
 
 Hébergé **dans le processus principal Electron**, sur le même `DeviceCore` que l'UI. Conséquence :
@@ -149,6 +174,12 @@ l'agent et l'humain voient le même état, le même journal, la même connexion 
 - Les outils de lecture (état, paramètres, télémétrie, scope, log) sont toujours disponibles.
 - Un outil ne contourne jamais une limite firmware. Modifier un paramètre de limite est possible,
   visible et journalisé — pas déguisé en réglage anodin.
+
+**Réglage depuis l'interface** : Tools › AI / MCP server démarre, arrête ou déplace le
+serveur (`src/main/mcp/controller.ts`, `mcp.enabled` et `mcp.port` dans la config,
+`A2N_MCP_PORT` prioritaire), montre les sessions ouvertes, et fournit un prompt
+d'installation pour un LLM. Ce prompt reprend les règles du §4 de `../AGENTS.md` : le tenir
+à jour quand elles changent.
 
 **Familles d'outils prévues** : `device.*` (list, connect, status), `param.*` (list, get, set,
 save_nvm), `motion.*` (arm, disarm, stop, set_mode, set_target, jog, run_sequence),

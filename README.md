@@ -172,6 +172,12 @@ dans sa propre fenêtre), **Recipes**, **Scope** et **Firmware**. Une vue dont l
 n'annonce pas la capacité reste grisée : proposer des boutons qui échoueraient serait pire que
 de ne rien proposer.
 
+Ses réglages (`config.json`) et l'**historique des mesures** — chaque capture Scope et chaque
+enregistrement de télémétrie, horodatés, rangés en dossiers, exportables en CSV, JSON ou PNG —
+vivent dans un dossier visible, par défaut `Documents/A2N BLDC` (Settings › General pour le
+déplacer). Tools › AI / MCP server configure le serveur MCP et donne le prompt à confier à un
+agent pour s'y brancher.
+
 **L'application tourne depuis `out/`** quand on la lance par `electron .` : après une
 modification, `npm run build` puis relancer — sinon on regarde l'ancienne version.
 
