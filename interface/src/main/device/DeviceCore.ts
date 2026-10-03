@@ -837,14 +837,17 @@ export class DeviceCore {
   /**
    * Résout des noms de signaux en descripteurs, depuis le dictionnaire du device.
    *
-   * Sans nom, rend tout ce que le firmware publie. C'est le seul endroit où la
+   * Sans nom, rend ce que le firmware publie, dans la limite d'une souscription. C'est le seul endroit où la
    * correspondance nom → identifiant se fait : ni l'UI, ni la CLI, ni un agent n'ont à
    * connaître la numérotation du protocole.
    */
   private async resolveSignals(names?: readonly string[]): Promise<SignalDesc[]> {
     const { client } = this.require();
     const available = await client.readSignals();
-    if (names === undefined || names.length === 0) return available;
+    // Sans nom : les seize premiers, plafond d'une souscription (`docs/protocol.md` §6,
+    // `u8 count 0..16`). Le firmware en publie davantage depuis l'étape 13 ; tout prendre
+    // faisait échouer la demande au lieu d'en rendre une utile.
+    if (names === undefined || names.length === 0) return available.slice(0, 16);
     return names.map((name) => {
       const signal = available.find((candidate) => candidate.name === name);
       if (signal === undefined) throw new Error(`unknown signal: ${name}`);

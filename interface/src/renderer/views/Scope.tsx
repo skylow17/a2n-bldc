@@ -19,17 +19,17 @@
  * Libellés en anglais (AGENTS.md §5) ; commentaires en français.
  */
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 
 import type { DeviceSnapshot } from '../../main/device/DeviceCore.js';
-import type { ScopeCapture } from '../../shared/client.js';
 import { ScopeTrigger, type ScopeTriggerValue, type SignalDesc } from '../../shared/protocol.js';
-import { TimeSeriesChart, groupByUnit } from '../components/Chart.js';
 import { TraceSwatch, useTraceStyles } from '../components/TraceSwatch.js';
 import { useConfig } from '../config.js';
-import { ChartStack } from '../components/ChartStack.js';
 import { Button, Empty, Panel } from '../components/ui.js';
-import { captureFileName, captureToCsv } from '../scopeExport.js';
+import type { Measurement } from '../../shared/measurement.js';
+import { MeasurementsPanel } from '../components/MeasurementsPanel.js';
+import { buildMeasurement, useMeasurementList } from '../measurements.js';
+import { MeasurementViewer } from './MeasurementViewer.js';
 import { scopeTimeBase } from '../scopeTime.js';
 import { api, useAction } from '../useDevice.js';
 
@@ -62,21 +62,34 @@ function Control({ label, children }: { label: string; children: ReactNode }): R
   );
 }
 
+/* La mesure affichée et le dossier choisi survivent à un changement de vue : on va voir le
+ * Dashboard, on revient, la mesure est toujours là. Module et non config : c'est l'état de
+ * la session, pas un réglage. */
+let lastShown: { m: Measurement; saved: boolean } | null = null;
+let lastFolder: string | null = null;
+
 export function Scope({ state }: { state: DeviceSnapshot }): ReactNode {
   const [dict, setDict] = useState<SignalDesc[]>([]);
-  /* Compteur de remise a la vue complete : le bouton incremente, les graphes suivent.
-     Partage par toute la pile, pour que les graphes synchronises reviennent ensemble. */
-  const [fit, setFit] = useState(0);
   const [picked, setPicked] = useState<string[]>([]);
-  const scopeDefaults = useConfig().config.scope;
+  const { config, update } = useConfig();
+  const scopeDefaults = config.scope;
   const [depth, setDepth] = useState<number>(scopeDefaults.depth);
   const [decimation, setDecimation] = useState<number>(scopeDefaults.decimation);
   const [mode, setMode] = useState<ScopeTriggerValue>(ScopeTrigger.IMMEDIATE);
   const [triggerSignal, setTriggerSignal] = useState<string>('');
   const [threshold, setThreshold] = useState<string>('0');
   const [pretriggerPct, setPretriggerPct] = useState<number>(scopeDefaults.pretriggerPct);
-  const [result, setResult] = useState<{ signals: SignalDesc[]; capture: ScopeCapture } | null>(null);
+  /* La mesure affichée : la dernière capture, ou une mesure rouverte de l'historique.
+   * `saved` dit si elle est dans l'historique — une capture ne l'est pas quand
+   * l'enregistrement automatique est coupé, tant qu'on n'a pas cliqué « Keep ». */
+  const [shown, setShown] = useState<{ m: Measurement; saved: boolean } | null>(lastShown);
+  lastShown = shown;
+  /* Dossier sélectionné dans l'arborescence : les nouvelles captures y sont rangées. */
+  const [folder, setFolder] = useState<string | null>(lastFolder);
+  lastFolder = folder;
+  const list = useMeasurementList();
   const { busy, error, run } = useAction();
+  const open = useAction();
 
   const connected = state.connection === 'connected';
 
@@ -86,16 +99,15 @@ export function Scope({ state }: { state: DeviceSnapshot }): ReactNode {
     if (!connected) {
       setDict([]);
       setPicked([]);
-      setResult(null);
       return;
     }
     let alive = true;
     void api()
       .readSignals()
-      .then((list) => {
+      .then((l) => {
         if (!alive) return;
-        setDict(list);
-        const first = list.slice(0, MAX_SIGNALS).map((s) => s.name);
+        setDict(l);
+        const first = l.slice(0, MAX_SIGNALS).map((s) => s.name);
         setPicked(first);
         setTriggerSignal(first[0] ?? '');
       })
@@ -104,6 +116,11 @@ export function Scope({ state }: { state: DeviceSnapshot }): ReactNode {
       alive = false;
     };
   }, [connected]);
+
+  // Une mesure affichée puis supprimée de l'historique disparaît aussi d'ici.
+  useEffect(() => {
+    if (shown?.saved === true && !list.metas.some((x) => x.id === shown.m.id)) setShown(null);
+  }, [list.metas, shown]);
 
   const pretriggerSamples = Math.min(depth - 1, Math.round((depth * pretriggerPct) / 100));
   const immediate = mode === ScopeTrigger.IMMEDIATE;
@@ -126,7 +143,7 @@ export function Scope({ state }: { state: DeviceSnapshot }): ReactNode {
 
   const capture = (): void => {
     void run(async () => {
-      const r = await api().captureScope({
+      const request = {
         depth,
         decimation,
         pretriggerSamples,
@@ -134,60 +151,76 @@ export function Scope({ state }: { state: DeviceSnapshot }): ReactNode {
         ...(immediate ? {} : { triggerSignalName: triggerSignal }),
         threshold: Number(threshold) || 0,
         signalNames: picked,
+      };
+      const at = new Date();
+      const r = await api().captureScope(request);
+      // L'axe des temps est relatif au déclenchement, en ms — voir `scopeTime.ts`.
+      const base = scopeTimeBase(r.capture.samples.length, r.capture.status);
+      const m = buildMeasurement({
+        kind: 'scope',
+        state,
+        at,
+        signals: r.signals.map((x) => ({ name: x.name, unit: x.unit })),
+        t: base.t,
+        series: r.signals.map((_x, col) => r.capture.samples.map((row) => row[col] ?? Number.NaN)),
+        markerX: base.triggerIndex === null ? null : 0,
+        config: {
+          ...request,
+          triggerMode: TRIGGER_MODES.find((x) => x.value === mode)?.label ?? mode,
+          samplePeriodMs: base.periodMs,
+          triggered: base.triggerIndex !== null,
+        },
       });
-      setResult(r);
+      if (config.measurements.autoSaveScope) {
+        await api().measSave(m, folder);
+        setShown({ m, saved: true });
+      } else {
+        setShown({ m, saved: false });
+      }
     });
   };
 
-  /* --- mise en forme de la capture ------------------------------------------- */
+  const openMeasurement = useCallback(
+    (id: string) =>
+      void open.run(async () => {
+        const m = await api().measGet(id);
+        setShown({ m, saved: true });
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
 
-  const plotted = useMemo(() => {
-    if (result === null) return null;
-    const { signals, capture: c } = result;
-    const base = scopeTimeBase(c.samples.length, c.status);
-    return {
-      ...base,
-      series: signals.map((_s, col) => c.samples.map((p) => p[col] ?? NaN)),
-      names: signals.map((s) => s.name),
-      units: signals.map((s) => s.unit),
-      groups: groupByUnit(signals.map((s) => s.name), signals.map((s) => s.unit)),
-      status: c.status,
-    };
-  }, [result]);
-
-  const exportCsv = (): void => {
-    if (plotted === null) return;
-    void run(async () => {
-      await api().saveText(
-        captureFileName(plotted.t.length),
-        captureToCsv({
-          t: plotted.t,
-          series: plotted.series,
-          names: plotted.names,
-          units: plotted.units,
-        }),
-      );
-    });
-  };
-
-  const lineWidth = useConfig().config.plots.lineWidth;
   const pickStyles = useTraceStyles(picked, picked.map((n) => dict.find((s) => s.name === n)?.unit ?? ''));
-  const plotStyles = useTraceStyles(plotted?.names ?? [], plotted?.units ?? []);
 
-  if (!connected) {
-    return (
-      <Empty
-        title="No device connected"
-        hint="Pick a port in the top bar, or “Simulator” to work without hardware."
-      />
-    );
-  }
+  /* Hauteur du tile des mesures : retenue dans la config (`layout.measurementsH`), écrite au
+   * lâcher de la poignée seulement. La poignée est **au-dessus** du tile : il est en bas. */
+  const [dragH, setDragH] = useState<number | null>(null);
+  const tileH = dragH ?? config.layout.measurementsH;
+  const startResize = (down: React.MouseEvent): void => {
+    down.preventDefault();
+    const y0 = down.clientY;
+    const h0 = tileH;
+    let last = h0;
+    const clamp = (h: number): number => Math.round(Math.max(80, Math.min(window.innerHeight * 0.7, h)));
+    const move = (e: MouseEvent): void => {
+      last = clamp(h0 - (e.clientY - y0));
+      setDragH(last);
+    };
+    const up = (): void => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+      document.body.style.userSelect = '';
+      update({ layout: { measurementsH: last } });
+      setDragH(null);
+    };
+    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  };
 
   return (
-        /* Meme regle que le Dashboard : la capture prend ce qui reste, et non une hauteur
-       relative a la fenetre choisie au juge. En dessous de `xl` la page defile et la
-       capture reprend une hauteur en `vh`, faute de place pour faire autrement. */
-    <div className="flex h-full min-h-0 flex-col gap-3 overflow-auto p-3 xl:overflow-hidden">
+    <div className="flex h-full min-h-0 flex-col gap-2 overflow-hidden p-3">
+      {connected ? (
       <Panel
         title="Capture"
         right={
@@ -336,81 +369,65 @@ export function Scope({ state }: { state: DeviceSnapshot }): ReactNode {
           <p className="border-t border-line-soft px-3 py-2 text-[11px] text-fault">{error}</p>
         )}
       </Panel>
+      ) : (
+        <Panel title="Capture">
+          <p className="px-3 py-2 text-[12px] text-fg-3">
+            No device connected — pick a port in the top bar, or “Simulator”. The measurement
+            history below stays available.
+          </p>
+        </Panel>
+      )}
 
-      {plotted === null ? (
-        <Panel title="Capture result">
+      {shown === null ? (
+        <Panel title="Capture result" className="min-h-0 flex-1">
           <Empty
-            title="No capture yet"
-            hint="Press Capture. The firmware records in RAM at the control-loop rate, then the buffer is read back."
+            title={open.busy ? 'Opening…' : 'No measurement open'}
+            hint={
+              open.error ??
+              'Press Capture, or click a measurement in the history below. The firmware records in RAM at the control-loop rate, then the buffer is read back.'
+            }
           />
         </Panel>
       ) : (
-        <Panel
-          /* Même raison que pour le tracé du Dashboard : une hauteur définie, sans quoi
-             les graphes n'ont rien à se partager. `shrink-0` parce que la vue défile. */
-          className="h-[min(62vh,760px)] min-h-0 shrink-0 xl:h-auto xl:flex-1"
-          title="Capture result"
-          hint={
-            <>
-              Time is relative to the trigger, marked by the dashed line: negative before,
-              positive after. One vertical scale per unit. Drag to zoom into a time span,
-              scroll to zoom around the pointer, shift-drag or middle-drag to pan,
-              double-click to fit; the stacked charts follow each other.
-            </>
+        <MeasurementViewer
+          className="min-h-[200px] flex-1"
+          m={shown.m}
+          saved={shown.saved}
+          onEdited={(m) => setShown((s) => (s === null ? s : { ...s, m }))}
+          onKeep={() =>
+            void run(async () => {
+              await api().measSave(shown.m, folder);
+              setShown({ m: shown.m, saved: true });
+            })
           }
-          right={
-            <div className="flex items-center gap-3">
-              <span className="font-mono text-[11px] text-fg-3">
-                {plotted.status.captured} pts · {plotted.periodMs.toFixed(3)} ms/pt ·{' '}
-                {plotted.durationMs.toFixed(2)} ms
-              </span>
-              <Button
-                onClick={() => setFit((n) => n + 1)}
-                title="Fit the whole capture back in the frame"
-              >
-                Reset zoom
-              </Button>
-              <Button onClick={exportCsv} disabled={busy} title="Save this capture as CSV">
-                Export CSV
-              </Button>
-            </div>
-          }
-        >
-          <ChartStack count={plotted.groups.length} className="flex flex-col p-2">
-            {(chartH) => (
-              <>
-            {plotted.groups.map(([unit, indices], g) => (
-              <TimeSeriesChart
-                key={unit}
-                t={plotted.t}
-                series={indices.map((i) => plotted.series[i] ?? [])}
-                labels={indices.map((i) => plotted.names[i] ?? '')}
-                colors={indices.map((i) => plotStyles.get(plotted.names[i] ?? '')?.color ?? '')}
-                dashes={indices.map((i) => plotStyles.get(plotted.names[i] ?? '')?.dash === true)}
-                lineWidth={lineWidth}
-                unit={unit === '' ? '(no unit)' : unit}
-                showXLabel={g === plotted.groups.length - 1}
-                xLabel="time from trigger (ms)"
-                // Le repère marque l'instant de déclenchement, origine de l'axe. Pas de
-                // repère si le déclenchement n'a pas eu lieu : une ligne à zéro laisserait
-                // croire qu'il a eu lieu au premier point.
-                markerX={plotted.triggerIndex === null ? null : 0}
-                height={chartH}
-                /* Une capture ne bouge plus : la navigation y a tout son sens, et c'est
-                   meme la seule facon de regarder deux mille points sur huit cents pixels.
-                   La clef de synchronisation aligne curseur et axe des temps entre les
-                   graphes empiles — sans elle, zoomer sur l'un ferait comparer des
-                   abscisses differentes sans qu'on s'en apercoive. */
-                interactive
-                syncKey="scope"
-                resetZoom={fit}
-              />
-            ))}
-              </>
-            )}
-          </ChartStack>
-        </Panel>
+        />
       )}
+
+      <div
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="Resize the measurement list"
+        tabIndex={0}
+        onMouseDown={startResize}
+        onDoubleClick={() => update({ layout: { measurementsH: 220 } })}
+        onKeyDown={(e) => {
+          const step = e.shiftKey ? 64 : 16;
+          if (e.key === 'ArrowUp') update({ layout: { measurementsH: tileH + step } });
+          if (e.key === 'ArrowDown') update({ layout: { measurementsH: Math.max(80, tileH - step) } });
+        }}
+        title="Drag to resize, double-click to reset"
+        className="-my-1 h-1.5 shrink-0 cursor-row-resize rounded-full transition-colors hover:bg-accent focus:bg-accent focus:outline-none"
+      />
+      <div className="shrink-0" style={{ height: tileH }}>
+        <MeasurementsPanel
+          metas={list.metas}
+          tree={list.tree}
+          openId={shown?.saved === true ? shown.m.id : null}
+          onOpen={openMeasurement}
+          folder={folder}
+          onFolder={setFolder}
+        />
+      </div>
     </div>
   );
 }

@@ -14,13 +14,14 @@
  * Libellés en anglais (AGENTS.md §5) ; commentaires en français.
  */
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import type { DeviceSnapshot } from '../../main/device/DeviceCore.js';
 import type { SignalDesc } from '../../shared/protocol.js';
 import { TimeSeriesChart, groupByUnit, type YMode } from './Chart.js';
 import { TraceSwatch, useTraceStyles } from './TraceSwatch.js';
 import { useConfig } from '../config.js';
+import { buildMeasurement, useTelemetryRecorder, type Recording } from '../measurements.js';
 import { captureFileName, captureToCsv } from '../scopeExport.js';
 import { ChartStack } from './ChartStack.js';
 import { Button, Dot, Empty, Panel } from './ui.js';
@@ -66,7 +67,8 @@ const MAX_SIGNALS = MAX_SUBSCRIBED;
 export function LiveTelemetry({ state }: { state: DeviceSnapshot }): ReactNode {
   const [signals, setSignals] = useState<SignalDesc[]>([]);
   const [picked, setPicked] = useState<string[]>([]);
-  const defaults = useConfig().config.telemetry;
+  const { config } = useConfig();
+  const defaults = config.telemetry;
   const [rateHz, setRateHz] = useState<number>(defaults.rateHz);
   /* Presentation. Ces trois reglages ne changent que ce qu'on regarde, jamais ce qui est
    * mesure — ils ne touchent ni a la souscription ni au tampon. */
@@ -85,6 +87,34 @@ export function LiveTelemetry({ state }: { state: DeviceSnapshot }): ReactNode {
     state.telemetry,
     bufferCapacity(windowS, liveRate),
   );
+  /* Enregistrement vers l'historique de mesures (Record / Stop). Indépendant du tampon
+   * d'affichage, qui ne garde que la fenêtre visible : l'enregistrement garde tout, jusqu'au
+   * plafond de la config, puis s'arrête et s'enregistre de lui-même. */
+  const [recordNote, setRecordNote] = useState<string | null>(null);
+  /* Signaux figés au départ : à l'arrêt du flux, `state.telemetry` est déjà vide. */
+  const recordMeta = useRef<{ names: string[]; units: string[]; rateHz: number }>({ names: [], units: [], rateHz });
+  const recorder = useTelemetryRecorder(state.telemetry?.signalNames.length ?? 0, config.measurements.recordMaxS, (rec: Recording) => {
+    const { names: recordNames, units: recordUnits } = recordMeta.current;
+    const m = buildMeasurement({
+      kind: 'telemetry',
+      state,
+      at: new Date(Date.now() - (rec.t[rec.t.length - 1] ?? 0)),
+      signals: recordNames.map((name, i) => ({ name, unit: recordUnits[i] ?? '' })),
+      t: rec.t,
+      series: rec.series,
+      markerX: null,
+      config: { rateHz: recordMeta.current.rateHz, signals: recordNames },
+    });
+    void api()
+      .measSave(m, null)
+      .then(() => setRecordNote(`Saved ${rec.t.length} points to the measurement history (Scope view).`))
+      .catch((e: unknown) => setRecordNote(`Recording not saved: ${e instanceof Error ? e.message : String(e)}`));
+  });
+  // Le flux s'arrête : l'enregistrement aussi, avec ce qu'il a.
+  useEffect(() => {
+    if (!streaming && recorder.recording) recorder.stop();
+  }, [streaming, recorder]);
+
   /* Le tampon est mute sur place et ne provoque aucun rendu : ce compteur lent existe
    * uniquement pour les quelques chiffres affiches en texte, a une cadence ou l'oeil suit. */
   const [, tickSlow] = useState(0);
@@ -226,6 +256,36 @@ export function LiveTelemetry({ state }: { state: DeviceSnapshot }): ReactNode {
             Export CSV
           </Button>
         </>
+      )}
+      {streaming && (
+        <Button
+          tone={recorder.recording ? 'danger' : 'default'}
+          onClick={() => {
+            setRecordNote(null);
+            if (recorder.recording) {
+              recorder.stop();
+            } else {
+              recordMeta.current = {
+                names: [...(state.telemetry?.signalNames ?? [])],
+                units: [...(state.telemetry?.units ?? [])],
+                rateHz: state.telemetry?.rateHz ?? rateHz,
+              };
+              recorder.start();
+            }
+          }}
+          title={
+            recorder.recording
+              ? 'Stop recording and save it to the measurement history'
+              : `Record the stream into the measurement history (up to ${config.measurements.recordMaxS} s)`
+          }
+        >
+          {recorder.recording ? `■ ${recorder.elapsedS.toFixed(0)} s` : '● Record'}
+        </Button>
+      )}
+      {recordNote !== null && !recorder.recording && (
+        <span className="max-w-[16rem] truncate text-[11px] text-fg-3" title={recordNote}>
+          {recordNote}
+        </span>
       )}
       {streaming && (
         <span className="font-mono text-[11px] text-fg-3">

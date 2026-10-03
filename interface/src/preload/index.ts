@@ -9,6 +9,8 @@ import { contextBridge, ipcRenderer, webFrame } from 'electron';
 
 import type { AppConfig, ConfigPatch } from '../shared/config.js';
 import type { McpStatus, McpToolInfo } from '../main/mcp/controller.js';
+import type { MeasurementPatch } from '../main/measurements/store.js';
+import type { MeasTree, Measurement, MeasurementMeta } from '../shared/measurement.js';
 
 import type { ScopeCapture } from '../shared/client.js';
 import type { TelemFrame } from '../shared/messages.js';
@@ -89,6 +91,24 @@ const api = {
     const h = (_e: unknown, c: AppConfig): void => listener(c);
     ipcRenderer.on('config:changed', h);
     return () => ipcRenderer.removeListener('config:changed', h);
+  },
+
+  /* --- mesures ------------------------------------------------------------ */
+  measList: () => call<{ metas: MeasurementMeta[]; tree: MeasTree }>('meas:list'),
+  measGet: (id: string) => call<Measurement>('meas:get', id),
+  measSave: (m: Measurement, folder: string | null = null) => call<MeasurementMeta>('meas:save', m, folder),
+  measUpdate: (id: string, patch: MeasurementPatch) => call<MeasurementMeta>('meas:update', id, patch),
+  measDelete: (ids: string[]) => call<void>('meas:delete', ids),
+  measSetTree: (tree: MeasTree) => call<MeasTree>('meas:setTree', tree),
+  /** Rend les chemins écrits, ou `null` si annulé. */
+  measExport: (ids: string[], format: 'csv' | 'json') => call<string[] | null>('meas:export', ids, format),
+  measSavePng: (name: string, base64: string) => call<string | null>('meas:savePng', name, base64),
+  measImport: (folder: string | null) =>
+    call<{ imported: string[]; errors: string[] } | null>('meas:import', folder),
+  onMeasurements: (listener: (l: { metas: MeasurementMeta[]; tree: MeasTree }) => void): (() => void) => {
+    const h = (_e: unknown, l: { metas: MeasurementMeta[]; tree: MeasTree }): void => listener(l);
+    ipcRenderer.on('meas:changed', h);
+    return () => ipcRenderer.removeListener('meas:changed', h);
   },
 
   /* --- serveur MCP ------------------------------------------------------- */

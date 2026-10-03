@@ -45,6 +45,10 @@ const scopeRequest = z.object({
   signalNames: z.array(z.string().min(1).max(32)).min(1).max(4).optional(),
 });
 
+/** Identifiant de mesure : il devient un nom de fichier, donc rien qui puisse en sortir. */
+const measurementId = z.string().min(8).max(64).regex(/^[A-Za-z0-9-]+$/);
+const folderId = z.string().min(1).max(64);
+
 /* Une ligne de console tient sur une ligne : le firmware la découpe sur CR/LF, donc un
  * argument qui en contient viserait à faire passer deux commandes pour une. */
 const consoleLine = z.string().min(1).max(200).refine((s) => !/[\r\n\0]/.test(s), {
@@ -101,6 +105,25 @@ export const IPC_SCHEMA = {
   'app:info': z.tuple([]),
   'app:openLink': z.tuple([z.enum(['repo', 'protocol', 'status', 'interface'])]),
   'app:quit': z.tuple([]),
+
+  // Mesures. Une mesure est validée en entier par `parseMeasurement` (shared/measurement.ts)
+  // à l'enregistrement : le schéma de canal ne fait que borner la forme.
+  'meas:list': z.tuple([]),
+  'meas:get': z.tuple([measurementId]),
+  'meas:save': z.tuple([z.record(z.string(), z.unknown()), folderId.nullable()]),
+  'meas:update': z.tuple([
+    measurementId,
+    z.object({
+      title: z.string().max(200).optional(),
+      comment: z.string().max(20000).optional(),
+      tags: z.array(z.string().min(1).max(40)).max(32).optional(),
+    }),
+  ]),
+  'meas:delete': z.tuple([z.array(measurementId).min(1).max(10000)]),
+  'meas:setTree': z.tuple([z.record(z.string(), z.unknown())]),
+  'meas:export': z.tuple([z.array(measurementId).min(1).max(10000), z.enum(['csv', 'json'])]),
+  'meas:savePng': z.tuple([z.string().min(1).max(260), z.string().max(64 * 1024 * 1024)]),
+  'meas:import': z.tuple([folderId.nullable()]),
 
   'mcp:status': z.tuple([]),
   'mcp:tools': z.tuple([]),

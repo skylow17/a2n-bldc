@@ -19,6 +19,8 @@ import { BrowserWindow, app, dialog, ipcMain, shell } from 'electron';
 
 import type { ConfigPatch } from '../shared/config.js';
 import { ConfigStore } from './config/store.js';
+import { MeasurementStore, type MeasurementPatch } from './measurements/store.js';
+import { measurementFileStem, measurementToCsv, serializeMeasurement } from '../shared/measurement.js';
 
 import type { TelemFrame } from '../shared/messages.js';
 import {
@@ -33,10 +35,15 @@ import { isIpcChannel, validateIpc } from './ipcSchema.js';
 
 const core = new DeviceCore();
 
-/** Dossier de données et `config.json` — voir `config/store.ts`. Chargé avant la fenêtre. */
+/**
+ * Dossier de données et `config.json` — voir `config/store.ts`. Chargé avant la fenêtre.
+ * `A2N_DATA_DIR` impose un dossier (essais, poste portable) : l'amorce vit alors dedans, et
+ * le dossier habituel n'est pas touché.
+ */
+const forcedDataDir = process.env['A2N_DATA_DIR'];
 const config = new ConfigStore(
-  join(app.getPath('userData'), 'location.json'),
-  join(app.getPath('documents'), 'A2N BLDC'),
+  forcedDataDir === undefined ? join(app.getPath('userData'), 'location.json') : join(forcedDataDir, 'location.json'),
+  forcedDataDir ?? join(app.getPath('documents'), 'A2N BLDC'),
   (level, text) => core.log(level, 'gui', text),
 );
 let mainWindow: BrowserWindow | null = null;
@@ -53,6 +60,19 @@ const controlDetached = (): boolean => controlWindow !== null && !controlWindow.
 
 core.onChange.on((s) => broadcast('device:state', s));
 config.onChange((c) => broadcast('config:changed', c));
+
+/** Historique de mesures, dans le dossier de données ; suivi quand celui-ci change. */
+const measurements = new MeasurementStore((level, text) => core.log(level, 'gui', text));
+measurements.onChange(() => broadcast('meas:changed', measurements.list()));
+let measurementsDir: string | null = null;
+config.onChange(() => {
+  if (config.dataDir !== measurementsDir) {
+    measurementsDir = config.dataDir;
+    void measurements.open(config.dataDir).catch((e: unknown) =>
+      core.log('error', 'gui', `measurements: ${e instanceof Error ? e.message : String(e)}`),
+    );
+  }
+});
 
 /**
  * Serveur MCP. Il vit ici, dans le processus de la fenêtre, et sert le même `DeviceCore` :
@@ -408,6 +428,90 @@ const HELP_LINKS = {
 handle('app:openLink', (key: keyof typeof HELP_LINKS) => shell.openExternal(HELP_LINKS[key]));
 handle('app:quit', () => app.quit());
 
+/* ------------------------------------------------------------------ mesures */
+
+handle('meas:list', () => measurements.list());
+handle('meas:get', (id: string) => measurements.get(id));
+handle('meas:save', (m: unknown, folder: string | null) => measurements.save(m, folder));
+handle('meas:update', (id: string, patch: MeasurementPatch) => measurements.update(id, patch));
+handle('meas:delete', (ids: string[]) => measurements.delete(ids));
+handle('meas:setTree', (tree: unknown) => measurements.setTree(tree));
+
+/**
+ * Exporte des mesures. Une seule : boîte « Enregistrer sous ». Plusieurs : on choisit un
+ * dossier, et chacune y est écrite sous son nom daté — sans écraser un fichier existant.
+ */
+handle('meas:export', async (ids: string[], format: 'csv' | 'json') => {
+  const win = dialogParent();
+  const ext = format;
+  const body = (m: Awaited<ReturnType<typeof measurements.get>>): string =>
+    format === 'csv' ? measurementToCsv(m) : `${serializeMeasurement(m)}\n`;
+  if (ids.length === 1) {
+    const m = await measurements.get(ids[0]!);
+    const options = {
+      title: `Export measurement as ${ext.toUpperCase()}`,
+      defaultPath: `${measurementFileStem(m)}.${ext}`,
+      filters: [{ name: ext.toUpperCase(), extensions: [ext] }],
+    };
+    const r = win === null ? await dialog.showSaveDialog(options) : await dialog.showSaveDialog(win, options);
+    if (r.canceled || r.filePath === undefined) return null;
+    await writeFile(r.filePath, body(m), 'utf8');
+    core.log('info', 'gui', `measurement exported to ${r.filePath}`);
+    return [r.filePath];
+  }
+  const options = { title: `Export ${ids.length} measurements`, properties: ['openDirectory' as const, 'createDirectory' as const] };
+  const r = win === null ? await dialog.showOpenDialog(options) : await dialog.showOpenDialog(win, options);
+  const dir = r.filePaths[0];
+  if (r.canceled || dir === undefined) return null;
+  const written: string[] = [];
+  for (const id of ids) {
+    const m = await measurements.get(id);
+    const path = join(dir, `${measurementFileStem(m)}-${m.id.slice(0, 8)}.${ext}`);
+    await writeFile(path, body(m), { encoding: 'utf8', flag: 'wx' });
+    written.push(path);
+  }
+  core.log('info', 'gui', `${written.length} measurements exported to ${dir}`);
+  return written;
+});
+
+/** Image PNG composée par le renderer (graphes tels qu'affichés), en base64. */
+handle('meas:savePng', async (suggestedName: string, base64: string) => {
+  const win = dialogParent();
+  const options = { title: 'Export as PNG', defaultPath: suggestedName, filters: [{ name: 'PNG image', extensions: ['png'] }] };
+  const r = win === null ? await dialog.showSaveDialog(options) : await dialog.showSaveDialog(win, options);
+  if (r.canceled || r.filePath === undefined) return null;
+  await writeFile(r.filePath, Buffer.from(base64, 'base64'));
+  core.log('info', 'gui', `image saved to ${r.filePath}`);
+  return r.filePath;
+});
+
+const MEASUREMENT_MAX_BYTES = 256 * 1024 * 1024;
+handle('meas:import', async (folder: string | null) => {
+  const win = dialogParent();
+  const options = {
+    title: 'Import measurements',
+    filters: [{ name: 'A2N measurement (JSON)', extensions: ['json'] }],
+    properties: ['openFile' as const, 'multiSelections' as const],
+  };
+  const r = win === null ? await dialog.showOpenDialog(options) : await dialog.showOpenDialog(win, options);
+  if (r.canceled) return null;
+  const imported: string[] = [];
+  const errors: string[] = [];
+  for (const path of r.filePaths) {
+    try {
+      const bytes = await readFile(path);
+      if (bytes.byteLength > MEASUREMENT_MAX_BYTES) throw new Error('too large');
+      const meta = await measurements.importText(bytes.toString('utf8'), folder);
+      imported.push(meta.id);
+    } catch (e) {
+      errors.push(`${path}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  core.log(errors.length === 0 ? 'info' : 'warn', 'gui', `imported ${imported.length} measurement(s)${errors.length === 0 ? '' : `, ${errors.length} refused`}`);
+  for (const e of errors) core.log('warn', 'gui', e);
+  return { imported, errors };
+});
+
 /* ------------------------------------------------------------------ MCP */
 
 handle('mcp:status', () => mcp.current);
@@ -427,6 +531,10 @@ void app.whenReady().then(async () => {
   } catch (e) {
     core.log('error', 'gui', `data folder unusable, defaults in memory: ${e instanceof Error ? e.message : String(e)}`);
   }
+  measurementsDir = config.dataDir;
+  await measurements.open(config.dataDir).catch((e: unknown) =>
+    core.log('error', 'gui', `measurements: ${e instanceof Error ? e.message : String(e)}`),
+  );
   createWindow();
 
   await mcp.apply(config.current.mcp.enabled, config.current.mcp.port);

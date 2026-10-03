@@ -430,7 +430,7 @@ export function createA2nMcpServer(core: DeviceCore): { server: McpServer; dispo
           .array(z.string())
           .max(16)
           .optional()
-          .describe('Signal names. Omit for every signal the firmware publishes.'),
+          .describe('Signal names. Omit for the first 16 signals the firmware publishes (the subscription limit).'),
       },
       annotations: { readOnlyHint: true },
     },

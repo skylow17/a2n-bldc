@@ -19,7 +19,11 @@
  * On passe par des variables CSS plutôt que par la configuration Tailwind pour que la
  * bascule clair/sombre soit un simple attribut sur la racine, sans reconstruire de classes.
  */
-@theme {
+/* `static` : Tailwind v4 n'emet une variable de `@theme` que si une classe l'utilise. Les
+ * couleurs de courbe ne sont lues que par le code (getComputedStyle, var() en style
+ * inline) : sans `static`, elles n'existaient pas a l'execution et toutes les courbes
+ * retombaient sur la meme couleur de repli. */
+@theme static {
   --color-bg: #0c0f13;
   --color-panel: #14181e;
   --color-panel-2: #1b2028;
