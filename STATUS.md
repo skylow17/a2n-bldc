@@ -118,10 +118,10 @@ La règle de vérification complète est en fin de fichier ; ses **six étapes p
 | Survitesse | 25 rad/s mécaniques pendant 2 ms, tout mode, latchée `overspeed` | `safety.h` |
 | Angle perdu | Boucle de courant active et angle invalide : latchée `angle_lost` | `foc.c` |
 | PWM d'essai | Rapports 0–800 ‰, écart entre bras ≤ 100 ‰, impulsion 1–200 ms | `pwm.h` |
-| Tension de commande | ≤ 57 ‰ du rail (≈ 0,85 V à 15 V), boucle ouverte et boucle de courant | `openloop.h` |
+| Tension de commande | Boucle ouverte ≤ 57 ‰ du rail (≈ 0,85 V à 15 V) ; boucles fermées ≤ 150 ‰ (≈ 2,25 V) depuis le 2026-10-04 | `openloop.h`, `foc.h` |
 | Boucle ouverte | ≤ 57 ‰, ≤ 20 Hz électriques, ≤ 10 s | `openloop.h` |
-| Boucle de courant | ≤ 300 mA par axe, ≤ 10 s ; PI à 500 Hz calculés de R et L | `foc.h` |
-| Boucle de vitesse | ≤ 20 rad/s, Iq ≤ 220 mA (150 jusqu'au 2026-10-03), ≤ 10 s ; 30 Hz par défaut (1–40) | `foc.h` |
+| Boucle de courant | ≤ 500 mA par axe (300 avant le 2026-10-04), ≤ 10 s ; PI à 500 Hz calculés de R et L | `foc.h` |
+| Boucle de vitesse | ≤ 20 rad/s, Iq ≤ 500 mA (150 puis 220 avant le 2026-10-04), ≤ 10 s ; 30 Hz par défaut (1–40) | `foc.h` |
 | Boucle de position | ≤ 2 tours par commande, vitesse ≤ 10 rad/s, ≤ 10 s ; 3 Hz (0,5–5) | `foc.h` |
 | Paramètres | `requires_disarm` refusés sorties actives ; entrées calibrées épargnées par la remise à zéro | `param.c` |
 | IWDG applicatif | 200 ms, rafraîchi par la superloop, jamais en probation | `wdg.h` |

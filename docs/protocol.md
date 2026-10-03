@@ -741,11 +741,14 @@ modulation sinusoïdale autour de 50 %, rapportée à la tension du rail moteur 
 et `vq_mv` sont la sortie des PI, sans la compensation : en régime, elles valent R·I. Mêmes barrières que `PWM ON`,
 plus :
 
-- **tension ≤ 57 ‰ du rail**, la limite de la boucle ouverte : l'écart entre bras reste sous
-  100 ‰ à tout angle. Au rail de 15 V, ≈ 0,85 V par phase ; rotor immobile, R = 3,6 Ω plafonne
-  donc le courant vers 0,23 A **même si la boucle se trompait de signe** — loin de la coupure
-  en surintensité. Quand la limite mord, l'intégrateur se fige plutôt que de s'emballer ;
-- **consignes ≤ 300 mA** par axe en valeur absolue, **durée ≤ 10 s**, watchdog de flux
+- **tension ≤ 150 ‰ du rail**, propre aux boucles fermées depuis le 2026-10-04 (57 ‰
+  avant, la limite de la boucle ouverte, qui la garde). Au rail de 15 V, ≈ 2,25 V par phase ;
+  rotor immobile, R = 3,6 Ω plafonne donc le courant vers 0,62 A **même si la boucle se
+  trompait de signe** — sous la coupure en surintensité (≈ 0,9 A). Le rapport cyclique reste
+  sous 650 ‰, en deçà des 800 ‰ qui garantissent la lecture du courant. Quand la limite mord,
+  l'intégrateur se fige plutôt que de s'emballer ;
+- **consignes ≤ 500 mA** par axe en valeur absolue (300 mA avant le 2026-10-04), **durée ≤
+  10 s**, watchdog de flux
   au-delà de 250 ms comme ailleurs ;
 - refus si les paramètres moteur ne sont pas plausibles (R de 0,1 à 100 Ω, L de 10 µH à
   0,1 H, et ceux de `FOC?`), si le rail est sous 8 V, ou si l'angle n'est pas valide au départ ;
@@ -765,10 +768,10 @@ de la bande passante f — **30 Hz par défaut**, réglable par la commande. La 
 barrières que `CL`, plus :
 
 - **consigne ≤ 20 rad/s** en valeur absolue, sous la coupure en survitesse à 25 rad/s ;
-- **Iq ≤ 220 mA** en valeur absolue ; quand ce plafond mord, l'intégrateur de vitesse se fige.
-  150 mA jusqu'au 2026-10-03, relevé à la demande de l'utilisateur pour un maintien plus
-  ferme : à l'arrêt, la tension de commande (57 ‰, ≈ 0,85 V sur 3,6 Ω) borne de toute façon
-  le courant vers 0,24 A ;
+- **Iq ≤ 500 mA** en valeur absolue ; quand ce plafond mord, l'intégrateur de vitesse se fige.
+  150 mA jusqu'au 2026-10-03, 220 mA le 2026-10-03, 500 mA depuis le 2026-10-04, à la demande
+  de l'utilisateur : une main faisait céder le maintien. À 0,5 A, R·I ≈ 1,8 V, sous les
+  2,25 V de la limite de tension ;
 - **durée ≤ 10 s**, watchdog de flux comme ailleurs.
 
 | Commande | Réponse | Rôle |

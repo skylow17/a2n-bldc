@@ -18,10 +18,13 @@
 #define FOC_Q31_INV    (1.0f / 2147483648.0f)
 #define FOC_TS_S       (1.0f / (float)PWM_FREQ_HZ)
 
-/* La limite de tension est celle de la boucle ouverte, et pour la même raison : l'écart entre
- * deux bras vaut au plus l'amplitude × √3, que `openloop.c` garde sous la limite de la PWM
- * d'essai par une assertion statique. Une seule constante, pas deux qui pourraient diverger. */
-#define FOC_MAX_AMP    ((float)OL_MAX_AMP_PM / 1000.0f)
+/* Limite de tension des boucles fermées — voir `FOC_MAX_AMP_PM` dans `foc.h`. Elle n'est plus
+ * celle de la boucle ouverte : le courant est régulé ici, pas là-bas. Ce qui doit tenir, c'est
+ * la lecture du courant : le rapport le plus haut, 500 ‰ + amplitude, reste sous la borne qui
+ * garde au transistor bas le temps d'échantillonner. */
+_Static_assert(500U + FOC_MAX_AMP_PM <= PWM_TEST_MAX_PM,
+               "closed-loop voltage would leave too little low-side time to sample the current");
+#define FOC_MAX_AMP    ((float)FOC_MAX_AMP_PM / 1000.0f)
 
 typedef struct
 {

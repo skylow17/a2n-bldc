@@ -34,7 +34,15 @@ extern "C" {
  * retard d'une période et demie qu'imposent l'échantillonnage et la PWM préchargée. Assez
  * lent pour un premier essai ; rien n'empêchera de monter une fois la réponse relevée. */
 #define FOC_CL_BW_HZ      500.0f
-#define FOC_CL_MAX_MA     300L       /**< consigne par axe, en valeur absolue            */
+#define FOC_CL_MAX_MA     500L       /**< consigne par axe, en valeur absolue ; 300 avant le 2026-10-04 */
+
+/* Limite de tension des boucles fermées, en pour mille du rail, autour de 500 ‰. Séparée de
+ * celle de la boucle ouverte (`OL_MAX_AMP_PM`, 57 ‰) le 2026-10-04 pour atteindre 0,5 A :
+ * R·I ≈ 1,8 V sur 3,6 Ω, et 150 ‰ font 2,25 V sous 15 V. Le courant y est régulé, et même une
+ * boucle de signe faux ne pousserait que 2,25 / 3,6 ≈ 0,62 A, sous la coupure en surintensité.
+ * Le rapport cyclique reste ≤ 650 ‰, sous `PWM_TEST_MAX_PM` qui garantit la lecture du
+ * courant (assertion dans `foc.c`). */
+#define FOC_MAX_AMP_PM    150U
 #define FOC_CL_MAX_MS     10000UL
 #define FOC_VBUS_MIN_V    8.0f       /**< en dessous, la modulation n'a plus de sens     */
 #define FOC_R_MIN_OHM     0.1f
@@ -60,10 +68,9 @@ extern "C" {
 #define FOC_SL_ZERO_RATIO_MAX 10.0f
 #define FOC_PL_MIN_SEPARATION 4.0f     /**< boucle de vitesse ≥ 4× celle de position      */
 #define FOC_SL_MAX_MRAD_S   20000L     /**< sous la coupure en survitesse, 25 rad/s      */
-/* 0,15 A jusqu'au 2026-10-03, relevé à 0,22 A à la demande de l'utilisateur pour un maintien
- * de position plus ferme. Au-delà, rien ne serait gagné à l'arrêt : la tension de commande
- * (57 ‰ du rail, ≈ 0,85 V) sur 3,6 Ω borne le courant vers 0,24 A. */
-#define FOC_SL_IQ_MAX_A     0.22f      /**< plafond de la consigne d'Iq                  */
+/* 0,15 A jusqu'au 2026-10-03, puis 0,22 A, puis 0,5 A le 2026-10-04 à la demande de
+ * l'utilisateur : une main faisait céder le maintien. Égal au plafond de la boucle de courant. */
+#define FOC_SL_IQ_MAX_A     0.5f       /**< plafond de la consigne d'Iq                  */
 
 /* Boucle de position, étape 13. Proportionnelle : l'intégrateur de la boucle de vitesse tient
  * déjà le couple contre le frottement, un second intégrateur en cascade n'ajouterait qu'un
