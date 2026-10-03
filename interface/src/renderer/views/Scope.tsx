@@ -24,7 +24,9 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { DeviceSnapshot } from '../../main/device/DeviceCore.js';
 import type { ScopeCapture } from '../../shared/client.js';
 import { ScopeTrigger, type ScopeTriggerValue, type SignalDesc } from '../../shared/protocol.js';
-import { TimeSeriesChart, groupByUnit, seriesColor } from '../components/Chart.js';
+import { TimeSeriesChart, groupByUnit } from '../components/Chart.js';
+import { TraceSwatch, useTraceStyles } from '../components/TraceSwatch.js';
+import { useConfig } from '../config.js';
 import { ChartStack } from '../components/ChartStack.js';
 import { Button, Empty, Panel } from '../components/ui.js';
 import { captureFileName, captureToCsv } from '../scopeExport.js';
@@ -167,7 +169,9 @@ export function Scope({ state }: { state: DeviceSnapshot }): ReactNode {
     });
   };
 
-  const colorOf = (name: string): string => seriesColor(dict.findIndex((s) => s.name === name));
+  const lineWidth = useConfig().config.plots.lineWidth;
+  const pickStyles = useTraceStyles(picked, picked.map((n) => dict.find((s) => s.name === n)?.unit ?? ''));
+  const plotStyles = useTraceStyles(plotted?.names ?? [], plotted?.units ?? []);
 
   if (!connected) {
     return (
@@ -311,11 +315,7 @@ export function Scope({ state }: { state: DeviceSnapshot }): ReactNode {
                   onChange={() => toggle(s.name)}
                   className="h-3 w-3"
                 />
-                <span
-                  className="inline-block h-[3px] w-2.5 rounded-[2px]"
-                  style={{ background: on ? colorOf(s.name) : 'transparent' }}
-                  aria-hidden="true"
-                />
+                {on ? <TraceSwatch name={s.name} style={pickStyles.get(s.name)} /> : <span className="w-4" />}
                 <span className="font-mono">{s.name}</span>
               </label>
             );
@@ -384,7 +384,9 @@ export function Scope({ state }: { state: DeviceSnapshot }): ReactNode {
                 t={plotted.t}
                 series={indices.map((i) => plotted.series[i] ?? [])}
                 labels={indices.map((i) => plotted.names[i] ?? '')}
-                colors={indices.map((i) => colorOf(plotted.names[i] ?? ''))}
+                colors={indices.map((i) => plotStyles.get(plotted.names[i] ?? '')?.color ?? '')}
+                dashes={indices.map((i) => plotStyles.get(plotted.names[i] ?? '')?.dash === true)}
+                lineWidth={lineWidth}
                 unit={unit === '' ? '(no unit)' : unit}
                 showXLabel={g === plotted.groups.length - 1}
                 xLabel="time from trigger (ms)"

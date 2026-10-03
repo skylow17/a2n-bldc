@@ -21,29 +21,20 @@ import uPlot from 'uplot';
 
 import 'uplot/dist/uPlot.min.css';
 
-/**
- * Palette catégorielle, ordre fixe, jamais recyclée.
- *
- * Huit teintes pensées pour un fond sombre et validées comme un ensemble contre la surface
- * réelle des panneaux (#14181e) : bande de clarté, plancher de chroma, séparation en vision
- * des couleurs déficiente et contraste ≥ 3:1 passent tous.
- *
- * L'ordre est fixe : un signal garde sa couleur quel que soit le nombre de courbes
- * affichées. Une couleur attribuée par rang changerait de sens dès qu'on retire un signal.
- *
- * Aucune n'est reprise des couleurs d'état de l'interface — l'ambre demande une action, le
- * vert et le rouge disent OK et faute. Une courbe rouge ne doit pas se lire comme un défaut.
- */
-/** Nombre de créneaux de la palette. Au-delà, on ne fabrique pas de teinte. */
-export const SERIES_SLOT_COUNT = 8;
+import { useConfig } from '../config.js';
 
-export function seriesColor(index: number): string {
-  // Au-delà de huit courbes, aucune teinte supplémentaire n'est fabriquée : l'appelant
-  // regroupe ou facette. Le gris dit « cette courbe n'a plus d'identité propre ».
-  if (index < 0 || index >= SERIES_SLOT_COUNT) return token('--color-fg-3', '#636d7b');
-  // Lue sur la racine, donc suivant le thème : le jeu clair et le jeu sombre sont deux
-  // palettes choisies, pas l'une l'inversion de l'autre.
-  return token(`--color-series-${index + 1}`, '#3987e5');
+/**
+ * Couleur de courbe résolue pour le canvas.
+ *
+ * Les couleurs se décident dans `traceColors.ts` (une couleur = un sens physique) sous forme
+ * de créneau de palette (`slot:N`) ou de couleur fixe. Le créneau se lit ici sur la racine,
+ * donc suit le thème : le jeu clair et le jeu sombre sont deux palettes choisies, pas
+ * l'une l'inversion de l'autre.
+ */
+export function resolveColor(spec: string): string {
+  const m = /^slot:(\d+)$/.exec(spec);
+  if (m !== null) return token(`--color-series-${m[1]}`, '#3d8fec');
+  return spec;
 }
 
 /**
@@ -186,6 +177,10 @@ export interface TimeSeriesChartProps {
   labels: readonly string[];
   /** Couleur de chaque courbe — fournie par l'appelant pour rester stable par signal. */
   colors: readonly string[];
+  /** Courbes en pointillé : les consignes (voir `traceColors.ts`). */
+  dashes?: readonly boolean[];
+  /** Épaisseur des courbes, en pixels CSS. */
+  lineWidth?: number;
   /** Unité commune à l'axe vertical. */
   unit: string;
   /**
@@ -295,6 +290,8 @@ export function TimeSeriesChart({
   series,
   labels,
   colors,
+  dashes = [],
+  lineWidth = 1.5,
   unit,
   showXLabel = true,
   xLabel = 'time (s)',
@@ -307,6 +304,8 @@ export function TimeSeriesChart({
   syncKey = null,
   resetZoom = 0,
 }: TimeSeriesChartProps): ReactNode {
+  // Le thème change les couleurs résolues sur le canvas : il faut reconstruire le graphe.
+  const theme = useConfig().config.ui.theme;
   const host = useRef<HTMLDivElement | null>(null);
   const plot = useRef<uPlot | null>(null);
   const yRange = useRef<[number, number] | null>(null);
@@ -316,8 +315,8 @@ export function TimeSeriesChart({
   // a comparer des identites toujours neuves : uPlot etait detruit et reconstruit trente
   // fois par seconde, et c'est exactement ce que l'en-tete de ce fichier dit qu'il ne faut
   // pas faire. On compare donc leur contenu, et on lit les tableaux par reference.
-  const cfg = useRef({ labels, colors, series, t });
-  cfg.current = { labels, colors, series, t };
+  const cfg = useRef({ labels, colors, dashes, lineWidth, series, t });
+  cfg.current = { labels, colors, dashes, lineWidth, series, t };
   // La hauteur change quand `ChartStack` mesure sa place ou quand la fenêtre bouge. Elle
   // passe par `setSize` : reconstruire le graphe pour elle perdait le zoom, et la capture
   // avec, avant la correction d'`initialPlotData`.
@@ -332,7 +331,7 @@ export function TimeSeriesChart({
   /* Identite du tableau de temps deja confie au graphe — voir l'effet de donnees statiques. */
   const lastT = useRef<readonly number[] | null>(null);
   const labelsKey = labels.join('|');
-  const colorsKey = colors.join('|');
+  const colorsKey = `${colors.join('|')}/${dashes.join('|')}/${lineWidth}`;
   // Le repère est lu à chaque tracé : il passe par une référence pour que le greffon n'ait
   // pas à être recréé — et donc le graphe non plus — quand il bouge.
   const marker = useRef<number | null>(markerX);
@@ -416,8 +415,9 @@ export function TimeSeriesChart({
           { label: 's' },
           ...cfg.current.labels.map((label, i) => ({
             label,
-            stroke: cfg.current.colors[i] ?? ink2,
-            width: 2,
+            stroke: resolveColor(cfg.current.colors[i] ?? '') || ink2,
+            width: cfg.current.lineWidth,
+            ...(cfg.current.dashes[i] === true ? { dash: [6, 4] } : {}),
             points: { show: false },
           })),
         ],
@@ -445,7 +445,7 @@ export function TimeSeriesChart({
     // dependances via `labelsKey` et `colorsKey`, et leurs identites changent a chaque
     // rendu. Les y remettre reconstruirait le canvas en continu.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [labelsKey, colorsKey, unit, showXLabel, xLabel, interactive, syncKey]);
+  }, [labelsKey, colorsKey, theme, unit, showXLabel, xLabel, interactive, syncKey]);
 
   // Changer de hauteur redimensionne, et ne reconstruit pas : le zoom et la capture restent.
   useEffect(() => {

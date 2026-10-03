@@ -36,7 +36,9 @@
   --color-info: #4ea8de;
 
   /*
-   * Couleurs de courbe, ordre fixe, jamais recyclees — voir components/Chart.tsx.
+   * Couleurs de courbe : douze creneaux, un sens physique par creneau — voir
+   * renderer/traceColors.ts (1-3 phases A/B/C, 4 Iq, 5 Id, 6 Vq, 7 Vd, 8 vitesse,
+   * 9 position, 10 angle electrique, 11 angle commande, 12 boucle).
    *
    * Elles vivent ici et non dans le TypeScript pour suivre le theme : le graphe les lit sur
    * la racine au moment ou il se construit. Les deux jeux sont **choisis**, pas derives
@@ -48,14 +50,21 @@
    * vert et le rouge disent OK et faute. Une courbe rouge ne doit pas se lire comme un
    * defaut.
    */
-  --color-series-1: #3987e5;
-  --color-series-2: #d95926;
-  --color-series-3: #199e70;
-  --color-series-4: #c98500;
-  --color-series-5: #d55181;
-  --color-series-6: #008300;
-  --color-series-7: #9085e9;
-  --color-series-8: #e66767;
+  --color-series-1: #3d8fec;
+  --color-series-2: #e8772f;
+  --color-series-3: #2db36f;
+  --color-series-4: #a385f5;
+  --color-series-5: #2cc6d2;
+  --color-series-6: #e8619e;
+  --color-series-7: #d2c739;
+  --color-series-8: #7cc0ff;
+  --color-series-9: #94d66b;
+  --color-series-10: #cf9e6c;
+  --color-series-11: #d673e6;
+  --color-series-12: #9aa8ba;
+
+  /* Opacite du fond de la selection de zoom ; reecrite depuis la config (plots). */
+  --select-opacity: 0.2;
 
   --font-ui: 'Barlow', 'Segoe UI', system-ui, sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Consolas, monospace;
@@ -136,14 +145,18 @@
    * clair : chaque courbe porte son nom a cote de sa pastille, dans le selecteur comme dans
    * la legende, ce qui est la compensation prevue. L'identite n'est jamais portee par la
    * seule couleur. */
-  --color-series-1: #2a78d6;
-  --color-series-2: #eb6834;
-  --color-series-3: #1baf7a;
-  --color-series-4: #eda100;
-  --color-series-5: #e87ba4;
-  --color-series-6: #008300;
-  --color-series-7: #4a3aa7;
-  --color-series-8: #e34948;
+  --color-series-1: #1f6fd1;
+  --color-series-2: #d4561a;
+  --color-series-3: #13894f;
+  --color-series-4: #6a4fd1;
+  --color-series-5: #0b939e;
+  --color-series-6: #c63d7c;
+  --color-series-7: #8c8500;
+  --color-series-8: #3a9be8;
+  --color-series-9: #4f9a1f;
+  --color-series-10: #9a6a36;
+  --color-series-11: #a33bb5;
+  --color-series-12: #5d6b7d;
 
   /* Sur fond clair, l'arret est un aplat. Un lisere rouge sur du blanc se lit comme un
    * bouton inactif — exactement l'inverse de ce qu'on attend d'un STOP. */
@@ -263,4 +276,12 @@ textarea {
 }
 .a2n-chart .u-axis {
   color: var(--color-fg-3);
+}
+/* Selection de zoom. Le style livre par uPlot est un voile gris a 7 %, invisible sur le
+ * fond sombre : on ne voyait pas ce qu'on etait en train de selectionner. Fond accent et
+ * bordure franche, lisibles dans les deux themes. */
+.a2n-chart .u-select {
+  background: color-mix(in srgb, var(--color-accent) calc(var(--select-opacity) * 100%), transparent);
+  border-left: 1px solid var(--color-accent);
+  border-right: 1px solid var(--color-accent);
 }

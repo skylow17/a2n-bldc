@@ -18,7 +18,9 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import type { DeviceSnapshot } from '../../main/device/DeviceCore.js';
 import type { SignalDesc } from '../../shared/protocol.js';
-import { TimeSeriesChart, groupByUnit, seriesColor, type YMode } from './Chart.js';
+import { TimeSeriesChart, groupByUnit, type YMode } from './Chart.js';
+import { TraceSwatch, useTraceStyles } from './TraceSwatch.js';
+import { useConfig } from '../config.js';
 import { captureFileName, captureToCsv } from '../scopeExport.js';
 import { ChartStack } from './ChartStack.js';
 import { Button, Dot, Empty, Panel } from './ui.js';
@@ -155,10 +157,13 @@ export function LiveTelemetry({ state }: { state: DeviceSnapshot }): ReactNode {
     [signalNames, units, split],
   );
 
-  /* La couleur suit le signal, pas son rang dans un graphe : elle est tirée de la position
-   * au dictionnaire. Décocher un signal ne doit pas repeindre les autres. */
-  const colorOf = (name: string): string =>
-    seriesColor(signals.findIndex((s) => s.name === name));
+  /* Une couleur par sens physique (`traceColors.ts`), et non par rang : décocher un signal
+   * ne repeint pas les autres. Le sélecteur montre la couleur qu'aura la courbe une fois
+   * souscrite ; les graphes, celle des signaux réellement dans le tampon. */
+  const lineWidth = useConfig().config.plots.lineWidth;
+  const pickedUnits = picked.map((n) => signals.find((s) => s.name === n)?.unit ?? '');
+  const pickStyles = useTraceStyles(picked, pickedUnits);
+  const plotStyles = useTraceStyles(signalNames, units);
 
   const toggle = (name: string): void => {
     setPicked((prev) =>
@@ -328,11 +333,7 @@ export function LiveTelemetry({ state }: { state: DeviceSnapshot }): ReactNode {
               />
               {/* La pastille redouble le nom : l'identité d'une courbe n'est jamais portée
                   par la seule couleur. */}
-              <span
-                className="inline-block h-[3px] w-2.5 rounded-[2px]"
-                style={{ background: on ? colorOf(s.name) : 'transparent' }}
-                aria-hidden="true"
-              />
+              {on ? <TraceSwatch name={s.name} style={pickStyles.get(s.name)} /> : <span className="w-4" />}
               <span className="font-mono">{s.name}</span>
             </label>
           );
@@ -389,7 +390,9 @@ export function LiveTelemetry({ state }: { state: DeviceSnapshot }): ReactNode {
               xWindow={streaming ? windowS : null}
               yMode={yMode}
               labels={indices.map((i) => signalNames[i] ?? '')}
-              colors={indices.map((i) => colorOf(signalNames[i] ?? ''))}
+              colors={indices.map((i) => plotStyles.get(signalNames[i] ?? '')?.color ?? '')}
+              dashes={indices.map((i) => plotStyles.get(signalNames[i] ?? '')?.dash === true)}
+              lineWidth={lineWidth}
               unit={(split ? (units[indices[0] ?? 0] ?? '') : groupKey) === ''
                 ? '(no unit)'
                 : (split ? (units[indices[0] ?? 0] ?? '') : groupKey)}

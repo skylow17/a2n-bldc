@@ -21,7 +21,10 @@ import { z } from 'zod';
 
 export const CONFIG_VERSION = 1;
 
-const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'expected a #rrggbb colour');
+/** Couleur imposée à une courbe : `#rrggbb`, ou `slot:N`, un créneau de la palette du thème. */
+const hexColor = z
+  .string()
+  .regex(/^(#[0-9a-fA-F]{6}|slot:(1[0-2]|[1-9]))$/, 'expected #rrggbb or slot:1..12');
 
 /** Un nombre pris dans une liste fermée — les choix qu'offrent les menus de l'interface. */
 const oneOf = (values: readonly number[]) =>
@@ -139,7 +142,7 @@ export function normalizeConfig(raw: unknown): { config: AppConfig; warnings: st
         if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
           for (const [name, c] of Object.entries(value as Record<string, unknown>)) {
             if (hexColor.safeParse(c).success && name.length > 0 && name.length <= 64) out[name] = c as string;
-            else warnings.push(`plots.traceColors.${name}: ${JSON.stringify(c)} is not #rrggbb, ignored`);
+            else warnings.push(`plots.traceColors.${name}: ${JSON.stringify(c)} is not #rrggbb or slot:N, ignored`);
           }
         } else {
           warnings.push('plots.traceColors: not an object, ignored');
