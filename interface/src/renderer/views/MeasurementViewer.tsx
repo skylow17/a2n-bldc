@@ -11,14 +11,19 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import { measurementFileStem, measurementToCsv, serializeMeasurement, type Measurement } from '../../shared/measurement.js';
-import { TimeSeriesChart, groupByUnit } from '../components/Chart.js';
+import { TimeSeriesChart } from '../components/Chart.js';
 import { ChartStack } from '../components/ChartStack.js';
 import { TraceSwatch, useTraceStyles } from '../components/TraceSwatch.js';
 import { Button, Panel } from '../components/ui.js';
 import { composeChartsPng } from '../chartImage.js';
 import { useCommand } from '../commands.js';
 import { useConfig } from '../config.js';
+import { plotGroups } from '../plotGroups.js';
 import { api, useAction } from '../useDevice.js';
+
+/* « Séparer » est une manière de regarder, pas une propriété de la mesure : le choix suit
+ * d'une mesure à l'autre pendant la session. */
+let lastSplit = false;
 
 function fmtStamp(iso: string): string {
   const d = new Date(iso);
@@ -43,6 +48,14 @@ export function MeasurementViewer({
   const [title, setTitle] = useState(m.title);
   const [comment, setComment] = useState(m.comment);
   const [editComment, setEditComment] = useState(false);
+  /* Courbes masquées, par nom. Propres à la mesure ouverte : en ouvrir une autre les remontre
+   * toutes, pour ne jamais lire une mesure en croyant voir tout ce qu'elle contient. */
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const [split, setSplitState] = useState(lastSplit);
+  const setSplit = (v: boolean): void => {
+    lastSplit = v;
+    setSplitState(v);
+  };
   const stack = useRef<HTMLDivElement | null>(null);
   const lineWidth = useConfig().config.plots.lineWidth;
   const act = useAction();
@@ -52,10 +65,22 @@ export function MeasurementViewer({
     setComment(m.comment);
     setEditComment(false);
   }, [m.id, m.title, m.comment]);
+  useEffect(() => setHidden(new Set()), [m.id]);
 
   const names = m.signals.map((s) => s.name);
   const units = m.signals.map((s) => s.unit);
-  const groups = useMemo(() => groupByUnit(names, units), [m.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const hiddenKey = [...hidden].sort().join('|');
+  const groups = useMemo(
+    () => plotGroups(names, units, hidden, split),
+    [m.id, hiddenKey, split], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const toggleHidden = (n: string): void =>
+    setHidden((h) => {
+      const next = new Set(h);
+      if (next.has(n)) next.delete(n);
+      else next.add(n);
+      return next;
+    });
   const styles = useTraceStyles(names, units);
 
   const commit = (patch: { title?: string; comment?: string }): void => {
@@ -77,7 +102,7 @@ export function MeasurementViewer({
   const exportPng = (): void =>
     void act.run(async () => {
       if (stack.current === null) return;
-      const legend = names.map((n) => ({ name: n, color: styles.get(n)?.color ?? 'slot:1', dash: styles.get(n)?.dash === true }));
+      const legend = names.filter((n) => !hidden.has(n)).map((n) => ({ name: n, color: styles.get(n)?.color ?? 'slot:1', dash: styles.get(n)?.dash === true }));
       const png = composeChartsPng(stack.current, m.title, `${fmtStamp(m.createdAt)} · ${m.t.length} pts · ${m.kind}`, legend);
       await api().measSavePng(`${measurementFileStem(m)}.png`, png);
     });
@@ -111,6 +136,17 @@ export function MeasurementViewer({
               Keep
             </Button>
           )}
+          <Button
+            tone={split ? 'accent' : 'default'}
+            onClick={() => setSplit(!split)}
+            title={
+              split
+                ? 'Back to one chart per unit: signals sharing a unit are compared on one scale'
+                : 'One chart per signal: each gets its own vertical scale'
+            }
+          >
+            Split
+          </Button>
           <Button onClick={() => setFit((n) => n + 1)} title="Fit the whole measurement back in the frame">
             Reset zoom
           </Button>
@@ -142,12 +178,34 @@ export function MeasurementViewer({
             <span className="font-mono text-[11px] text-fg-3">fw {m.device.fwVersion}</span>
           )}
           <span className="flex items-center gap-2">
-            {names.map((n) => (
-              <span key={n} className="flex items-center gap-1 font-mono text-[11px] text-fg-2">
-                <TraceSwatch name={n} style={styles.get(n)} />
-                {n}
-              </span>
-            ))}
+            {names.map((n) => {
+              const off = hidden.has(n);
+              return (
+                <span key={n} className="flex items-center gap-0.5">
+                  <TraceSwatch name={n} style={styles.get(n)} />
+                  <button
+                    type="button"
+                    aria-pressed={!off}
+                    onClick={() => toggleHidden(n)}
+                    title={off ? `Show ${n}` : `Hide ${n}`}
+                    className={`rounded-[2px] px-1 font-mono text-[11px] hover:bg-raise ${
+                      off ? 'text-fg-3 line-through opacity-60' : 'text-fg-2'
+                    }`}
+                  >
+                    {n}
+                  </button>
+                </span>
+              );
+            })}
+            {hidden.size > 0 && (
+              <button
+                type="button"
+                onClick={() => setHidden(new Set())}
+                className="rounded-[2px] px-1 text-[11px] text-accent hover:bg-raise"
+              >
+                show all
+              </button>
+            )}
           </span>
           <Button onClick={() => setEditComment((v) => !v)} title="Add or edit a comment">
             {comment === '' ? 'Comment' : editComment ? 'Hide comment' : 'Comment ✎'}
@@ -179,12 +237,17 @@ export function MeasurementViewer({
           </div>
         )}
         <div ref={stack} className="min-h-0 flex-1">
+          {groups.length === 0 && (
+            <p className="px-3 py-6 text-center text-[12px] text-fg-3">
+              Every curve is hidden — click a signal name above to show it again.
+            </p>
+          )}
           <ChartStack count={groups.length} className="flex h-full flex-col p-2">
             {(chartH) => (
               <>
-                {groups.map(([unit, indices], g) => (
+                {groups.map(({ key, unit, indices }, g) => (
                   <TimeSeriesChart
-                    key={`${m.id}~${unit}`}
+                    key={`${m.id}~${split ? 's' : 'u'}~${key}`}
                     t={m.t}
                     series={indices.map((i) => m.series[i] ?? [])}
                     labels={indices.map((i) => names[i] ?? '')}
