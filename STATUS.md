@@ -144,10 +144,10 @@ Toutes les boucles coupent les sorties au terme de leur durée : l'arbre n'est p
 9. **Essayer les profils Soft et Stiff** en boucle de position, moteur en marche, puis sous
    charge ; seul Balanced est mesuré. Outils MCP `recipe.*` à écrire.
 10. Tout ce qui est matériel : `docs/hardware-revB.md`.
-12. Couple de maintien : une main fait céder l'arbre à Iq = 0,22 A, et c'est la tension de
-    commande (57 ‰) qui plafonne le courant réel. La relever est une décision à prendre.
 11. Interface : regarder à l'écran ce qui n'a été que piloté par script — glisser-déposer des
     mesures, export PNG, Record du Dashboard, barre de menus de la fenêtre Control détachée.
+12. Couple de maintien : une main fait céder l'arbre à Iq = 0,22 A, et c'est la tension de
+    commande (57 ‰) qui plafonne le courant réel. La relever est une décision à prendre.
 
 ### Pièges connus — ils ont tous coûté du temps
 
