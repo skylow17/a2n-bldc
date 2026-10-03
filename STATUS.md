@@ -146,8 +146,9 @@ Toutes les boucles coupent les sorties au terme de leur durée : l'arbre n'est p
 10. Tout ce qui est matériel : `docs/hardware-revB.md`.
 11. Interface : regarder à l'écran ce qui n'a été que piloté par script — glisser-déposer des
     mesures, export PNG, Record du Dashboard, barre de menus de la fenêtre Control détachée.
-12. Couple de maintien : une main fait céder l'arbre à Iq = 0,22 A, et c'est la tension de
-    commande (57 ‰) qui plafonne le courant réel. La relever est une décision à prendre.
+12. Couple de maintien : relevé à Iq 0,5 A et 150 ‰ le 2026-10-04 ; une main ne fait plus
+    céder l'arbre (5° au pire). Courant nominal du moteur encore inconnu : à confirmer avant
+    des maintiens longs.
 
 ### Pièges connus — ils ont tous coûté du temps
 
@@ -1496,6 +1497,13 @@ réglages Balanced. Firmware : plafond d'Iq 0,22 A, slot A, CRC `94B63E01`.
   donc dépassé par une main ; le plafond suivant est celui de la tension, pas d'Iq.
 - Mesure importable : `Documents/A2N BLDC/a2n-hold-test-180deg.json` (File › Import
   measurement).
+
+**Second essai, Iq 0,5 A et 150 ‰ (2026-10-04)**, slot B, CRC `C8872D47` : +π rad puis
+maintien jusqu'à 10 s, poussées à la main à partir de ≈ 3 s. Pire écart **93 mrad (5,3°)**,
+contre 467 au premier essai, et **retour à zéro** après chaque poussée. Iq au plafond mesuré à
+**0,50 A** en moyenne : la limite de tension ne mord plus. Dans la dernière seconde, la main
+pousse à peu près au couple maximal : l'arbre tient à ≈ 40 mrad de la cible sans céder. Aucune
+faute. Mesure : `Documents/A2N BLDC/a2n-hold-test-180deg-0.5A.json`.
 
 Trouvé en route : le client attendait **3 s** au plus une capture scope, quelle que soit sa
 durée — toute fenêtre plus longue (2048 points à décimation ≥ 30) échouait, Scope de
