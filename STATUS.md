@@ -125,7 +125,7 @@ La règle de vérification complète est en fin de fichier ; ses **six étapes p
 | Boucle de position | ≤ 2 tours par commande, vitesse ≤ 10 rad/s, ≤ 10 s ; 3 Hz (0,5–5) | `foc.h` |
 | Paramètres | `requires_disarm` refusés sorties actives ; entrées calibrées épargnées par la remise à zéro | `param.c` |
 | IWDG applicatif | 200 ms, rafraîchi par la superloop, jamais en probation | `wdg.h` |
-| MCP | Aucun mouvement ni armement exposé ; écritures soumises à « AI control » | `server.ts` |
+| MCP | Écritures, `motion_arm` et `motion_position_move` soumis à « AI control » ; désarmer et `STOP` toujours permis ; console en lecture seule | `server.ts` |
 
 Toutes les boucles coupent les sorties au terme de leur durée : l'arbre n'est plus tenu.
 
