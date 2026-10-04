@@ -134,8 +134,9 @@ Toutes les boucles coupent les sorties au terme de leur durée : l'arbre n'est p
 1. **Installer `boot-1.1.0`** par SWD (garde ECC des métadonnées du bootloader).
 2. **Essais sous charge** des boucles de vitesse et de position ; la bande passante de vitesse
    repose sur l'inertie du **rotor libre** (≈ 1,1·10⁻⁴ A par rad/s²).
-3. **Relever la tension de commande** (57 ‰) une fois le banc validé en charge : c'est elle qui
-   plafonne la vitesse, pas le moteur. Décision de sécurité, à l'utilisateur.
+3. **Relever la tension de la boucle ouverte** (57 ‰) une fois le banc validé en charge. Les
+   boucles fermées ont la leur depuis le 2026-10-04 (150 ‰, `FOC_MAX_AMP_PM`), qui plafonne
+   désormais la vitesse et le couple. Décision de sécurité, à l'utilisateur.
 4. Maintien de position sans limite de durée : même nature de décision.
 5. Boucle ouverte sur le CORDIC (`cosf`/`sinf` en flash la portent à 12,8 µs au pire).
 6. Scripts d'essai des étapes 10 à 13, restés hors du dépôt : en faire des commandes du CLI.
@@ -149,6 +150,8 @@ Toutes les boucles coupent les sorties au terme de leur durée : l'arbre n'est p
 12. Couple de maintien : relevé à Iq 0,5 A et 150 ‰ le 2026-10-04 ; une main ne fait plus
     céder l'arbre (5° au pire). Courant nominal du moteur encore inconnu : à confirmer avant
     des maintiens longs.
+13. Carte trouvée armée (`armed=1 reason=requested`) avant le `motion_arm` du troisième essai
+    MCP, le 2026-10-04 : origine de cet ARM inconnue.
 
 ### Pièges connus — ils ont tous coûté du temps
 
@@ -1504,6 +1507,15 @@ contre 467 au premier essai, et **retour à zéro** après chaque poussée. Iq a
 **0,50 A** en moyenne : la limite de tension ne mord plus. Dans la dernière seconde, la main
 pousse à peu près au couple maximal : l'arbre tient à ≈ 40 mrad de la cible sans céder. Aucune
 faute. Mesure : `Documents/A2N BLDC/a2n-hold-test-180deg-0.5A.json`.
+
+**Troisième essai, demi-tour et 5 s de maintien (2026-10-04)**, même firmware, profil Stiff
+en RAM, sans poussée : +π rad (35,266 → 38,408 rad) au plafond de 10 rad/s, arrivée à
+≈ 0,44 s, puis maintien à **±1 mrad** (un écart de −6 mrad à 2,6 s) jusqu'à la fin de la
+boucle, à 5,0 s et −2 mrad de la cible. Iq demandé entre −31 et +21 mA, `iq_sat_ticks` = 0 :
+le couple disponible (0,5 A) n'a pas servi, rotor libre. Désarmé, aucune faute, Balanced
+remis en RAM. **À éclaircir** : au début du script, `SAFETY?` rendait déjà `armed=1
+reason=requested`, avant tout `motion_arm` — un ARM est donc venu d'ailleurs (interface ?)
+entre deux essais, sans que l'origine soit connue.
 
 Trouvé en route : le client attendait **3 s** au plus une capture scope, quelle que soit sa
 durée — toute fenêtre plus longue (2048 points à décimation ≥ 30) échouait, Scope de
